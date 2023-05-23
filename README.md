@@ -1,4 +1,4 @@
-****# Meta-Learning a Robust Optimizer for Fine-Tuning
+# Meta-Learning a Robust Optimizer for Fine-Tuning
 
 ### Toy Sinewave Tasks
 <img src="figures/bias_shift_task.png" width="200"> 
