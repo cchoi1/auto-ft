@@ -6,6 +6,7 @@
 
 <img src="figures/meta_ft_bias.png" width="500">
 <img src="figures/meta_ft_amplitude.png" width="500">
+<img src="figures/meta_ft_amplitude_bias.png" width="500">
 
 ES
 - https://github.com/openai/evolution-strategies-starter
