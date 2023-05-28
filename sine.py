@@ -19,12 +19,12 @@ def generate_sine_data(
     test_N=100,
     amplitude=1,
     phase=0,
-    vertical_shift=0,
+    bias=0,
     noise_std=0.05,
 ):
     train_x = np.random.uniform(low=train_range[0], high=train_range[1], size=N)
     test_x = np.random.uniform(low=test_range[0], high=test_range[1], size=test_N)
-    f = lambda x: amplitude * np.sin(x + phase) + vertical_shift
+    f = lambda x: amplitude * np.sin(x + phase) + bias
     train_y = f(train_x) + np.random.normal(loc=0, scale=noise_std, size=train_x.shape)
     test_y = f(test_x)
     return {"train": (train_x, train_y), "test": (test_x, test_y)}

@@ -1,19 +1,20 @@
 #%%
 import argparse
+import copy
 import random
+import time
 from collections import defaultdict
 from glob import glob
 from pathlib import Path
 from typing import Any, Dict
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
 from torch import nn
 from torch.optim.optimizer import Optimizer, required
 
-from sine import generate_sine_data
+from sine import generate_sine_data, savefig
 
 
 def get_network(hidden=50):
@@ -21,13 +22,13 @@ def get_network(hidden=50):
     return net
 
 
-def pretrain_net(seed=0):
+def pretrain_net(seed=0, lr=1e-3, num_steps=3000):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
     net = get_network()
-    opt = torch.optim.Adam(net.parameters(), lr=1e-3)
+    opt = torch.optim.Adam(net.parameters(), lr=lr)
 
     data = generate_sine_data(N=1000)
     train_x, train_y = data["train"]
@@ -35,7 +36,7 @@ def pretrain_net(seed=0):
     train_y = torch.tensor(train_y).float().reshape(-1, 1)
 
     loss_fn = nn.MSELoss()
-    for i in range(3000):
+    for _ in range(num_steps):
         preds = net(train_x)
         loss = loss_fn(preds, train_y)
         opt.zero_grad()
@@ -55,9 +56,8 @@ for seed in range(100):
         torch.save(net.state_dict(), filename)
         print(f"Saved pretrained net to {filename}!")
 
-# %% Start meta-learning
 class LayerSGD(Optimizer):
-    """meta-params: lr_multiplier per layer"""
+    """meta-params: pre-sigmoid lr_multiplier per layer"""
 
     def __init__(self, meta_params, params, lr=required):
         defaults = dict(lr=lr)
@@ -84,17 +84,24 @@ class LayerSGD(Optimizer):
         return loss
 
 
-def get_pretrained_net():
-    all_checkpoint_paths = glob(str(ckpt_path / "pretrain_*.pt"))
-    random_fn = random.choice(all_checkpoint_paths)
+def get_pretrained_net(train):
+    """Return a randomly sampled pretrained net."""
+    all_ckpts = glob(str(ckpt_path / "pretrain_*.pt"))
+    n_ckpts = len(all_ckpts)
+    train_N = int(n_ckpts * 0.8)
+    train_ckpts, test_ckpts = all_ckpts[:train_N], all_ckpts[train_N:]
+    if train:
+        random_fn = random.choice(train_ckpts)
+    else:
+        random_fn = random.choice(test_ckpts)
     rand_checkpoint = torch.load(random_fn)
     net = get_network()
     net.load_state_dict(rand_checkpoint)
     return net
 
-def fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=1e-1):
-    import copy
 
+def fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=1e-1):
+    """Fine-tune net on ft_data, and return net and test loss."""
     net = copy.deepcopy(net)
     train_x, train_y, test_x, test_y = ft_data
     inner_opt = LayerSGD(meta_params, net.parameters(), lr=inner_lr)
@@ -113,15 +120,25 @@ def fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=1e-1):
     return net, np.mean(test_losses)
 
 
-def sample_ft_data(change_amplitude: bool, change_vertical_shift: bool):
-    amplitude = 1.0
-    vertical_shift = 0.0
-    if change_amplitude:
+def sample_ft_data(task_distribution, train_N=10):
+    """Sample fine-tuning data."""
+    if task_distribution == "amp_shift":
         amplitude = np.random.uniform(-2, 2)
-    if change_vertical_shift:
-        vertical_shift = np.random.uniform(-2, 2)
+        bias = 0.0
+    elif task_distribution == "bias_shift":
+        amplitude = 1.0
+        bias = np.random.uniform(-2, 2)
+    elif task_distribution == "amp_bias_shift":
+        amplitude = np.random.uniform(-2, 2)
+        bias = np.random.uniform(-2, 2)
+    else:
+        raise ValueError(f"Unknown task distribution {task_distribution}")
     ft_data = generate_sine_data(
-        train_range=(0.0, 2.0), test_range=(0, 2 * np.pi), N=10, amplitude=amplitude, vertical_shift=vertical_shift
+        train_range=(0.0, 2.0),
+        test_range=(0, 2 * np.pi),
+        N=train_N,
+        amplitude=amplitude,
+        bias=bias,
     )
     train_x, train_y = ft_data["train"]
     train_x = torch.tensor(train_x).float().reshape(-1, 1)
@@ -131,15 +148,14 @@ def sample_ft_data(change_amplitude: bool, change_vertical_shift: bool):
     test_y = torch.tensor(test_y).float().reshape(-1, 1)
     return train_x, train_y, test_x, test_y
 
-def sanity_check(change_amplitude: bool, change_vertical_shift: bool):
-    """
-    Sanity check with full vs surgical fine-tuning on only last layer.
-    """
+
+def sanity_check(task_distribution):
+    """Sanity check with full vs surgical fine-tuning on only last layer."""
     meta_params = torch.ones(4).float() * -100
     losses = []
     for _ in range(100):
-        net = get_pretrained_net()
-        ft_data = sample_ft_data(change_amplitude, change_vertical_shift)
+        net = get_pretrained_net(train=False)
+        ft_data = sample_ft_data(task_distribution)
         _, loss = fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=0.1)
         losses.append(loss)
     losses = np.array(losses)
@@ -148,65 +164,62 @@ def sanity_check(change_amplitude: bool, change_vertical_shift: bool):
     meta_params = torch.tensor([-100, -100, -100, 100]).float()
     losses = []
     for _ in range(100):
-        net = get_pretrained_net()
-        ft_data = sample_ft_data(change_amplitude, change_vertical_shift)
+        net = get_pretrained_net(train=False)
+        ft_data = sample_ft_data(task_distribution)
         _, loss = fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=0.1)
         losses.append(loss)
     losses = np.array(losses)
     print(f"Last bias only: {losses.mean():.4f} +- {losses.std():.4f}")
 
-def metalearn_opt(change_amplitude: bool, change_vertical_shift: bool):
-    # Evolution strategies hyperparameters
-    meta_steps = 100
-    meta_batch_size = 20
-    noise_std = 1.0
-    meta_lr = 1e-2
 
+def metalearn_opt(args):
     meta_params = torch.zeros(4)
-    meta_optimizer = torch.optim.SGD([meta_params], lr=meta_lr)
+    meta_optimizer = torch.optim.SGD([meta_params], lr=args.meta_lr)
 
-    for _ in range(1, meta_steps + 1):
+    for meta_step in range(args.meta_steps + 1):
         grads = []
         metrics = defaultdict(list)
-        for _ in range(meta_batch_size):
-            net = get_pretrained_net()
-            ft_data = sample_ft_data(change_amplitude, change_vertical_shift)
-            _, current_loss = fine_tune(net, meta_params, ft_data)
-            metrics["loss"].append(current_loss)
+        if meta_step % args.val_freq == 0:
+            for _ in range(args.val_meta_batch_size):
+                net = get_pretrained_net(train=False)
+                ft_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
+                _, current_loss = fine_tune(net, meta_params, ft_data)
+                metrics["loss"].append(current_loss)
+            current_loss = np.array(metrics["loss"])
+            print(
+                f"Meta-step {meta_step}: current loss: {current_loss.mean():.3f}+-{current_loss.std():.3f}"
+            )
 
-            epsilon = torch.randn(size=meta_params.shape)
-            mp_plus_epsilon = meta_params + epsilon * noise_std
-            mp_minus_epsilon = meta_params - epsilon * noise_std
+        for _ in range(args.meta_batch_size):
+            net = get_pretrained_net(train=True)
+            ft_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
+            epsilon = torch.randn(size=meta_params.shape)  # Antithetic sampling
+            mp_plus_epsilon = meta_params + epsilon * args.noise_std
+            mp_minus_epsilon = meta_params - epsilon * args.noise_std
             _, loss_plus = fine_tune(net, mp_plus_epsilon, ft_data)
             _, loss_minus = fine_tune(net, mp_minus_epsilon, ft_data)
-            grads.append((loss_plus - loss_minus) * epsilon / noise_std / 2)
+            grads.append((loss_plus - loss_minus) * epsilon / args.noise_std / 2)
         grads_mean = torch.stack(grads).mean(dim=0)
-
-        current_loss = np.array(metrics["loss"])
-        print(f"Current loss: {current_loss.mean():.2f}+-{current_loss.std():.2f}")
 
         meta_optimizer.zero_grad()
         meta_params.grad = grads_mean
         meta_optimizer.step()
-
     print(f"Final meta-params: {meta_params}")
     return meta_params
 
+
 def run_expt(args):
-    sanity_check(change_amplitude=args.change_amplitude, change_vertical_shift=args.change_vertical_shift)
+    # sanity_check(args)
+    start = time.time()
+    meta_params = metalearn_opt(args)
+    elapsed = time.time() - start
+    print(f"Time taken: {elapsed:.2f}s")
 
-    meta_params = metalearn_opt(change_amplitude=args.change_amplitude, change_vertical_shift=args.change_vertical_shift)
-
-    shift_type = ""
-    if args.change_amplitude:
-        shift_type += "amplitude_"
-    if args.change_vertical_shift:
-        shift_type += "bias_"
-
+    # Plot single task
     _, axes = plt.subplots(1, 3, figsize=(12, 3))
     for ax in axes:
-        net = get_pretrained_net()
-        task_data = sample_ft_data(change_amplitude=args.change_amplitude, change_vertical_shift=args.change_vertical_shift)
+        net = get_pretrained_net(train=False)
+        task_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
         train_x, train_y, test_x, test_y = task_data
         full_x = torch.tensor(np.linspace(0, 2 * np.pi, 100)).reshape(-1, 1).float()
 
@@ -222,13 +235,25 @@ def run_expt(args):
         ax.plot(full_x, meta_ft_preds, c="blue", label="meta+ft")
         ax.scatter(test_x, test_y, c="gray", alpha=0.3)
     plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-    from sine import savefig
-    savefig(f"meta_ft_{shift_type}.png")
+    savefig(f"meta_ft_{args.task_distribution}.png")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--change_amplitude", action='store_true')
-    parser.add_argument("--change_vertical_shift", action='store_true')
+    parser.add_argument(
+        "--task_distribution",
+        type=str,
+        default="bias_shift",
+        choices=["amp_shift", "bias_shift", "amp_bias_shift"],
+    )
+    parser.add_argument("--meta_steps", type=int, default=100)
+    parser.add_argument("--meta_batch_size", type=int, default=20)
+    parser.add_argument("--val_freq", type=int, default=10)
+    parser.add_argument("--val_meta_batch_size", type=int, default=100)
+    parser.add_argument("--noise_std", type=float, default=1.0)
+    parser.add_argument("--meta_lr", type=float, default=1e-2)
+    parser.add_argument("--train_N", type=int, default=10)
     args = parser.parse_args()
+
     run_expt(args)
+# %%
