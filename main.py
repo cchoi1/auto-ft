@@ -57,12 +57,16 @@ for seed in range(100):
         print(f"Saved pretrained net to {filename}!")
 
 class LayerSGD(Optimizer):
-    """meta-params: pre-sigmoid lr_multiplier per layer"""
+    """ meta-params: pre-sigmoid lr_multiplier per parameter. """
 
     def __init__(self, meta_params, params, lr=required):
         defaults = dict(lr=lr)
         super().__init__(params, defaults)
         self.meta_params = meta_params
+
+    @staticmethod
+    def get_init_meta_params():
+        return torch.zeros(4)
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
         return super().__setstate__(state)
@@ -83,6 +87,41 @@ class LayerSGD(Optimizer):
                 p.data.add_(d_p, alpha=-local_lr)
         return loss
 
+class LayerSGDLinear(Optimizer):
+    """ meta-params: weights of linear layer with depth as input. """
+    def __init__(self, meta_params, net, lr=required):
+        defaults = dict(lr=lr)
+        param_groups = []
+        layers = list([p for p in net.children() if isinstance(p, nn.Linear)])  # Assumes nn.Sequential model
+        for depth, layer in enumerate(layers):
+            param_groups.append({"params": layer.weight, "depth": depth, "type": "w"})
+            param_groups.append({"params": layer.bias, "depth": depth, "type": "b"})
+        super().__init__(param_groups, defaults)
+        self.meta_params = {"w": meta_params[0:2], "b": meta_params[2:4]}
+
+    @staticmethod
+    def get_init_meta_params():
+        return torch.zeros(4)
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        return super().__setstate__(state)
+
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            p = group["params"][0]
+            if p.grad is None:
+                continue
+
+            depth = group["depth"]
+            meta_params = self.meta_params[group["type"]]
+            lr_multiplier = torch.sigmoid(meta_params[0] * depth + meta_params[1])
+            p.data.add_(p.grad.data, alpha=-group["lr"] * lr_multiplier)
+        return loss
+
 
 def get_pretrained_net(train):
     """Return a randomly sampled pretrained net."""
@@ -100,11 +139,14 @@ def get_pretrained_net(train):
     return net
 
 
-def fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=1e-1):
+def fine_tune(optimizer_name, net, meta_params, ft_data, inner_steps=10, inner_lr=1e-1):
     """Fine-tune net on ft_data, and return net and test loss."""
     net = copy.deepcopy(net)
     train_x, train_y, test_x, test_y = ft_data
-    inner_opt = LayerSGD(meta_params, net.parameters(), lr=inner_lr)
+    if optimizer_name == "LayerSGD":
+        inner_opt = LayerSGD(meta_params, net.parameters(), lr=inner_lr)
+    elif optimizer_name == "LayerSGDLinear":
+        inner_opt = LayerSGDLinear(meta_params, net, lr=inner_lr)
     loss_fn = nn.MSELoss()
     test_losses = []
     for _ in range(inner_steps):
@@ -151,12 +193,12 @@ def sample_ft_data(task_distribution, train_N=10):
 
 def sanity_check(task_distribution):
     """Sanity check with full vs surgical fine-tuning on only last layer."""
-    meta_params = torch.ones(4).float() * -100
+    meta_params = torch.ones(4).float() * 100
     losses = []
     for _ in range(100):
         net = get_pretrained_net(train=False)
         ft_data = sample_ft_data(task_distribution)
-        _, loss = fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=0.1)
+        _, loss = fine_tune("LayerSGD", net, meta_params, ft_data, inner_steps=10, inner_lr=0.1)
         losses.append(loss)
     losses = np.array(losses)
     print(f"Default: {losses.mean():.4f} +- {losses.std():.4f}")
@@ -166,14 +208,17 @@ def sanity_check(task_distribution):
     for _ in range(100):
         net = get_pretrained_net(train=False)
         ft_data = sample_ft_data(task_distribution)
-        _, loss = fine_tune(net, meta_params, ft_data, inner_steps=10, inner_lr=0.1)
+        _, loss = fine_tune("LayerSGD", net, meta_params, ft_data, inner_steps=10, inner_lr=0.1)
         losses.append(loss)
     losses = np.array(losses)
     print(f"Last bias only: {losses.mean():.4f} +- {losses.std():.4f}")
 
 
 def metalearn_opt(args):
-    meta_params = torch.zeros(4)
+    if args.optimizer_name == "LayerSGD":
+        meta_params = LayerSGD.get_init_meta_params()
+    elif args.optimizer_name == "LayerSGDLinear":
+        meta_params = LayerSGDLinear.get_init_meta_params()
     meta_optimizer = torch.optim.SGD([meta_params], lr=args.meta_lr)
 
     for meta_step in range(args.meta_steps + 1):
@@ -183,7 +228,7 @@ def metalearn_opt(args):
             for _ in range(args.val_meta_batch_size):
                 net = get_pretrained_net(train=False)
                 ft_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
-                _, current_loss = fine_tune(net, meta_params, ft_data)
+                _, current_loss = fine_tune(args.optimizer_name, net, meta_params, ft_data)
                 metrics["loss"].append(current_loss)
             current_loss = np.array(metrics["loss"])
             print(
@@ -196,8 +241,8 @@ def metalearn_opt(args):
             epsilon = torch.randn(size=meta_params.shape)  # Antithetic sampling
             mp_plus_epsilon = meta_params + epsilon * args.noise_std
             mp_minus_epsilon = meta_params - epsilon * args.noise_std
-            _, loss_plus = fine_tune(net, mp_plus_epsilon, ft_data)
-            _, loss_minus = fine_tune(net, mp_minus_epsilon, ft_data)
+            _, loss_plus = fine_tune(args.optimizer_name, net, mp_plus_epsilon, ft_data)
+            _, loss_minus = fine_tune(args.optimizer_name, net, mp_minus_epsilon, ft_data)
             grads.append((loss_plus - loss_minus) * epsilon / args.noise_std / 2)
         grads_mean = torch.stack(grads).mean(dim=0)
 
@@ -223,8 +268,8 @@ def run_expt(args):
         train_x, train_y, test_x, test_y = task_data
         full_x = torch.tensor(np.linspace(0, 2 * np.pi, 100)).reshape(-1, 1).float()
 
-        full_ft_net, _ = fine_tune(net, torch.zeros(4), task_data)
-        meta_ft_net, _ = fine_tune(net, meta_params, task_data)
+        full_ft_net, _ = fine_tune(args.optimizer_name, net, torch.zeros(4), task_data)
+        meta_ft_net, _ = fine_tune(args.optimizer_name, net, meta_params, task_data)
         initial_preds = net(full_x).detach()
         full_ft_preds = full_ft_net(full_x).detach()
         meta_ft_preds = meta_ft_net(full_x).detach()
@@ -246,12 +291,13 @@ if __name__ == "__main__":
         default="bias_shift",
         choices=["amp_shift", "bias_shift", "amp_bias_shift"],
     )
-    parser.add_argument("--meta_steps", type=int, default=100)
-    parser.add_argument("--meta_batch_size", type=int, default=20)
-    parser.add_argument("--val_freq", type=int, default=10)
-    parser.add_argument("--val_meta_batch_size", type=int, default=100)
+    parser.add_argument("--optimizer_name", type=str, default="LayerSGDLinear", choices=["LayerSGD", "LayerSGDLinear"])
+    parser.add_argument("--meta_steps", type=int, default=50)
+    parser.add_argument("--meta_batch_size", type=int, default=10)
+    parser.add_argument("--val_freq", type=int, default=5)
+    parser.add_argument("--val_meta_batch_size", type=int, default=50)
     parser.add_argument("--noise_std", type=float, default=1.0)
-    parser.add_argument("--meta_lr", type=float, default=1e-2)
+    parser.add_argument("--meta_lr", type=float, default=3e-3)
     parser.add_argument("--train_N", type=int, default=10)
     args = parser.parse_args()
 
