@@ -1,16 +1,37 @@
-#%%
-from typing import Any, Dict
+from abc import ABC, abstractstaticmethod
 
 import torch
 from torch import nn
 from torch.optim.optimizer import Optimizer, required
 
 
+class LearnedOptimizer(Optimizer, ABC):
+    def __init__(self, params, defaults):
+        super().__init__(params, defaults)
+
+    @abstractstaticmethod
+    def get_init_meta_params():
+        """
+        Abstract static method to be implemented by subclasses.
+        Returns the initial meta parameters for the learned optimizer.
+        """
+        raise NotImplementedError
+
+    @abstractstaticmethod
+    def get_noise():
+        """
+        Abstract static method to be implemented by subclasses.
+        Returns noise to be applied during ES inner loop.
+        """
+        raise NotImplementedError
+
+
 class LayerSGD(Optimizer):
     """meta-params: pre-sigmoid lr_multiplier per parameter."""
 
-    def __init__(self, meta_params, params, lr=required):
+    def __init__(self, meta_params, net, lr=required):
         defaults = dict(lr=lr)
+        params = net.parameters()
         super().__init__(params, defaults)
         self.meta_params = meta_params
 
@@ -18,8 +39,9 @@ class LayerSGD(Optimizer):
     def get_init_meta_params():
         return torch.zeros(4)
 
-    def __setstate__(self, state: Dict[str, Any]) -> None:
-        return super().__setstate__(state)
+    @staticmethod
+    def get_noise():
+        return torch.randn(4)
 
     def step(self, closure=None):
         loss = None
@@ -57,8 +79,9 @@ class LayerSGDLinear(Optimizer):
     def get_init_meta_params():
         return torch.zeros(4)
 
-    def __setstate__(self, state: Dict[str, Any]) -> None:
-        return super().__setstate__(state)
+    @staticmethod
+    def get_noise():
+        return torch.randn(4)
 
     def step(self, closure=None):
         loss = None

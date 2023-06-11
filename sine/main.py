@@ -1,17 +1,16 @@
-#%%
 import argparse
 import copy
+import importlib
 import time
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from torch import nn
 
 from networks import get_pretrained_net, pretrain_nets
-from optimizers import LayerSGD, LayerSGDLinear
 from tasks import generate_sine_data, savefig
+from torch import nn
 
 
 def sample_ft_data(task_distribution, train_N=10):
@@ -43,14 +42,11 @@ def sample_ft_data(task_distribution, train_N=10):
     return train_x, train_y, test_x, test_y
 
 
-def fine_tune(optimizer_name, net, meta_params, ft_data, inner_steps=10, inner_lr=1e-1):
+def fine_tune(optimizer_obj, net, meta_params, ft_data, inner_steps=10, inner_lr=1e-1):
     """Fine-tune net on ft_data, and return net and test loss."""
     net = copy.deepcopy(net)
     train_x, train_y, test_x, test_y = ft_data
-    if optimizer_name == "LayerSGD":
-        inner_opt = LayerSGD(meta_params, net.parameters(), lr=inner_lr)
-    elif optimizer_name == "LayerSGDLinear":
-        inner_opt = LayerSGDLinear(meta_params, net, lr=inner_lr)
+    inner_opt = optimizer_obj(meta_params, net, lr=inner_lr)
     loss_fn = nn.MSELoss()
     test_losses = []
     for _ in range(inner_steps):
@@ -70,7 +66,6 @@ class OptimizerTrainer:
     def __init__(
         self,
         optimizer_name,
-        net,
         task_distribution,
         val_meta_batch_size,
         inner_steps,
@@ -81,15 +76,10 @@ class OptimizerTrainer:
         noise_std,
         ckpt_path,
     ):
-        self.optimizer_name = optimizer_name
-        if optimizer_name == "LayerSGD":
-            self.meta_params = LayerSGD.get_init_meta_params()
-            self.optimizer = LayerSGD(self.meta_params, net.parameters(), lr=inner_lr)
-        elif optimizer_name == "LayerSGDLinear":
-            self.meta_params = LayerSGDLinear.get_init_meta_params()
-            self.optimizer = LayerSGDLinear(self.meta_params, net, lr=inner_lr)
-        else:
-            raise ValueError(f"Unknown optimizer name {self.optimizer_name}")
+        optimizer_module = importlib.import_module(f"optimizers")
+        self.optimizer_obj = getattr(optimizer_module, optimizer_name)
+        self.meta_params = self.optimizer_obj.get_init_meta_params()
+
         self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=meta_lr)
         self.task_distribution = task_distribution
 
@@ -114,7 +104,7 @@ class OptimizerTrainer:
         net = get_pretrained_net(ckpt_path=self.ckpt_path, train=False)
         ft_data = sample_ft_data(self.task_distribution, train_N=self.train_N)
         _, current_loss = fine_tune(
-            self.optimizer_name,
+            self.optimizer_obj,
             net,
             self.meta_params,
             ft_data,
@@ -131,12 +121,12 @@ class OptimizerTrainer:
         for _ in range(self.meta_batch_size):
             net = get_pretrained_net(ckpt_path=self.ckpt_path, train=True)
             ft_data = sample_ft_data(self.task_distribution, train_N=self.train_N)
-            epsilon = torch.randn(size=self.meta_params.shape)  # Antithetic sampling
+            epsilon = self.optimizer_obj.get_noise()  # Antithetic sampling
             mp_plus_epsilon = self.meta_params + epsilon * self.noise_std
             mp_minus_epsilon = self.meta_params - epsilon * self.noise_std
-            _, loss_plus = fine_tune(self.optimizer_name, net, mp_plus_epsilon, ft_data)
+            _, loss_plus = fine_tune(self.optimizer_obj, net, mp_plus_epsilon, ft_data)
             _, loss_minus = fine_tune(
-                self.optimizer_name, net, mp_minus_epsilon, ft_data
+                self.optimizer_obj, net, mp_minus_epsilon, ft_data
             )
             grads.append((loss_plus - loss_minus) * epsilon / self.noise_std / 2)
         grads_mean = torch.stack(grads).mean(dim=0)
@@ -148,11 +138,42 @@ class OptimizerTrainer:
         return self.meta_params
 
 
-def metalearn_opt(args):
-    net = get_pretrained_net(ckpt_path=args.ckpt_path, train=True)
+def sanity_check(ckpt_path, task_distribution):
+    """Sanity check with full vs surgical fine-tuning on only last layer."""
+    import optimizers
+
+    meta_params = torch.ones(4).float()
+    losses = []
+    for _ in range(100):
+        net = get_pretrained_net(ckpt_path=ckpt_path, train=False)
+        ft_data = sample_ft_data(task_distribution)
+        _, loss = fine_tune(
+            optimizers.LayerSGD, net, meta_params, ft_data, inner_steps=10, inner_lr=0.1
+        )
+        losses.append(loss)
+    losses = np.array(losses)
+    print(f"Default: {losses.mean():.4f} +- {losses.std():.4f}")
+
+    meta_params = torch.tensor([-100, -100, -100, 100]).float()
+    losses = []
+    for _ in range(100):
+        net = get_pretrained_net(ckpt_path=ckpt_path, train=False)
+        ft_data = sample_ft_data(task_distribution)
+        _, loss = fine_tune(
+            optimizers.LayerSGD, net, meta_params, ft_data, inner_steps=10, inner_lr=0.1
+        )
+        losses.append(loss)
+    losses = np.array(losses)
+    print(f"Last bias only: {losses.mean():.4f} +- {losses.std():.4f}")
+
+
+def run_expt(args):
+    pretrain_nets(ckpt_path=args.ckpt_path, num_nets=args.num_nets)
+    sanity_check(ckpt_path=args.ckpt_path, task_distribution=args.task_distribution)
+    start = time.time()
+
     opt_trainer = OptimizerTrainer(
         optimizer_name=args.optimizer_name,
-        net=net,
         task_distribution=args.task_distribution,
         val_meta_batch_size=args.val_meta_batch_size,
         inner_steps=args.inner_steps,
@@ -174,45 +195,10 @@ def metalearn_opt(args):
             print(
                 f"Meta-step {meta_step}: current loss: {current_loss.mean():.3f}+-{current_loss.std():.3f}"
             )
-
         meta_params = opt_trainer.meta_train()
-    print(f"Final meta-params: {meta_params}")
-    return meta_params
 
-
-def sanity_check(ckpt_path, task_distribution):
-    """Sanity check with full vs surgical fine-tuning on only last layer."""
-    meta_params = torch.ones(4).float()
-    losses = []
-    for _ in range(100):
-        net = get_pretrained_net(ckpt_path=ckpt_path, train=False)
-        ft_data = sample_ft_data(task_distribution)
-        _, loss = fine_tune(
-            "LayerSGD", net, meta_params, ft_data, inner_steps=10, inner_lr=0.1
-        )
-        losses.append(loss)
-    losses = np.array(losses)
-    print(f"Default: {losses.mean():.4f} +- {losses.std():.4f}")
-
-    meta_params = torch.tensor([-100, -100, -100, 100]).float()
-    losses = []
-    for _ in range(100):
-        net = get_pretrained_net(ckpt_path=ckpt_path, train=False)
-        ft_data = sample_ft_data(task_distribution)
-        _, loss = fine_tune(
-            "LayerSGD", net, meta_params, ft_data, inner_steps=10, inner_lr=0.1
-        )
-        losses.append(loss)
-    losses = np.array(losses)
-    print(f"Last bias only: {losses.mean():.4f} +- {losses.std():.4f}")
-
-
-def run_expt(args):
-    pretrain_nets(ckpt_path=args.ckpt_path, num_nets=args.num_nets)
-    sanity_check(ckpt_path=args.ckpt_path, task_distribution=args.task_distribution)
-    start = time.time()
-    meta_params = metalearn_opt(args)
     elapsed = time.time() - start
+    print(f"Final meta-params: {meta_params}")
     print(f"Time taken: {elapsed:.2f}s")
 
     # Plot single task
@@ -223,8 +209,12 @@ def run_expt(args):
         train_x, train_y, test_x, test_y = task_data
         full_x = torch.tensor(np.linspace(0, 2 * np.pi, 100)).reshape(-1, 1).float()
 
-        full_ft_net, _ = fine_tune(args.optimizer_name, net, torch.zeros(4), task_data)
-        meta_ft_net, _ = fine_tune(args.optimizer_name, net, meta_params, task_data)
+        full_ft_net, _ = fine_tune(
+            opt_trainer.optimizer_obj, net, torch.zeros(4), task_data
+        )
+        meta_ft_net, _ = fine_tune(
+            opt_trainer.optimizer_obj, net, meta_params, task_data
+        )
         initial_preds = net(full_x).detach()
         full_ft_preds = full_ft_net(full_x).detach()
         meta_ft_preds = meta_ft_net(full_x).detach()
@@ -250,7 +240,6 @@ if __name__ == "__main__":
         "--optimizer_name",
         type=str,
         default="LayerSGDLinear",
-        choices=["LayerSGD", "LayerSGDLinear"],
     )
     parser.add_argument("--meta_steps", type=int, default=50)
     parser.add_argument("--inner_steps", type=int, default=10)
@@ -266,6 +255,4 @@ if __name__ == "__main__":
     )
     parser.add_argument("--num_nets", type=int, default=100)
     args = parser.parse_args()
-
     run_expt(args)
-# %%
