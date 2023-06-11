@@ -1,16 +1,12 @@
-import argparse
-import copy
 import random
-import time
 from glob import glob
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
 
-from sine import generate_sine_data
+from tasks import generate_sine_data
 
 
 def get_network(hidden=50):
@@ -42,6 +38,7 @@ def pretrain_net(seed=0, lr=1e-3, num_steps=3000):
     print(f"Final loss: {loss.item():.4f}")
     return net
 
+
 def pretrain_nets(ckpt_path, num_nets):
     ckpt_path = Path(ckpt_path)
     ckpt_path.mkdir(exist_ok=True)
@@ -51,6 +48,7 @@ def pretrain_nets(ckpt_path, num_nets):
             net = pretrain_net(seed=seed)
             torch.save(net.state_dict(), filename)
             print(f"Saved pretrained net to {filename}!")
+
 
 def get_pretrained_net(ckpt_path, train):
     """Return a randomly sampled pretrained net."""

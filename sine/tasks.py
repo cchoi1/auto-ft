@@ -1,7 +1,8 @@
-#%%
 from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
+
 
 def savefig(fn):
     fig_path = Path("figures")
@@ -11,6 +12,7 @@ def savefig(fn):
     )
     plt.show()
     plt.close()
+
 
 def generate_sine_data(
     train_range=(0, 2 * np.pi),
@@ -34,7 +36,7 @@ if __name__ == "__main__":
     pt_data = generate_sine_data()
     pt_x, pt_y = pt_data["train"]
     ft_data = generate_sine_data(
-        train_range=(0, np.pi), test_range=(np.pi, 2 * np.pi), vertical_shift=-0.9
+        train_range=(0, np.pi), test_range=(np.pi, 2 * np.pi), bias=-0.9
     )
     train_x, train_y = ft_data["train"]
     test_x, test_y = ft_data["test"]
@@ -66,4 +68,3 @@ if __name__ == "__main__":
     plt.ylim(-2.0, 2.0)
     plt.title("Amplitude Shift Task")
     savefig("amplitude_shift_task.png")
-# %%

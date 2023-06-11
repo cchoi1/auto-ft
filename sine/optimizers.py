@@ -7,7 +7,7 @@ from torch.optim.optimizer import Optimizer, required
 
 
 class LayerSGD(Optimizer):
-    """ meta-params: pre-sigmoid lr_multiplier per parameter. """
+    """meta-params: pre-sigmoid lr_multiplier per parameter."""
 
     def __init__(self, meta_params, params, lr=required):
         defaults = dict(lr=lr)
@@ -37,12 +37,16 @@ class LayerSGD(Optimizer):
                 p.data.add_(d_p, alpha=-local_lr)
         return loss
 
+
 class LayerSGDLinear(Optimizer):
-    """ meta-params: weights of linear layer with depth as input. """
+    """meta-params: weights of linear layer with depth as input."""
+
     def __init__(self, meta_params, net, lr=required):
         defaults = dict(lr=lr)
         param_groups = []
-        layers = list([p for p in net.children() if isinstance(p, nn.Linear)])  # Assumes nn.Sequential model
+        layers = list(
+            [p for p in net.children() if isinstance(p, nn.Linear)]
+        )  # Assumes nn.Sequential model
         for depth, layer in enumerate(layers):
             param_groups.append({"params": layer.weight, "depth": depth, "type": "w"})
             param_groups.append({"params": layer.bias, "depth": depth, "type": "b"})
