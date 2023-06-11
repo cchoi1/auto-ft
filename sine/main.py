@@ -7,6 +7,7 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from networks import get_pretrained_net, pretrain_nets
 from tasks import generate_sine_data, savefig
@@ -97,28 +98,43 @@ class OptimizerTrainer:
 
         self.ckpt_path = ckpt_path
 
-    def meta_loss(self):
-        """
-        Computes the loss of applying a learned optimizer to a given task for some number of steps.
-        """
-        net = get_pretrained_net(ckpt_path=self.ckpt_path, train=False)
-        ft_data = sample_ft_data(self.task_distribution, train_N=self.train_N)
-        _, current_loss = fine_tune(
-            self.optimizer_obj,
-            net,
-            self.meta_params,
-            ft_data,
-            self.inner_steps,
-            self.inner_lr,
+    def validation(self, repeat):
+        losses = defaultdict(list)
+        for _ in range(repeat):
+            net = get_pretrained_net(ckpt_path=self.ckpt_path, train=False)
+            ft_data = sample_ft_data(self.task_distribution, train_N=self.train_N)
+            _, val_loss = fine_tune(
+                self.optimizer_obj,
+                net,
+                self.meta_params,
+                ft_data,
+                self.inner_steps,
+                self.inner_lr,
+            )
+            losses["val"].append(val_loss)
+        for _ in range(repeat):
+            net = get_pretrained_net(ckpt_path=self.ckpt_path, train=True)
+            ft_data = sample_ft_data(self.task_distribution, train_N=self.train_N)
+            _, train_loss = fine_tune(
+                self.optimizer_obj,
+                net,
+                self.meta_params,
+                ft_data,
+                self.inner_steps,
+                self.inner_lr,
+            )
+            losses["train"].append(train_loss)
+        train_str = f"Train loss: {np.mean(losses['train']):.4f} +- {np.std(losses['train']):.4f}"
+        val_str = (
+            f"Val loss: {np.mean(losses['val']):.4f} +- {np.std(losses['val']):.4f}"
         )
-        return current_loss
+        print(train_str, val_str)
+        return losses
 
-    def meta_train(self):
-        """
-        Computes the meta-training loss and updates the meta-parameters using evolutionary strategies.
-        """
+    def outer_loop_step(self):
+        """Perform one outer loop step. meta_batch_size tasks with antithetic sampling."""
         grads = []
-        for _ in range(self.meta_batch_size):
+        for _ in range(self.meta_batch_size // 2):
             net = get_pretrained_net(ckpt_path=self.ckpt_path, train=True)
             ft_data = sample_ft_data(self.task_distribution, train_N=self.train_N)
             epsilon = self.optimizer_obj.get_noise()  # Antithetic sampling
@@ -167,6 +183,64 @@ def sanity_check(ckpt_path, task_distribution):
     print(f"Last bias only: {losses.mean():.4f} +- {losses.std():.4f}")
 
 
+def plot_learned(args, optimizer_obj, meta_params):
+    # Plot single task
+    _, axes = plt.subplots(1, 3, figsize=(12, 3))
+    for ax in axes:
+        net = get_pretrained_net(ckpt_path=args.ckpt_path, train=False)
+        task_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
+        train_x, train_y, test_x, test_y = task_data
+        full_x = torch.tensor(np.linspace(0, 2 * np.pi, 100)).reshape(-1, 1).float()
+
+        full_ft_net, _ = fine_tune(optimizer_obj, net, torch.zeros(4), task_data)
+        meta_ft_net, _ = fine_tune(optimizer_obj, net, meta_params, task_data)
+        initial_preds = net(full_x).detach()
+        full_ft_preds = full_ft_net(full_x).detach()
+        meta_ft_preds = meta_ft_net(full_x).detach()
+
+        ax.scatter(train_x, train_y, c="k", label="train", zorder=10, s=50)
+        ax.plot(full_x, initial_preds, c="gray", label="pretrained")
+        ax.plot(full_x, full_ft_preds, c="red", label="full ft")
+        ax.plot(full_x, meta_ft_preds, c="blue", label="meta+ft")
+        ax.scatter(test_x, test_y, c="gray", alpha=0.3)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    savefig(f"{args.task_distribution}_meta_ft.png")
+
+
+def plot_learning_curves(args, optimizer_obj, meta_params):
+    loss_fn = nn.MSELoss()
+    all_losses = defaultdict(list)
+    for _ in tqdm(range(100)):
+        net = get_pretrained_net(ckpt_path=args.ckpt_path, train=False)
+        task_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
+        train_x, train_y, test_x, test_y = task_data
+        inner_opt = optimizer_obj(meta_params, net, lr=1e-1)
+        losses = defaultdict(list)
+        for _ in range(2 * args.inner_steps):
+            test_preds = net(test_x)
+            test_loss = loss_fn(test_preds, test_y)
+
+            preds = net(train_x)
+            train_loss = loss_fn(preds, train_y)
+            inner_opt.zero_grad()
+            train_loss.backward()
+            inner_opt.step()
+
+            losses["train"].append(train_loss.item())
+            losses["test"].append(test_loss.item())
+        all_losses["train"].append(np.array(losses["train"]))
+        all_losses["test"].append(np.array(losses["test"]))
+
+    all_losses["train"] = np.stack(all_losses["train"]).mean(axis=0)
+    all_losses["test"] = np.stack(all_losses["test"]).mean(axis=0)
+    plt.figure(figsize=(5, 4))
+    plt.plot(all_losses["train"], "o--", label="train")
+    plt.plot(all_losses["test"], "o-", label="test")
+    plt.axvline(args.inner_steps, c="k", ls="--")
+    plt.legend()
+    savefig(f"{args.task_distribution}_learning_curves.png")
+
+
 def run_expt(args):
     pretrain_nets(ckpt_path=args.ckpt_path, num_nets=args.num_nets)
     sanity_check(ckpt_path=args.ckpt_path, task_distribution=args.task_distribution)
@@ -186,46 +260,16 @@ def run_expt(args):
     )
 
     for meta_step in range(args.meta_steps + 1):
-        metrics = defaultdict(list)
         if meta_step % args.val_freq == 0:
-            for _ in range(args.val_meta_batch_size):
-                current_loss = opt_trainer.meta_loss()
-                metrics["loss"].append(current_loss)
-            current_loss = np.array(metrics["loss"])
-            print(
-                f"Meta-step {meta_step}: current loss: {current_loss.mean():.3f}+-{current_loss.std():.3f}"
-            )
-        meta_params = opt_trainer.meta_train()
+            opt_trainer.validation(repeat=args.val_meta_batch_size)
+        meta_params = opt_trainer.outer_loop_step()
 
     elapsed = time.time() - start
     print(f"Final meta-params: {meta_params}")
     print(f"Time taken: {elapsed:.2f}s")
 
-    # Plot single task
-    _, axes = plt.subplots(1, 3, figsize=(12, 3))
-    for ax in axes:
-        net = get_pretrained_net(ckpt_path=args.ckpt_path, train=False)
-        task_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
-        train_x, train_y, test_x, test_y = task_data
-        full_x = torch.tensor(np.linspace(0, 2 * np.pi, 100)).reshape(-1, 1).float()
-
-        full_ft_net, _ = fine_tune(
-            opt_trainer.optimizer_obj, net, torch.zeros(4), task_data
-        )
-        meta_ft_net, _ = fine_tune(
-            opt_trainer.optimizer_obj, net, meta_params, task_data
-        )
-        initial_preds = net(full_x).detach()
-        full_ft_preds = full_ft_net(full_x).detach()
-        meta_ft_preds = meta_ft_net(full_x).detach()
-
-        ax.scatter(train_x, train_y, c="k", label="train", zorder=10, s=50)
-        ax.plot(full_x, initial_preds, c="gray", label="pretrained")
-        ax.plot(full_x, full_ft_preds, c="red", label="full ft")
-        ax.plot(full_x, meta_ft_preds, c="blue", label="meta+ft")
-        ax.scatter(test_x, test_y, c="gray", alpha=0.3)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-    savefig(f"meta_ft_{args.task_distribution}.png")
+    plot_learned(args, opt_trainer.optimizer_obj, meta_params)
+    plot_learning_curves(args, opt_trainer.optimizer_obj, meta_params)
 
 
 if __name__ == "__main__":
@@ -243,9 +287,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--meta_steps", type=int, default=50)
     parser.add_argument("--inner_steps", type=int, default=10)
-    parser.add_argument("--meta_batch_size", type=int, default=10)
+    parser.add_argument("--meta_batch_size", type=int, default=20)
     parser.add_argument("--val_freq", type=int, default=5)
-    parser.add_argument("--val_meta_batch_size", type=int, default=50)
+    parser.add_argument("--val_meta_batch_size", type=int, default=100)
     parser.add_argument("--noise_std", type=float, default=1.0)
     parser.add_argument("--meta_lr", type=float, default=3e-3)
     parser.add_argument("--inner_lr", type=float, default=1e-1)
