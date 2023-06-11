@@ -1,12 +1,6 @@
 # Meta-Learning a Robust Optimizer for Fine-Tuning
 
-### Toy Sinewave Tasks
-<img src="assets/bias_shift_task.png" width="200"> 
-<img src="assets/amplitude_shift_task.png" width="200">
-
-<img src="assets/meta_ft_bias_shift.png" width="500">
-<img src="assets/meta_ft_amp_shift.png" width="500">
-<img src="assets/meta_ft_amp_bias_shift.png" width="500">
+Relevant repositories
 
 ES
 - https://github.com/openai/evolution-strategies-starter
