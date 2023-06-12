@@ -1,6 +1,7 @@
 .idea/
 ckpts/
 **/figures/
+sine/results/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

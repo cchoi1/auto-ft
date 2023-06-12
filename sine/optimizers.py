@@ -98,3 +98,72 @@ class LayerSGDLinear(Optimizer):
             lr_multiplier = torch.sigmoid(meta_params[0] * depth + meta_params[1])
             p.data.add_(p.grad.data, alpha=-group["lr"] * lr_multiplier)
         return loss
+
+
+def get_lopt_net():
+    return nn.Sequential(nn.Linear(4, 4), nn.ReLU(), nn.Linear(4, 1))
+
+
+class LOptNet(Optimizer):
+    """Small 1-layer network that takes in (grad, param, depth) as input."""
+
+    def __init__(self, meta_params, net, lr=required):
+        defaults = dict(lr=lr)
+        param_groups = []
+        layers = list(
+            [p for p in net.children() if isinstance(p, nn.Linear)]
+        )  # Assumes nn.Sequential model
+        for depth, layer in enumerate(layers):
+            depth = torch.tensor(depth).float()
+            param_groups.append({"params": layer.weight, "depth": depth, "type": "w"})
+            param_groups.append({"params": layer.bias, "depth": depth, "type": "b"})
+        super().__init__(param_groups, defaults)
+
+        self.lopt_net = get_lopt_net()
+        p_shapes = [p.data.shape for p in self.lopt_net.parameters()]
+        p_sizes = [torch.prod(torch.tensor(s)) for s in p_shapes]
+        split_p = meta_params.split(p_sizes)
+        for i, p in enumerate(self.lopt_net.parameters()):
+            p.data = split_p[i].reshape(p_shapes[i])
+
+    @staticmethod
+    def get_init_meta_params():
+        dummy_net = get_lopt_net()
+        dummy_params = [p for p in dummy_net.parameters()]
+        init_weights = [p.data.flatten() for p in dummy_params]
+        return torch.cat(init_weights)
+
+    @staticmethod
+    def get_noise():
+        dummy_net = get_lopt_net()
+        p_sizes = [
+            torch.prod(torch.tensor(p.data.shape)) for p in dummy_net.parameters()
+        ]
+        return torch.randn(sum(p_sizes))
+
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            p = group["params"][0]
+            if p.grad is None:
+                continue
+
+            p_flat = p.data.flatten()
+            g_flat = p.grad.data.flatten()
+            depth = group["depth"].repeat(p_flat.shape[0])
+            wb = 0 if group["type"] == "w" else 1
+            wb_flat = torch.tensor(wb).repeat(p_flat.shape[0])
+            lopt_inputs = torch.stack([g_flat, p_flat, depth, wb_flat], dim=1)
+            # lopt_inputs = torch.stack([p_flat, depth, wb_flat], dim=1)
+            # lopt_inputs = torch.stack([depth, wb_flat], dim=1)
+
+            lopt_outputs = self.lopt_net(lopt_inputs).detach()
+            update = torch.sigmoid(lopt_outputs).reshape(p.data.shape)
+            p.data = p.data - group["lr"] * update
+
+            # lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape)
+            # p.data = p.data - p.grad.data * group["lr"] * lr_multiplier
+        return loss
