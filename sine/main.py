@@ -2,18 +2,17 @@ import argparse
 import copy
 import importlib
 import os
+import pickle
 import time
 from collections import defaultdict
 from functools import partial
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
-from tqdm import tqdm
 
 from networks import get_pretrained_net, pretrain_nets
-from tasks import sample_ft_data, savefig
+from tasks import sample_ft_data
 
 
 def fine_tune(_net, meta_params, ft_data, optimizer_obj, inner_steps=10, inner_lr=1e-1):
@@ -119,7 +118,6 @@ class OptimizerTrainer:
 def sanity_check(ckpt_path, task_distribution):
     """Sanity check with full vs surgical fine-tuning on only last layer."""
     import optimizers
-
     inner_steps = 3
 
     meta_params = torch.ones(4).float()
@@ -159,99 +157,29 @@ def sanity_check(ckpt_path, task_distribution):
     print(f"Last bias only: {losses.mean():.4f} +- {losses.std():.4f}")
 
 
-def plot_learned(args, optimizer_obj, meta_params):
-    _, axes = plt.subplots(1, 3, figsize=(12, 3))
-    for ax in axes:
-        net = get_pretrained_net(ckpt_path=args.ckpt_path, train=False)
-        task_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
-        train_x, train_y, test_x, test_y = task_data
-        full_x = torch.tensor(np.linspace(0, 2 * np.pi, 100)).reshape(-1, 1).float()
-
-        initial_preds = net(full_x).detach()
-        ax.scatter(train_x, train_y, c="k", label="train", zorder=10, s=50)
-        ax.plot(full_x, initial_preds, c="gray", label="pretrained")
-
-        meta_ft_net, _ = fine_tune(
-            net, meta_params, task_data, optimizer_obj, args.inner_steps, args.inner_lr
-        )
-        meta_ft_preds = meta_ft_net(full_x).detach()
-        ax.plot(full_x, meta_ft_preds, c="blue", label="meta+ft")
-
-        if args.optimizer_name in ["LayerSGD", "LayerSGDLiner"]:
-            full_ft_net, _ = fine_tune(
-                net,
-                torch.zeros(4),
-                task_data,
-                optimizer_obj,
-                args.inner_steps,
-                args.inner_lr,
-            )
-            full_ft_preds = full_ft_net(full_x).detach()
-            ax.plot(full_x, full_ft_preds, c="red", label="full ft")
-        ax.scatter(test_x, test_y, c="gray", alpha=0.3)
-        min_y, max_y = test_y.min(), test_y.max()
-        ax.set_ylim(min(-2.0, min_y - 0.1), max(2.0, max_y + 0.1))
-    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-    savefig(f"{args.task_distribution}_meta_ft.png")
-
-
-def plot_learning_curves(args, optimizer_obj, meta_params):
-    loss_fn = nn.MSELoss()
-    all_losses = defaultdict(list)
-    for _ in tqdm(range(100)):
-        net = get_pretrained_net(ckpt_path=args.ckpt_path, train=False)
-        task_data = sample_ft_data(args.task_distribution, train_N=args.train_N)
-        train_x, train_y, test_x, test_y = task_data
-        inner_opt = optimizer_obj(meta_params, net, lr=1e-1)
-        losses = defaultdict(list)
-        test_steps = max(10, args.inner_steps * 2)
-        for _ in range(test_steps):
-            test_preds = net(test_x)
-            test_loss = loss_fn(test_preds, test_y)
-
-            preds = net(train_x)
-            train_loss = loss_fn(preds, train_y)
-            inner_opt.zero_grad()
-            train_loss.backward()
-            inner_opt.step()
-
-            losses["train"].append(train_loss.item())
-            losses["test"].append(test_loss.item())
-        all_losses["train"].append(np.array(losses["train"]))
-        all_losses["test"].append(np.array(losses["test"]))
-
-    plt.figure(figsize=(4, 2.5))
-    for test_traj in all_losses["test"]:
-        plt.plot(test_traj, c="gray", alpha=0.3)
-    avg_train_loss = np.stack(all_losses["train"]).mean(axis=0)
-    avg_test_loss = np.stack(all_losses["test"]).mean(axis=0)
-    plt.plot(avg_train_loss, "o--", label="train")
-    plt.plot(avg_test_loss, "o-", label="test")
-    plt.axvline(args.inner_steps, c="k", ls="--")
-    plt.legend()
-    plt.yscale("log")
-    savefig(f"{args.task_distribution}_learning_curves.png")
-
-
 def run_expt(args):
     pretrain_nets(ckpt_path=args.ckpt_path, num_nets=args.num_nets)
     sanity_check(ckpt_path=args.ckpt_path, task_distribution=args.task_distribution)
+
     start = time.time()
-
     opt_trainer = OptimizerTrainer(args)
-
     for meta_step in range(args.meta_steps + 1):
         if meta_step % args.val_freq == 0:
             opt_trainer.validation(repeat=args.val_meta_batch_size)
-        meta_params = opt_trainer.outer_loop_step()
+            meta_params = opt_trainer.meta_params
+            fn = f"results/{args.exp_name}/{meta_step}.npy"
+            np.save(fn, np.array(meta_params))
+            print(f"Saved results to {fn}")
+        opt_trainer.outer_loop_step()
 
     elapsed = time.time() - start
     print(f"Final meta-params: {meta_params}")
     print(f"Time taken: {elapsed:.2f}s")
 
-    plot_learned(args, opt_trainer.optimizer_obj, meta_params)
-    plot_learning_curves(args, opt_trainer.optimizer_obj, meta_params)
-
+    meta_params = opt_trainer.meta_params
+    fn = f"results/{args.exp_name}/final.npy"
+    np.save(fn, np.array(meta_params))
+    print(f"Saved results to {fn}")
     return meta_params
 
 
@@ -280,7 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--inner_lr", type=float, default=1e-1)
     parser.add_argument("--train_N", type=int, default=10)
     parser.add_argument(
-        "--ckpt_path", type=str, default="/iris/u/yoonho/robust-optimizer/ckpts/sine"
+        "--ckpt_path", type=str, default="/iris/u/yoonho/robust-optimizer/sine/ckpts"
     )
     parser.add_argument("--num_nets", type=int, default=100)
     args = parser.parse_args()
@@ -300,8 +228,6 @@ if __name__ == "__main__":
     else:
         args.exp_name = "default"
 
+    os.makedirs(f"results/{args.exp_name}", exist_ok=True)
+    pickle.dump(args, open(f"results/{args.exp_name}/args.pkl", "wb"))
     meta_params = run_expt(args)
-
-    os.makedirs("results", exist_ok=True)
-    np.save(f"results/{args.exp_name}.npy", meta_params)
-    print(f"Saved results to results/{args.exp_name}.npy")

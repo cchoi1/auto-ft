@@ -101,7 +101,9 @@ class LayerSGDLinear(Optimizer):
 
 
 def get_lopt_net():
-    return nn.Sequential(nn.Linear(4, 4), nn.ReLU(), nn.Linear(4, 1))
+    in_dim = 2
+    hid = 2
+    return nn.Sequential(nn.Linear(in_dim, hid), nn.ReLU(), nn.Linear(hid, 1))
 
 
 class LOptNet(Optimizer):
@@ -156,14 +158,15 @@ class LOptNet(Optimizer):
             depth = group["depth"].repeat(p_flat.shape[0])
             wb = 0 if group["type"] == "w" else 1
             wb_flat = torch.tensor(wb).repeat(p_flat.shape[0])
-            lopt_inputs = torch.stack([g_flat, p_flat, depth, wb_flat], dim=1)
-            # lopt_inputs = torch.stack([p_flat, depth, wb_flat], dim=1)
-            # lopt_inputs = torch.stack([depth, wb_flat], dim=1)
+            # lopt_inputs = torch.stack([g_flat, p_flat, depth, wb_flat], dim=1)
+            # lopt_inputs = torch.stack([g_flat, depth, wb_flat], dim=1)
+            lopt_inputs = torch.stack([depth, wb_flat], dim=1)
+            with torch.no_grad():
+                lopt_outputs = self.lopt_net(lopt_inputs).detach()
 
-            lopt_outputs = self.lopt_net(lopt_inputs).detach()
-            update = torch.sigmoid(lopt_outputs).reshape(p.data.shape)
-            p.data = p.data - group["lr"] * update
+            # update = torch.tanh(lopt_outputs).reshape(p.data.shape)
+            # p.data = p.data + group["lr"] * update
 
-            # lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape)
-            # p.data = p.data - p.grad.data * group["lr"] * lr_multiplier
+            lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape)
+            p.data = p.data - p.grad.data * group["lr"] * lr_multiplier
         return loss
