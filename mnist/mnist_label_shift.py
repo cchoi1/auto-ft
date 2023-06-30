@@ -81,15 +81,17 @@ class MNISTLabelShift(data.Dataset):
 
         if self.train:
             data_file = self.training_file
+            indices = np.random.permutation(60000)
         else:
             data_file = self.test_file
+            indices = np.random.permutation(10000)
+
         features, labels = torch.load(os.path.join(self.root, self.processed_folder, data_file))
 
         features = features.numpy()
         labels = labels.numpy()
-        indices = np.random.permutation(60000)
-        if shift_type == 1 or shift_type == 2 or shift_type == 3 or shift_type == 6:
 
+        if shift_type == 1 or shift_type == 2 or shift_type == 3 or shift_type == 6:
             m_test = testing_size
 
             test_indices = indices[0: m_test]

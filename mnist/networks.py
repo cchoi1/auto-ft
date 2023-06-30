@@ -1,39 +1,34 @@
 import argparse
 import copy
 import random
-import time
 from glob import glob
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
 
-from mnist import load_mnist
+from mnist import load_dataset
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-class ConvNet(nn.Module):
+
+class MNISTNet(nn.Module):
     def __init__(self):
-        super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
-        self.fc = nn.Linear(32 * 7 * 7, 10)
+        super(MNISTNet, self).__init__()
+        self.fc1 = nn.Linear(784, 64)  # Input size: 28x28=784, Output size: 64
+        self.fc2 = nn.Linear(64, 10)  # Input size: 64, Output size: 10
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = torch.relu(x)
-        x = torch.max_pool2d(x, kernel_size=2, stride=2)
-        x = self.conv2(x)
-        x = torch.relu(x)
-        x = torch.max_pool2d(x, kernel_size=2, stride=2)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        x = torch.flatten(x, 1)  # Flatten input images
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
         return x
 
-def get_network(hidden=50):
-    net = ConvNet().to(device)
+
+def get_network():
+    net = MNISTNet().to(device)
     return net
+
 
 def get_test_accuracy(test_loader, model):
     correct = 0
@@ -55,7 +50,8 @@ def get_test_accuracy(test_loader, model):
 
     return accuracy
 
-def pretrain_net(seed=0, lr=1e-3, num_epochs=20):
+
+def pretrain_net(data_dir, seed=0, lr=1e-3, num_epochs=20):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -63,7 +59,7 @@ def pretrain_net(seed=0, lr=1e-3, num_epochs=20):
     net = get_network()
     opt = torch.optim.Adam(net.parameters(), lr=lr)
 
-    train_loader, test_loader = load_mnist(dataset="mnist", batch_size=64)
+    train_loader, test_loader = load_dataset(root_dir=data_dir, dataset="mnist", batch_size=64)
 
     criterion = nn.CrossEntropyLoss()
     for epoch in range(num_epochs):
@@ -90,15 +86,17 @@ def pretrain_net(seed=0, lr=1e-3, num_epochs=20):
 
     return net
 
-def pretrain_nets(ckpt_path, num_nets):
+
+def pretrain_nets(ckpt_path, data_dir, num_nets):
     ckpt_path = Path(ckpt_path)
     ckpt_path.mkdir(exist_ok=True)
     for seed in range(num_nets):
         filename = ckpt_path / f"pretrain_{seed}.pt"
         if not filename.exists():
-            net = pretrain_net(seed=seed)
+            net = pretrain_net(data_dir, seed=seed)
             torch.save(net.state_dict(), filename)
             print(f"Saved pretrained net to {filename}!")
+
 
 def get_pretrained_net(ckpt_path, train):
     """Return a randomly sampled pretrained net."""
