@@ -12,3 +12,14 @@ Torch optimizers
 - https://github.com/rahulkidambi/AccSGD/blob/master/AccSGD.py
 - https://github.com/kach/gradient-descent-the-ultimate-optimizer/blob/main/src/gradient_descent_the_ultimate_optimizer/gdtuo.py
 - https://github.com/clovaai/AdamP/blob/master/adamp/adamp.py
+
+Documentation
+
+functorch (JAX-like composable function transforms in PyTorch)
+- https://pytorch.org/functorch/stable/
+
+PyTorch DDP
+- https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
+
+PyTorch on XLA devices/TPUs
+- https://pytorch.org/xla/release/2.0/index.html#how-to-do-distributeddataparallel
