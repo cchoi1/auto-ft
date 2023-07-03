@@ -18,6 +18,9 @@ Documentation
 functorch (JAX-like composable function transforms in PyTorch)
 - https://pytorch.org/functorch/stable/
 
+torch.multiprocessing
+- https://pytorch.org/docs/stable/notes/multiprocessing.html
+
 PyTorch DDP
 - https://pytorch.org/tutorials/intermediate/ddp_tutorial.html
 
