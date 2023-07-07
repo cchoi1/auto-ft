@@ -3,10 +3,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-import optimizers
-from mnist import load_dataset
-from networks import get_pretrained_net
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.benchmark = True
 
@@ -47,39 +43,42 @@ def fine_tune_epoch(_net, meta_params, train_loader, optimizer_obj, inner_lr=1e-
     return net, meta_params
 
 
-def run_baseline(baseline, args):
-    print(f"\n--- Baseline: {baseline} ---\n")
-    if baseline == "full":
-        meta_params = torch.ones(4).float()
-    elif baseline == "surgical":
-        meta_params = torch.tensor([100, -100, -100, -100]).float()
-    else:
-        raise ValueError("Baseline must be 'full' or 'surgical'")
-    val_losses, test_losses = [], []
-    val_accs, test_accs = [], []
-    train_loader, val_loader = load_dataset(root_dir=args.data_dir, dataset=args.ft_distribution)
-    test_loader, _ = load_dataset(root_dir=args.data_dir, dataset=args.test_distribution)
-    for _ in range(args.num_nets):
-        _net = get_pretrained_net(ckpt_path=args.ckpt_path, train=False)
-        net, meta_params = fine_tune_epoch(
-            _net,
-            meta_params,
-            train_loader,
-            optimizers.LayerSGD,
-            inner_lr=0.1,
-        )
-        # Get accuracy and loss on ft distribution.
-        acc, losses = evaluate_net(net, val_loader)
-        val_accs.append(acc)
-        val_losses.append(losses[-1])
-        # Get accuracy and loss on test distribution.
-        acc, losses = evaluate_net(net, test_loader)
-        test_accs.append(acc)
-        test_losses.append(losses[-1])
+def full_fine_tune(_net, train_loader, lr=1e-1):
+    """Fine-tune net on train_loader."""
+    net = copy.deepcopy(_net)
+    opt = torch.optim.SGD(net.parameters(), lr=lr)
+    loss_fn = nn.CrossEntropyLoss()
 
-    val_losses, test_losses = np.array(val_losses), np.array(test_losses)
-    val_accs, test_accs = np.array(val_accs), np.array(test_accs)
-    print(
-        f"Val Acc: {val_accs.mean():.4f} +- {val_accs.std():.4f} | Val Loss: {val_losses.mean():.4f} +- {val_losses.std():.4f}")
-    print(
-        f"Test Acc: {test_accs.mean():.4f} +- {test_accs.std():.4f} | Test Loss: {test_losses.mean():.4f} +- {test_losses.std():.4f}")
+    for train_images, train_labels in train_loader:
+        train_images, train_labels = train_images.to(device), train_labels.to(device)
+        preds = net(train_images)
+        loss = loss_fn(preds, train_labels)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+
+    return net
+
+def surgical_fine_tune(_net, train_loader, lr=1e-1):
+    """Fine-tune the first layer of net on train_loader."""
+    net = copy.deepcopy(_net)
+    # Freeze all layers except the first layer
+    for param in net.parameters():
+        param.requires_grad = False
+
+    # Set the first layer to be trainable
+    net.fc1.weight.requires_grad = True
+    net.fc1.bias.requires_grad = True
+
+    opt = torch.optim.SGD(net.parameters(), lr=lr)
+    loss_fn = nn.CrossEntropyLoss()
+
+    for train_images, train_labels in train_loader:
+        train_images, train_labels = train_images.to(device), train_labels.to(device)
+        preds = net(train_images)
+        loss = loss_fn(preds, train_labels)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+
+    return net

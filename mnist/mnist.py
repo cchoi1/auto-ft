@@ -1,13 +1,40 @@
 import os
+import random
 
-import torch
+from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 from mnist_c import MNISTC, _CORRUPTIONS
 from mnist_label_shift import MNISTLabelShift
 
 
-def load_dataset(root_dir: str, dataset: str, batch_size=128):
+def meta_batch_sampler(dataset, meta_batch_size, batch_size):
+    num_samples = len(dataset)
+    indices = list(range(num_samples))
+    random.shuffle(indices)
+
+    meta_batches = []
+    current_batch = []
+    for idx in indices:
+        current_batch.append(idx)
+        if len(current_batch) == meta_batch_size * batch_size:
+            meta_batches.append(current_batch)
+            current_batch = []
+
+    if current_batch:
+        meta_batches.append(current_batch)
+
+    return meta_batches
+
+def get_dataloaders(
+        root_dir: str,
+        dataset: str,
+        batch_size: int,
+        meta_batch_size: int,
+        num_workers: int,
+        use_meta_batch = False
+):
+    """Get the train and test dataloaders for MNIST, MNIST-C, or MNISTLabelShift."""
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
@@ -24,18 +51,31 @@ def load_dataset(root_dir: str, dataset: str, batch_size=128):
             corruptions = [dataset]
         train_dataset = MNISTC(data_dir, corruptions=corruptions, train=True, transform=transform)
         test_dataset = MNISTC(data_dir, corruptions=corruptions, train=False, transform=transform)
-    elif dataset == "emnist":
-        train_dataset = datasets.EMNIST(root_dir, split='balanced', train=True, transform=transform)
-        test_dataset = datasets.EMNIST(root_dir, split='balanced', train=False, transform=transform)
     elif dataset == "mnist-label-shift":
         train_dataset = MNISTLabelShift(root_dir, training_size=60000, testing_size=10000,
-                                        shift_type=1, parameter=0.5, target_label=1, transform=transform, train=True,
+                                        shift_type=5, parameter=0.5, target_label=1, transform=transform, train=True,
                                         download=True)
         test_dataset = MNISTLabelShift(root_dir, training_size=60000, testing_size=10000,
-                                       shift_type=1, parameter=0.5, target_label=1, transform=transform, train=False,
+                                       shift_type=5, parameter=0.5, target_label=1, transform=transform, train=False,
                                        download=True)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    if not use_meta_batch:
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    else:
+        meta_train_batches = meta_batch_sampler(train_dataset, meta_batch_size, batch_size)
+        meta_test_batches = meta_batch_sampler(test_dataset, meta_batch_size, batch_size)
+
+        # Wrap the base dataset with DataLoader using the meta-batches
+        train_loader = DataLoader(
+            train_dataset,
+            batch_sampler=meta_train_batches,
+            num_workers=num_workers
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_sampler=meta_test_batches,
+            num_workers=num_workers
+        )
 
     return train_loader, test_loader

@@ -16,4 +16,4 @@ source /iris/u/huaxiu/venvnew/bin/activate
 
 cd ./mnist
 
-python main.py
+python main.py --inner_steps 1 --meta_steps 1

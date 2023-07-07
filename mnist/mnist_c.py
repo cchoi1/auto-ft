@@ -19,7 +19,6 @@ def check_exists(root, corruption):
            os.path.exists(os.path.join(root, corruption, _TEST_LABELS_FILENAME)), \
         f"Download the dataset first to {root}!"
 
-
 class MNISTC(Dataset):
     """MNIST dataset with image-level corruptions."""
 

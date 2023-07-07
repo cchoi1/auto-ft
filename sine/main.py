@@ -208,7 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--inner_lr", type=float, default=1e-1)
     parser.add_argument("--train_N", type=int, default=10)
     parser.add_argument(
-        "--ckpt_path", type=str, default="/iris/u/yoonho/robust-optimizer/sine/ckpts"
+        "--ckpt_path", type=str, default="/afs/cs/u/cchoi1/scr/robust-optimizer/sine/ckpts"
     )
     parser.add_argument("--num_nets", type=int, default=100)
     args = parser.parse_args()

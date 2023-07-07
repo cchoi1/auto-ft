@@ -6,18 +6,23 @@ import time
 import numpy as np
 import torch
 
+import optimizers
 from baselines import fine_tune_epoch, evaluate_net
 from learned_optimizer import OptimizerTrainer
 from mnist import _CORRUPTIONS
-from networks import pretrain_nets
-
-import optimizers
-from mnist import load_dataset
+from mnist import get_dataloaders
 from networks import get_pretrained_net
+from networks import pretrain_nets
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.benchmark = True
 
+def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
+    meta_params = opt_trainer.meta_params.cpu().detach().numpy()
+    fn = f"results/{exp_name}/{meta_step}.npy"
+    np.save(fn, np.array(meta_params))
+    print(f"Saved results to {fn}")
+    return meta_params
 
 def train_lopt(args):
     pretrain_nets(ckpt_path=args.ckpt_path, data_dir=args.data_dir, num_nets=args.num_nets)
@@ -27,22 +32,16 @@ def train_lopt(args):
     for meta_step in range(args.meta_steps + 1):
         if meta_step % args.val_freq == 0:
             opt_trainer.validation(repeat=args.val_meta_batch_size)
-            meta_params = opt_trainer.meta_params
-            fn = f"results/{args.exp_name}/{meta_step}.npy"
-            np.save(fn, np.array(meta_params))
-            print(f"Saved results to {fn}")
-        # outer_start = time.time()
+            meta_params = save_meta_params(opt_trainer, args.exp_name, meta_step)
+        outer_start = time.time()
         opt_trainer.outer_loop_step()
-        # print(f"Outer Loop Time: {time.time() - outer_start:.2f}")
+        print(f"Outer Loop Time: {time.time() - outer_start:.2f}")
 
     elapsed = time.time() - start
     print(f"Final meta-params: {meta_params}")
     print(f"Time taken: {elapsed:.2f}s")
 
-    meta_params = opt_trainer.meta_params
-    fn = f"results/{args.exp_name}/final.npy"
-    np.save(fn, np.array(meta_params))
-    print(f"Saved results to {fn}")
+    meta_params = save_meta_params(opt_trainer, args.exp_name, args.meta_steps)
 
     return meta_params
 
@@ -58,10 +57,14 @@ def run_method(method, args, meta_params=None):
     else:
         raise ValueError("Baseline must be 'full', 'surgical', or 'ours'")
 
+    train_loader, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.ft_distribution,
+                                                  batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
+                                                  num_workers=args.num_workers)
+    test_loader, _ = get_dataloaders(root_dir=args.data_dir, dataset=args.test_distribution,
+                                     batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
+                                     num_workers=args.num_workers)
     val_losses, test_losses = [], []
     val_accs, test_accs = [], []
-    train_loader, id_val_loader = load_dataset(root_dir=args.data_dir, dataset=args.ft_distribution)
-    test_loader, _ = load_dataset(root_dir=args.data_dir, dataset=args.test_distribution)
     for _ in range(args.num_nets):
         _net = get_pretrained_net(ckpt_path=args.ckpt_path, train=False)
         net, meta_params = fine_tune_epoch(
@@ -124,14 +127,19 @@ if __name__ == "__main__":
     parser.add_argument("--noise_std", type=float, default=1.0)
     parser.add_argument("--meta_lr", type=float, default=3e-3)
     parser.add_argument("--inner_lr", type=float, default=1e-1)
-    parser.add_argument("--train_N", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--num_nets", type=int, default=50)
+
+    # Dataset & Dataloader
     parser.add_argument(
-        "--data_dir", type=str, default="/afs/cs/u/cchoi1/scr/data"
+        "--data_dir", type=str, default="/iris/u/cchoi1/Data"
     )
+    parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument(
-        "--ckpt_path", type=str, default="/afs/cs/u/cchoi1/scr/robust-optimizer/mnist/ckpts"
+        "--ckpt_path", type=str, default="/iris/u/cchoi1/robust-optimizer/mnist/ckpts"
     )
-    parser.add_argument("--num_nets", type=int, default=3)
+    parser.add_argument("--run_parallel", action="store_true")
+
     args = parser.parse_args()
 
     defaults = vars(parser.parse_args([]))
@@ -152,6 +160,6 @@ if __name__ == "__main__":
     os.makedirs(f"results/{args.exp_name}", exist_ok=True)
     pickle.dump(args, open(f"results/{args.exp_name}/args.pkl", "wb"))
 
-    sanity_check(args)
+    # sanity_check(args)
     meta_params = train_lopt(args)
     run_method("ours", args, meta_params=meta_params)

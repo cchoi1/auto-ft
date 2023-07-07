@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from mnist import load_dataset
+from mnist import get_dataloaders
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -59,7 +59,7 @@ def pretrain_net(data_dir, seed=0, lr=1e-3, num_epochs=20):
     net = get_network()
     opt = torch.optim.Adam(net.parameters(), lr=lr)
 
-    train_loader, test_loader = load_dataset(root_dir=data_dir, dataset="mnist", batch_size=64)
+    train_loader, test_loader = get_dataloaders(root_dir=data_dir, dataset="mnist", batch_size=64, meta_batch_size=None)
 
     criterion = nn.CrossEntropyLoss()
     for epoch in range(num_epochs):
@@ -106,9 +106,9 @@ def get_pretrained_net(ckpt_path, train):
     train_N = int(n_ckpts * 0.8)
     train_ckpts, test_ckpts = all_ckpts[:train_N], all_ckpts[train_N:]
     if train:
-        random_fn = random.choice(train_ckpts)
+        random_fn = np.random.choice(train_ckpts)
     else:
-        random_fn = random.choice(test_ckpts)
+        random_fn = np.random.choice(test_ckpts)
     rand_checkpoint = torch.load(random_fn)
     net = get_network()
     net.load_state_dict(rand_checkpoint)
