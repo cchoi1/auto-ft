@@ -15,8 +15,12 @@ Torch optimizers
 
 Documentation
 
-functorch (JAX-like composable function transforms in PyTorch)
+functorch documentation
 - https://pytorch.org/functorch/stable/
+
+functorch examples
+- MAML: https://github.com/metaopt/torchopt/blob/main/examples/FuncTorch/maml_omniglot_vmap.py
+- Model Ensemble: https://github.com/metaopt/torchopt/blob/main/examples/FuncTorch/parallel_train_torchopt.py 
 
 torch.multiprocessing
 - https://pytorch.org/docs/stable/notes/multiprocessing.html
