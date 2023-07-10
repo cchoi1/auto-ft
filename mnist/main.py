@@ -43,7 +43,7 @@ def train_lopt(args):
 
     meta_params = save_meta_params(opt_trainer, args.exp_name, args.meta_steps)
 
-    return meta_params
+    return opt_trainer.meta_params
 
 
 def run_method(method, args, meta_params=None):
@@ -60,7 +60,7 @@ def run_method(method, args, meta_params=None):
     train_loader, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.ft_distribution,
                                                   batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                   num_workers=args.num_workers)
-    test_loader, _ = get_dataloaders(root_dir=args.data_dir, dataset=args.test_distribution,
+    test_loader, ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.test_distribution,
                                      batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                      num_workers=args.num_workers)
     val_losses, test_losses = [], []
@@ -128,13 +128,13 @@ if __name__ == "__main__":
     parser.add_argument("--meta_lr", type=float, default=3e-3)
     parser.add_argument("--inner_lr", type=float, default=1e-1)
     parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--num_nets", type=int, default=50)
+    parser.add_argument("--num_nets", type=int, default=1)
 
     # Dataset & Dataloader
     parser.add_argument(
         "--data_dir", type=str, default="/iris/u/cchoi1/Data"
     )
-    parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument(
         "--ckpt_path", type=str, default="/iris/u/cchoi1/robust-optimizer/mnist/ckpts"
     )
@@ -160,6 +160,10 @@ if __name__ == "__main__":
     os.makedirs(f"results/{args.exp_name}", exist_ok=True)
     pickle.dump(args, open(f"results/{args.exp_name}/args.pkl", "wb"))
 
-    # sanity_check(args)
+    from unittests import test_fine_tune_func_single, test_outer_step_parallel
+    # test_fine_tune_func_single(args)
+    # test_outer_step_parallel(args)
+
+    sanity_check(args)
     meta_params = train_lopt(args)
     run_method("ours", args, meta_params=meta_params)

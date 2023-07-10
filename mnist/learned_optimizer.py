@@ -10,11 +10,10 @@ import torch.nn.functional as F
 from torch import nn
 
 from mnist import get_dataloaders
-from networks import get_pretrained_net
+from networks import get_pretrained_net, get_pretrained_net_fixed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.benchmark = True
-
 
 def fine_tune(optimizer_obj, inner_steps, inner_lr, _net, meta_params, train_images, train_labels, test_images, test_labels):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
@@ -63,7 +62,6 @@ def fine_tune_func_n(optimizer_obj, inner_steps, inner_lr, func_net, buffers, ne
 
     return test_losses
 
-
 def fine_tune_func_single(optimizer_obj, inner_steps, inner_lr, func_net, net_params, meta_params, train_images, train_labels, test_images, test_labels):
     """Fine-tune the functional model func_net on (train_images, train_labels), and return test losses.
     In the outer loop, we use vmap to parallelize calls to this function for each task in the meta-batch."""
@@ -83,6 +81,7 @@ def fine_tune_func_single(optimizer_obj, inner_steps, inner_lr, func_net, net_pa
         outputs = func_net(net_params, test_images)
         test_loss = F.cross_entropy(outputs, test_labels) # (meta_batch_size // 2, 1)
         test_losses.append(test_loss)
+
     return test_losses
 
 
@@ -142,10 +141,10 @@ class OptimizerTrainer:
                 self.inner_steps,
                 self.inner_lr,
             )
-            self.finetune = functorch.vmap(_finetune, in_dims=(None, None, 0, 0, 0, 0, 0, 0))
+            self.finetune = torch.vmap(_finetune, in_dims=(None, None, 0, 0, 0, 0, 0, 0))
         elif self.run_parallel and self.num_nets == 1:
             """Use a single pretrained model for all finetuning tasks."""
-            self.net = get_pretrained_net(ckpt_path=self.ckpt_path, train=True)
+            self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, train=True)
             self.func_net, self.weights = functorch.make_functional(self.net)
             _finetune = partial(
                 fine_tune_func_single,
@@ -154,12 +153,6 @@ class OptimizerTrainer:
                 self.inner_lr,
             )
             self.finetune = functorch.vmap(_finetune, in_dims=(None, None, 0, 0, 0, 0, 0))
-            self.finetune_iter = partial(
-                fine_tune,
-                self.optimizer_obj,
-                self.inner_steps,
-                self.inner_lr,
-            )
         else:
             self.finetune_iter = partial(
                 fine_tune,
@@ -249,24 +242,34 @@ class OptimizerTrainer:
         else:
             return self.validation_iter(repeat)
 
-    def outer_loop_step_iter(self, net=None):
-        """Perform one outer loop step. meta_batch_size tasks with antithetic sampling."""
+    def outer_loop_step_iter(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
+        """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
+        Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
         grads = []
+        all_losses_diff = []
         for _ in range(self.meta_batch_size // 2):
-            if net is None:
-                net = get_pretrained_net(ckpt_path=self.ckpt_path, train=True)
-            epsilon = (
-                    self.optimizer_obj.get_noise() * self.noise_std
-            )  # Antithetic sampling
+            if _net is None:
+                _net = copy.deepcopy(get_pretrained_net(ckpt_path=self.ckpt_path, train=True))
+            net = copy.deepcopy(_net)
+            if epsilon is None:
+                epsilon = (
+                        self.optimizer_obj.get_noise() * self.noise_std
+                ) # Antithetic sampling
+
             mp_plus_epsilon = self.meta_params + epsilon
             mp_minus_epsilon = self.meta_params - epsilon
-            train_images, train_labels = next(iter(self.train_loader))
-            test_images, test_labels = next(iter(self.ood_val_loader))
+            if train_x is None or train_y is None or test_x is None or test_y is None:
+                train_images, train_labels = next(iter(self.train_loader))
+                test_images, test_labels = next(iter(self.test_loader))
+            else:
+                train_images, train_labels = train_x[_:(_+1)].squeeze(0), train_y[_:(_+1)].squeeze(0)
+                test_images, test_labels = test_x[_:(_+1)].squeeze(0), test_y[_:(_+1)].squeeze(0)
             losses_plus = self.finetune_iter(net, mp_plus_epsilon, train_images, train_labels, test_images,
                                                  test_labels)
             losses_minus = self.finetune_iter(net, mp_minus_epsilon, train_images, train_labels, test_images,
                                                   test_labels)
             loss_diff = losses_plus - losses_minus
+            all_losses_diff.append(loss_diff)
             objective = (
                     loss_diff[-1] * self.meta_loss_final_w
                     + loss_diff.mean() * self.meta_loss_avg_w
@@ -278,29 +281,34 @@ class OptimizerTrainer:
         self.meta_params.grad = grads_mean
         self.meta_optimizer.step()
 
-        return self.meta_params
+        return self.meta_params, grads_mean
 
-    def outer_loop_step_parallel(self):
+    def outer_loop_step_parallel(self, net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
-        Parallelizes over tasks in the meta batch using vmap."""
-        epsilon = (
-                self.optimizer_obj.get_noise(self.meta_batch_size // 2) * self.noise_std
-        )  # Antithetic sampling
+        Parallelizes over tasks in the meta batch using vmap.
+        Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
+        if epsilon is None:
+            epsilon = (
+                    self.optimizer_obj.get_noise(self.meta_batch_size // 2) * self.noise_std
+            ) # Antithetic sampling
         mp_plus_epsilon = self.meta_params + epsilon
         mp_minus_epsilon = self.meta_params - epsilon
 
         # Prepare a meta-batch of fine-tuning tasks
-        train_images, train_labels = next(iter(self.train_loader))
-        test_images, test_labels = next(iter(self.test_loader))
+        if train_x is None or train_y is None or test_x is None or test_y is None:
+            train_images, train_labels = next(iter(self.train_loader))
+            test_images, test_labels = next(iter(self.test_loader))
+        else:
+            train_images, train_labels, test_images, test_labels = train_x, train_y, test_x, test_y
         train_images = train_images.view(self.meta_batch_size // 2, self.batch_size, 28, 28)
         train_labels = train_labels.view(self.meta_batch_size // 2, self.batch_size)
         test_images = test_images.view(self.meta_batch_size // 2, self.batch_size, 28, 28)
         test_labels = test_labels.view(self.meta_batch_size // 2, self.batch_size)
 
         if self.num_nets == 1:
-            func_net, weights = functorch.make_functional(copy.deepcopy(self.net))
-            losses_plus = self.finetune(func_net, weights, mp_plus_epsilon, train_images, train_labels, test_images, test_labels)
-            losses_minus = self.finetune(func_net, weights, mp_minus_epsilon, train_images, train_labels, test_images, test_labels)
+            func_net, net_params = functorch.make_functional(copy.deepcopy(self.net))
+            losses_plus = self.finetune(func_net, net_params, mp_plus_epsilon, train_images, train_labels, test_images, test_labels)
+            losses_minus = self.finetune(func_net, net_params, mp_minus_epsilon, train_images, train_labels, test_images, test_labels)
         else:
             func_net, net_params, buffers = init_fn(num_nets=self.meta_batch_size // 2, ckpt_path=self.ckpt_path, train=True)
             losses_plus = self.finetune(func_net, buffers, net_params, mp_plus_epsilon, train_images, train_labels,
@@ -322,7 +330,7 @@ class OptimizerTrainer:
         self.meta_params.grad = grads_mean
         self.meta_optimizer.step()
 
-        return self.meta_params
+        return self.meta_params, grads_mean
 
     def outer_loop_step(self):
         if self.run_parallel:

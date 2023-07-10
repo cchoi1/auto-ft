@@ -17,11 +17,18 @@ class OptimizerFunc:
 
         self.param_groups = [{'params': list(params), 'lr': lr}]
 
-    def step(self, weight, gradient, lr):
-        return weight - lr * gradient
+    def zero_grad(self):
+        for param in self.params:
+            if param.grad is not None:
+                param.grad.detach_()
+                param.grad.zero_()
+
+    def backward(self, loss):
+        loss.backward()
 
     def update(self, params, gradients):
         pass
+
 
 
 class LearnedOptimizer(OptimizerFunc, ABC):
@@ -64,13 +71,17 @@ class LayerSGD(OptimizerFunc):
             return torch.randn(h, 4).to(device)
 
     def update(self, params, gradients):
-        updated_params = []
-        for group in self.param_groups:
-            for i, (p, g) in enumerate(zip(group["params"], gradients)):
-                lr_multiplier = torch.sigmoid(self.meta_params[i])
-                local_lr = group["lr"] * lr_multiplier
-                updated_params.append(p - g * local_lr)
-        return updated_params
+        with torch.no_grad():
+            updated_params = []
+            for i, group in enumerate(self.param_groups):
+                group_params = []
+                for j, (p, g) in enumerate(zip(group["params"], gradients)):
+                    lr_multiplier = torch.sigmoid(self.meta_params[j])
+                    local_lr = group["lr"] * lr_multiplier
+                    group_params.append(p - g * local_lr)
+                self.param_groups[i]["params"] = group_params
+                updated_params += group_params
+            return updated_params
 
 
 # TODO modify LayerSGDLinear, LOpt to work with stateless/functional models

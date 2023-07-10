@@ -114,3 +114,17 @@ def get_pretrained_net(ckpt_path, train):
     net.load_state_dict(rand_checkpoint)
     net = net.to(device)
     return net
+
+def get_pretrained_net_fixed(ckpt_path, train):
+    """Return a fixed pretrained net. For unittesting purposes."""
+    ckpt_path = Path(ckpt_path)
+    all_ckpts = glob(str(ckpt_path / "pretrain_*.pt"))
+    n_ckpts = len(all_ckpts)
+    train_N = int(n_ckpts * 0.8)
+    train_ckpts, test_ckpts = all_ckpts[:train_N], all_ckpts[train_N:]
+    random_fn = train_ckpts[0]
+    rand_checkpoint = torch.load(random_fn)
+    net = get_network()
+    net.load_state_dict(rand_checkpoint)
+    net = net.to(device)
+    return net
