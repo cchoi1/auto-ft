@@ -15,10 +15,10 @@ from networks import get_pretrained_net, get_pretrained_net_fixed
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.benchmark = True
 
-def fine_tune(optimizer_obj, inner_steps, inner_lr, _net, meta_params, train_images, train_labels, test_images, test_labels):
+def fine_tune(optimizer_obj, inner_steps, inner_lr, features, _net, meta_params, train_images, train_labels, test_images, test_labels):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     net = copy.deepcopy(_net)
-    inner_opt = optimizer_obj(meta_params, net, lr=inner_lr)
+    inner_opt = optimizer_obj(meta_params, net, features, lr=inner_lr)
     loss_fn = nn.CrossEntropyLoss()
     test_losses = []
     for _ in range(inner_steps):
@@ -27,7 +27,7 @@ def fine_tune(optimizer_obj, inner_steps, inner_lr, _net, meta_params, train_ima
         loss = loss_fn(preds, train_labels)
         inner_opt.zero_grad()
         loss.backward()
-        inner_opt.step()
+        inner_opt.step(curr_loss=loss.item())
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
@@ -106,12 +106,17 @@ class OptimizerTrainer:
         self.ft_distribution = args.ft_distribution
         self.test_distribution = args.test_distribution
         self.num_nets = args.num_nets
+        self.features = args.features
+        self.num_features = 0 if self.features is None else len(self.features)
 
         optimizer_module = importlib.import_module(f"optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers")
         self.optimizer_obj = getattr(optimizer_module, args.optimizer_name)
-        self.meta_params = self.optimizer_obj.get_init_meta_params()
+        self.meta_params = self.optimizer_obj.get_init_meta_params(self.num_features)
         self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
 
+        _, self.source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset="mnist", batch_size=args.batch_size,
+                                                    meta_batch_size=args.meta_batch_size // 2,
+                                                    num_workers=args.num_workers, use_meta_batch=self.run_parallel)
         self.train_loader, self.id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.ft_distribution,
                                                                 batch_size=args.batch_size,
                                                                 meta_batch_size=args.meta_batch_size // 2,
@@ -144,7 +149,7 @@ class OptimizerTrainer:
             self.finetune = torch.vmap(_finetune, in_dims=(None, None, 0, 0, 0, 0, 0, 0))
         elif self.run_parallel and self.num_nets == 1:
             """Use a single pretrained model for all finetuning tasks."""
-            self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, train=True)
+            self.net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=self.ckpt_path, train=True))
             self.func_net, self.weights = functorch.make_functional(self.net)
             _finetune = partial(
                 fine_tune_func_single,
@@ -159,29 +164,40 @@ class OptimizerTrainer:
                 self.optimizer_obj,
                 self.inner_steps,
                 self.inner_lr,
+                self.features
             )
 
     def validation_iter(self, repeat):
         losses = defaultdict(list)
+        _net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, train=True)
+
+        net = copy.deepcopy(_net)
         for _ in range(repeat):
-            net = get_pretrained_net(ckpt_path=self.ckpt_path, train=False)
             train_images, train_labels = next(iter(self.train_loader))
-            val_images, val_labels = next(iter(self.ood_val_loader))
-            val_losses = self.finetune_iter(net, self.meta_params, train_images, train_labels, val_images,
-                                                       val_labels)
-            losses["ood"].append(val_losses[-1])
+            source_val_images, source_val_labels = next(iter(self.id_val_loader))
+            source_val_losses = self.finetune_iter(net, self.meta_params, train_images, train_labels, source_val_images, source_val_labels)
+            losses["source"].append(source_val_losses[-1])
+
+        net = copy.deepcopy(_net)
         for _ in range(repeat):
-            net = get_pretrained_net(ckpt_path=self.ckpt_path, train=True)
             train_images, train_labels = next(iter(self.train_loader))
-            val_images, val_labels = next(iter(self.id_val_loader))
-            train_losses = self.finetune_iter(net, self.meta_params, train_images, train_labels,
-                                                           val_images, val_labels)
-            losses["id"].append(train_losses[-1])
+            id_val_images, id_val_labels = next(iter(self.id_val_loader))
+            id_val_losses = self.finetune_iter(net, self.meta_params, train_images, train_labels, id_val_images, id_val_labels)
+            losses["id"].append(id_val_losses[-1])
+
+        net = copy.deepcopy(_net)
+        for _ in range(repeat):
+            train_images, train_labels = next(iter(self.train_loader))
+            ood_val_images, ood_val_labels = next(iter(self.ood_val_loader))
+            ood_val_losses = self.finetune_iter(net, self.meta_params, train_images, train_labels, ood_val_images, ood_val_labels)
+            losses["ood"].append(ood_val_losses[-1])
+
+        source_val_str = f"Source Val loss: {np.mean(losses['source']):.4f} +- {np.std(losses['source']):.4f}"
         id_val_str = f"ID Val loss: {np.mean(losses['id']):.4f} +- {np.std(losses['id']):.4f}"
         ood_val_str = (
             f"OOD Val loss: {np.mean(losses['ood']):.4f} +- {np.std(losses['ood']):.4f}"
         )
-        print(id_val_str, '|', ood_val_str)
+        print(source_val_str, '|', id_val_str, '|', ood_val_str)
         return losses
 
     def validation_parallel(self):
@@ -249,11 +265,11 @@ class OptimizerTrainer:
         all_losses_diff = []
         for _ in range(self.meta_batch_size // 2):
             if _net is None:
-                _net = copy.deepcopy(get_pretrained_net(ckpt_path=self.ckpt_path, train=True))
+                _net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, train=True)
             net = copy.deepcopy(_net)
             if epsilon is None:
                 epsilon = (
-                        self.optimizer_obj.get_noise() * self.noise_std
+                        self.optimizer_obj.get_noise(self.num_features) * self.noise_std
                 ) # Antithetic sampling
 
             mp_plus_epsilon = self.meta_params + epsilon

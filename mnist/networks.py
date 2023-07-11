@@ -122,9 +122,11 @@ def get_pretrained_net_fixed(ckpt_path, train):
     n_ckpts = len(all_ckpts)
     train_N = int(n_ckpts * 0.8)
     train_ckpts, test_ckpts = all_ckpts[:train_N], all_ckpts[train_N:]
-    random_fn = train_ckpts[0]
-    rand_checkpoint = torch.load(random_fn)
+    if train:
+        checkpoint = torch.load(train_ckpts[0])
+    else:
+        checkpoint = torch.load(test_ckpts[0])
     net = get_network()
-    net.load_state_dict(rand_checkpoint)
+    net.load_state_dict(checkpoint)
     net = net.to(device)
     return net
