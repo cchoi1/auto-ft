@@ -14,18 +14,18 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-echo "VAL ID"
-echo "PATIENCE 1"
-python3 main.py --method surgical --ft_distribution brightness --test_distribution impulse_noise --optimizer_name LOptNet --num_nets 1 \
---meta_steps 160 --patience 1 --val id --num_seeds 3
-echo "PATIENCE 3"
-python3 main.py --method surgical --ft_distribution brightness --test_distribution impulse_noise --optimizer_name LOptNet --num_nets 1 \
---meta_steps 160 --patience 3 --val id --num_seeds 3
+#echo "VAL ID"
+#echo "PATIENCE 1"
+#python3 main.py --method surgical --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
+#--meta_steps 160 --patience 1 --val id --num_seeds 3
+#echo "PATIENCE 3"
+#python3 main.py --method surgical --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
+#--meta_steps 160 --patience 3 --val id --num_seeds 3
 
 echo "VAL OOD"
-echo "PATIENCE 1"
-python3 main.py --method surgical --ft_distribution brightness --test_distribution impulse_noise --optimizer_name LOptNet --num_nets 1 \
---meta_steps 160 --patience 1 --val ood --num_seeds 3
+#echo "PATIENCE 1"
+#python3 main.py --method surgical --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
+#--meta_steps 160 --patience 1 --val ood --num_seeds 3
 echo "PATIENCE 3"
-python3 main.py --method surgical --ft_distribution brightness --test_distribution impulse_noise --optimizer_name LOptNet --num_nets 1 \
+python3 main.py --method surgical --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
 --meta_steps 160 --patience 3 --val ood --num_seeds 3

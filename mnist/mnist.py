@@ -1,5 +1,6 @@
 import os
 import random
+from typing import List
 
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
@@ -28,7 +29,7 @@ def meta_batch_sampler(dataset, meta_batch_size, batch_size):
 
 def get_dataloaders(
         root_dir: str,
-        dataset: str,
+        dataset_names: List[str],
         batch_size: int,
         meta_batch_size: int,
         num_workers: int,
@@ -40,18 +41,18 @@ def get_dataloaders(
         transforms.Normalize((0.1307,), (0.3081,))
     ])
 
-    if dataset == "mnist":
+    if dataset_names == ["mnist"]:
         train_dataset = datasets.MNIST(root_dir, train=True, download=True, transform=transform)
         test_dataset = datasets.MNIST(root_dir, train=False, download=True, transform=transform)
-    elif dataset in ["mnistc"] + _CORRUPTIONS:
+    elif all(dataset in ["mnistc"] + _CORRUPTIONS for dataset in dataset_names):
         data_dir = os.path.join(root_dir, "MNIST-C")
-        if dataset == "mnistc":
+        if "mnistc" in dataset_names:
             corruptions = _CORRUPTIONS
         else:
-            corruptions = [dataset]
+            corruptions = dataset_names
         train_dataset = MNISTC(data_dir, corruptions=corruptions, train=True, transform=transform)
         test_dataset = MNISTC(data_dir, corruptions=corruptions, train=False, transform=transform)
-    elif dataset == "mnist-label-shift":
+    elif dataset_names == ["mnist-label-shift"]:
         train_dataset = MNISTLabelShift(root_dir, training_size=60000, testing_size=10000,
                                         shift_type=5, parameter=0.5, target_label=1, transform=transform, train=True,
                                         download=True)

@@ -6,7 +6,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=8G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="loptnet" # Name the job (for easier monitoring)
+#SBATCH --job-name="loptnet-id-ood" # Name the job (for easier monitoring)
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -28,6 +28,6 @@ done
 # Execute the Python script with --features argument for each subset
 for subset in "${subsets[@]}"; do
     echo $subset
-    python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LayerSGD --num_nets 1 \
+    python3 main.py --method ours --ft_id_ood --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LayerSGD --num_nets 1 \
 --meta_steps 100 --patience 3 --val ood --num_seeds 3 --features "${subset}"
 done

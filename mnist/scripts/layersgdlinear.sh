@@ -14,6 +14,5 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-echo "OOD VAL"
-python3 main.py --method ours --ft_distribution brightness --test_distribution impulse_noise --optimizer_name LayerSGDLinear --num_nets 1 \
---meta_steps 160 --patience 3 --val ood --num_seeds 3
+python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LayerSGDLinear --num_nets 1 \
+--meta_steps 100 --patience 3 --val ood --num_seeds 3

@@ -35,14 +35,6 @@ def train_lopt(args):
         if meta_step % args.val_freq == 0:
             losses = opt_trainer.validation(args.val_meta_batch_size)
             save_meta_params(opt_trainer, args.exp_name, meta_step)
-            if np.mean(losses['ood']) < best_val_loss:
-                best_val_loss = np.mean(losses['ood'])
-                epochs_without_improvement = 0
-            else:
-                epochs_without_improvement += 1
-                if epochs_without_improvement == args.patience:
-                    print("Early stopping! Validation loss hasn't improved in", args.patience, "epochs.")
-                    break
         # outer_start = time.time()
         opt_trainer.outer_loop_step()
         # print(f"Outer Loop Time: {time.time() - outer_start:.2f}")
@@ -64,16 +56,28 @@ def get_ft_net(method, args):
     else:
         raise ValueError("Method must be 'full', 'surgical', 'ours'")
 
-    _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset="mnist", batch_size=args.batch_size,
+    _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
                                            meta_batch_size=args.meta_batch_size, num_workers=args.num_workers,
                                            use_meta_batch=False)
-    train_loader, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.ft_distribution,
+    if not args.ft_id_ood:
+        train_loader, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
+                                                      batch_size=args.batch_size,
+                                                      meta_batch_size=args.meta_batch_size // 2,
+                                                      num_workers=args.num_workers, use_meta_batch=False)
+        _, ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
+                                            batch_size=args.batch_size,
+                                            meta_batch_size=args.meta_batch_size // 2,
+                                            num_workers=args.num_workers, use_meta_batch=False)
+        val_loader = id_val_loader if args.val == "id" else ood_val_loader
+    else:
+        """Fine-tune on both ID and OOD data."""
+        train_loader, val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist, args.ft_ood_dist],
                                                   batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                   num_workers=args.num_workers, use_meta_batch=False)
-    _, ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.test_distribution,
+        if args.val == "id":
+            _, val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
                                                   batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                   num_workers=args.num_workers, use_meta_batch=False)
-    val_loader = id_val_loader if args.val == "id" else ood_val_loader
     pretrained_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=False).to(device))
 
     ft_net = train(
@@ -91,13 +95,16 @@ def get_ft_net(method, args):
     return ft_net
 
 def evaluate_ft_net(ft_net, args):
-    _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset="mnist", batch_size=args.batch_size,
+    _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
                                            meta_batch_size=args.meta_batch_size, num_workers=args.num_workers,
                                            use_meta_batch=False)
-    _, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.ft_distribution,
+    _, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
                                                   batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                   num_workers=args.num_workers, use_meta_batch=False)
-    test_loader, ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.test_distribution,
+    _, ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
+                                                  batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
+                                                  num_workers=args.num_workers, use_meta_batch=False)
+    _, test_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.test_dist],
                                                   batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                   num_workers=args.num_workers, use_meta_batch=False)
     source_val_accs, source_val_losses = [], []
@@ -126,17 +133,17 @@ def evaluate_ft_net(ft_net, args):
     ood_val_accs, ood_val_losses = np.array(ood_val_accs), np.array(ood_val_losses)
     test_accs, test_losses = np.array(test_accs), np.array(test_losses)
     print(
-        f"Source Val Acc: {100 * source_val_accs.mean():.4f} +- {100 * source_val_accs.std():.4f} "
-        f"| Source Val Loss: {source_val_losses.mean():.4f} +- {source_val_losses.std():.4f}")
+        f"Source Val Acc: {100 * source_val_accs.mean():.2f} +- {100 * source_val_accs.std():.2f} "
+        f"| Source Val Loss: {source_val_losses.mean():.2f} +- {source_val_losses.std():.2f}")
     print(
-        f"ID Val Acc: {100 * id_val_accs.mean():.4f} +- {100 * id_val_accs.std():.4f} "
-        f"| ID Val Loss: {id_val_losses.mean():.4f} +- {id_val_losses.std():.4f}")
+        f"ID Val Acc: {100 * id_val_accs.mean():.2f} +- {100 * id_val_accs.std():.2f} "
+        f"| ID Val Loss: {id_val_losses.mean():.2f} +- {id_val_losses.std():.2f}")
     print(
-        f"OOD Val Acc: {100 * ood_val_accs.mean():.4f} +- {100 * ood_val_accs.std():.4f} "
-        f"| OOD Val Loss: {ood_val_losses.mean():.4f} +- {ood_val_losses.std():.4f}")
+        f"OOD Val Acc: {100 * ood_val_accs.mean():.2f} +- {100 * ood_val_accs.std():.2f} "
+        f"| OOD Val Loss: {ood_val_losses.mean():.2f} +- {ood_val_losses.std():.2f}")
     print(
-        f"Test Acc: {100 * test_accs.mean():.4f} +- {100 * test_accs.std():.4f} "
-        f"| Test Loss: {test_losses.mean():.4f} +- {test_losses.std():.4f}")
+        f"Test Acc: {100 * test_accs.mean():.2f} +- {100 * test_accs.std():.2f} "
+        f"| Test Loss: {test_losses.mean():.2f} +- {test_losses.std():.2f}")
     return source_val_accs.mean(), id_val_accs.mean(), ood_val_accs.mean(), test_accs.mean()
 
 def run_method(method, args):
@@ -153,10 +160,10 @@ def run_method(method, args):
         test_accs.append(test_acc)
     source_val_accs, id_val_accs, ood_val_accs, test_accs = np.array(source_val_accs), np.array(id_val_accs), np.array(ood_val_accs), np.array(test_accs)
     print(f"\n--- Results ({args.num_seeds} seeds) ---\n")
-    print(f"Source Val Acc: {100 * source_val_accs.mean():.4f} +- {100 * source_val_accs.std():.4f}")
-    print(f"ID Val Acc: {100 * id_val_accs.mean():.4f} +- {100 * id_val_accs.std():.4f}")
-    print(f"OOD Val Acc: {100 * ood_val_accs.mean():.4f} +- {100 * ood_val_accs.std():.4f}")
-    print(f"Test Acc: {100 * test_accs.mean():.4f} +- {100 * test_accs.std():.4f}")
+    print(f"Source Val Acc: {100 * source_val_accs.mean():.2f} +- {100 * source_val_accs.std():.2f}")
+    print(f"ID Val Acc: {100 * id_val_accs.mean():.2f} +- {100 * id_val_accs.std():.2f}")
+    print(f"OOD Val Acc: {100 * ood_val_accs.mean():.2f} +- {100 * ood_val_accs.std():.2f}")
+    print(f"Test Acc: {100 * test_accs.mean():.2f} +- {100 * test_accs.std():.2f}")
     print(f"\n----------------------------------------\n")
 
 if __name__ == "__main__":
@@ -164,13 +171,19 @@ if __name__ == "__main__":
     dists = ["mnist", "mnistc", "mnist-label-shift"] + _CORRUPTIONS
     parser.add_argument("--method", type=str, choices=["full", "surgical", "ours"])
     parser.add_argument(
-        "--ft_distribution",
+        "--ft_id_dist",
         type=str,
         default="mnistc",
         choices=dists,
     )
     parser.add_argument(
-        "--test_distribution",
+        "--ft_ood_dist",
+        type=str,
+        default="mnistc",
+        choices=dists,
+    )
+    parser.add_argument(
+        "--test_dist",
         type=str,
         default="mnist-label-shift",
         choices=dists,
@@ -180,6 +193,8 @@ if __name__ == "__main__":
         type=str,
         default="LayerSGDLinear",
     )
+    parser.add_argument("--ft_id_ood", action="store_true", help="Fine-tune w/ meta-params on both ID and OOD data.")
+
     parser.add_argument("--features", nargs='+', type=str,
                         help="Choose a subset of [p, g, depth, wb, dist_init_param, loss].",
                         default=None)

@@ -98,13 +98,13 @@ def init_fn(num_nets: int, ckpt_path: str, train: bool):
 
 class OptimizerTrainer:
     def __init__(self, args):
-        self.ft_distribution = args.ft_distribution
         self.data_dir = args.data_dir
         self.ckpt_path = args.ckpt_path
         self.run_parallel = args.run_parallel
         self.num_workers = args.num_workers
-        self.ft_distribution = args.ft_distribution
-        self.test_distribution = args.test_distribution
+        self.ft_id_dist = args.ft_id_dist
+        self.ft_ood_dist = args.ft_ood_dist
+        self.test_dist = args.test_dist
         self.num_nets = args.num_nets
         self.features = args.features
         self.num_features = 0 if self.features is None else len(self.features)
@@ -114,14 +114,14 @@ class OptimizerTrainer:
         self.meta_params = self.optimizer_obj.get_init_meta_params(self.num_features)
         self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
 
-        _, self.source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset="mnist", batch_size=args.batch_size,
+        _, self.source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
                                                     meta_batch_size=args.meta_batch_size // 2,
                                                     num_workers=args.num_workers, use_meta_batch=self.run_parallel)
-        self.train_loader, self.id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.ft_distribution,
+        self.train_loader, self.id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
                                                                 batch_size=args.batch_size,
                                                                 meta_batch_size=args.meta_batch_size // 2,
                                                                 num_workers=args.num_workers, use_meta_batch=self.run_parallel)
-        self.test_loader, self.ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset=args.test_distribution,
+        self.ood_val1_loader, self.ood_val2_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
                                                                 batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                                 num_workers=args.num_workers, use_meta_batch=self.run_parallel)
 
@@ -188,7 +188,7 @@ class OptimizerTrainer:
         net = copy.deepcopy(_net)
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
-            ood_val_images, ood_val_labels = next(iter(self.ood_val_loader))
+            ood_val_images, ood_val_labels = next(iter(self.ood_val2_loader))
             ood_val_losses = self.finetune_iter(net, self.meta_params, train_images, train_labels, ood_val_images, ood_val_labels)
             losses["ood"].append(ood_val_losses[-1])
 
@@ -204,11 +204,11 @@ class OptimizerTrainer:
         losses = defaultdict(list)
         meta_params = torch.stack([self.meta_params for _ in range(self.val_meta_batch_size // 2)], dim=0)
 
-        train_loader, id_val_loader = get_dataloaders(root_dir=self.data_dir, dataset=self.ft_distribution,
+        train_loader, id_val_loader = get_dataloaders(root_dir=self.data_dir, dataset_names=[self.ft_id_dist],
                                                       batch_size=self.batch_size,
                                                       meta_batch_size=self.val_meta_batch_size // 2,
                                                       num_workers=self.num_workers, use_meta_batch=self.run_parallel)
-        test_loader, ood_val_loader = get_dataloaders(root_dir=self.data_dir, dataset=self.test_distribution,
+        test_loader, ood_val_loader = get_dataloaders(root_dir=self.data_dir, dataset_names=[self.ft_ood_dist],
                                                       batch_size=self.batch_size,
                                                       meta_batch_size=self.val_meta_batch_size // 2,
                                                       num_workers=self.num_workers, use_meta_batch=self.run_parallel)
@@ -276,7 +276,7 @@ class OptimizerTrainer:
             mp_minus_epsilon = self.meta_params - epsilon
             if train_x is None or train_y is None or test_x is None or test_y is None:
                 train_images, train_labels = next(iter(self.train_loader))
-                test_images, test_labels = next(iter(self.test_loader))
+                test_images, test_labels = next(iter(self.ood_val1_loader))
             else:
                 train_images, train_labels = train_x[_:(_+1)].squeeze(0), train_y[_:(_+1)].squeeze(0)
                 test_images, test_labels = test_x[_:(_+1)].squeeze(0), test_y[_:(_+1)].squeeze(0)
@@ -313,7 +313,7 @@ class OptimizerTrainer:
         # Prepare a meta-batch of fine-tuning tasks
         if train_x is None or train_y is None or test_x is None or test_y is None:
             train_images, train_labels = next(iter(self.train_loader))
-            test_images, test_labels = next(iter(self.test_loader))
+            test_images, test_labels = next(iter(self.ood_val1_loader))
         else:
             train_images, train_labels, test_images, test_labels = train_x, train_y, test_x, test_y
         train_images = train_images.view(self.meta_batch_size // 2, self.batch_size, 28, 28)
