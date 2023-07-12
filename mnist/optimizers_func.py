@@ -60,7 +60,7 @@ class LayerSGD(OptimizerFunc):
         self.meta_params = meta_params
 
     @staticmethod
-    def get_init_meta_params():
+    def get_init_meta_params(num_features=None):
         return torch.zeros(4).to(device)
 
     @staticmethod
