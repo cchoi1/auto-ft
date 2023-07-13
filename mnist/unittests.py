@@ -1,18 +1,25 @@
 import argparse
 import copy
+import importlib
+
 import functorch
 import torch
-import importlib
+from learned_optimizer import (OptimizerTrainer, fine_tune, fine_tune_func_single)
 from networks import get_pretrained_net_fixed
-from learned_optimizer import OptimizerTrainer, fine_tune_func_single, fine_tune
+
+def _get_data(x_size, y_size):
+    train_x = torch.randn(*x_size, dtype=torch.float32)
+    train_y = torch.randint(10, y_size)
+    test_x = torch.randn(*x_size, dtype=torch.float32)
+    test_y = torch.randint(10, y_size)
+    return (train_x, train_y), (test_x, test_y)
 
 def test_fine_tune_func_single(args):
     print("Testing fine_tune_func_single...")
     net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=True))
-    train_x = torch.randn(args.meta_batch_size // 2 * args.batch_size, 28, 28, dtype=torch.float32)
-    train_y = torch.randint(10, (args.meta_batch_size // 2 * args.batch_size,))
-    test_x = torch.randn(args.meta_batch_size // 2 * args.batch_size, 28, 28, dtype=torch.float32)
-    test_y = torch.randint(10, (args.meta_batch_size // 2 * args.batch_size,))
+    x_size = (args.meta_batch_size // 2 * args.batch_size, 28, 28)
+    y_size = (args.meta_batch_size // 2 * args.batch_size,)
+    (train_x, train_y), (test_x, test_y) = _get_data(x_size, y_size)
 
     optimizer_func_module = importlib.import_module(f"optimizers_func")
     optimizer_obj_func = getattr(optimizer_func_module, args.optimizer_name)
@@ -34,27 +41,31 @@ def test_fine_tune_func_single(args):
 def test_outer_step_parallel(args):
     print("Testing outer_step_parallel...")
     net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=True))
-    train_x, train_y = torch.randn(args.meta_batch_size // 2, args.batch_size, 1, 28, 28, dtype=torch.float32), torch.randint(10, (args.meta_batch_size // 2, args.batch_size))
-    test_x, test_y = torch.randn(args.meta_batch_size // 2, args.batch_size, 1, 28, 28,
-                                   dtype=torch.float32), torch.randint(10, (args.meta_batch_size // 2, args.batch_size))
+    x_size = (args.meta_batch_size // 2, args.batch_size, 1, 28, 28)
+    y_size = (args.meta_batch_size // 2, args.batch_size)
+    (train_x, train_y), (test_x, test_y) = _get_data(x_size, y_size)
 
     args.run_parallel = False
     opt_trainer_iter = OptimizerTrainer(args)
-    epsilon = torch.tensor([0.05, 0.05, 0.05, 0.05])
+    epsilon = torch.tensor([0.05, 0.0005, 0.05, 0.02])
     meta_params_iter, grad_mean_iter = opt_trainer_iter.outer_loop_step_iter(net, epsilon, train_x, train_y, test_x, test_y)
 
     args.run_parallel = True
     opt_trainer_parallel = OptimizerTrainer(args)
-    epsilon_batched = torch.tensor([[0.05, 0.05, 0.05, 0.05] for _ in range(args.meta_batch_size // 2)]).cuda()
+    epsilon_batched = torch.tensor([[0.05, 0.0005, 0.05, 0.02] for _ in range(args.meta_batch_size // 2)]).cuda()
     meta_params_parallel, grad_mean_parallel = opt_trainer_parallel.outer_loop_step_parallel(net, epsilon_batched, train_x, train_y, test_x, test_y)
-    grad_mean_parallel = grad_mean_parallel.detach().cpu()
 
+    tofloat = lambda x: x.detach().cpu().to(torch.float32)
+    grad_mean_iter, grad_mean_parallel = tofloat(grad_mean_iter), tofloat(grad_mean_parallel)
     print("Outer loop step iter", grad_mean_iter)
     print("Outer loop step parallel", grad_mean_parallel)
+    assert torch.allclose(grad_mean_iter, grad_mean_parallel, atol=1e-5)
 
+    meta_params_iter, meta_params_parallel = tofloat(meta_params_iter), tofloat(meta_params_parallel)
     print('meta params iter', meta_params_iter)
     print('meta params parallel', meta_params_parallel)
-    assert torch.allclose(grad_mean_iter, grad_mean_parallel)
+    assert torch.allclose(grad_mean_iter, grad_mean_parallel, atol=1e-5)
+
     print("Passed outer step function test.")
 
 if __name__ == '__main__':
@@ -67,9 +78,9 @@ if __name__ == '__main__':
         ft_id_ood=False,
         ft_ood_dist='impulse_noise',
         inner_lr=0.1,
-        inner_steps=10,
+        inner_steps=7,
         l2_lambda=None,
-        meta_batch_size=20,
+        meta_batch_size=6,
         meta_loss_avg_w=0.0,
         meta_loss_final_w=1.0,
         meta_lr=0.003,

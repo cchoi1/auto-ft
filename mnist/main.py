@@ -249,8 +249,4 @@ if __name__ == "__main__":
     os.makedirs(f"results/{args.exp_name}", exist_ok=True)
     pickle.dump(args, open(f"results/{args.exp_name}/args.pkl", "wb"))
 
-    # from unittests import test_fine_tune_func_single, test_outer_step_parallel
-    # test_fine_tune_func_single(args)
-    # test_outer_step_parallel(args)
-
     run_method(args.method, args)
