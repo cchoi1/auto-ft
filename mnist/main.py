@@ -7,17 +7,29 @@ import time
 
 import numpy as np
 import torch
+import wandb
 
 import optimizers
 from baselines import train, evaluate_net
 from learned_optimizer import OptimizerTrainer
 from mnist import _CORRUPTIONS
 from mnist import get_dataloaders
-from networks import get_pretrained_net, get_pretrained_net_fixed
+from networks import get_pretrained_net_fixed
 from networks import pretrain_nets
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.backends.cudnn.benchmark = True
+
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
 
 def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
     meta_params = opt_trainer.meta_params.cpu().detach().numpy()
@@ -78,12 +90,12 @@ def get_ft_net(method, args):
             _, val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
                                                   batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                   num_workers=args.num_workers, use_meta_batch=False)
-    pretrained_net = get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=False).to(device)
+    pretrained_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=False).to(device))
 
     if method == "ours-avg":
         meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
 
-    ft_net = train(
+    ft_net, train_losses, val_losses = train(
         num_epochs=args.num_epochs,
         model=pretrained_net,
         meta_params=meta_params,
@@ -95,7 +107,7 @@ def get_ft_net(method, args):
         l2_lambda=args.l2_lambda,
     )
 
-    return ft_net
+    return ft_net, train_losses, val_losses
 
 def evaluate_ft_net(ft_net, args):
     _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
@@ -119,14 +131,14 @@ def evaluate_ft_net(ft_net, args):
     acc, losses = evaluate_net(ft_net, source_val_loader)
     source_val_accs.append(acc)
     source_val_losses.append(losses[-1])
-    # Get accuracy and loss on ft distribution.
+    # Get accuracy and loss on ID and OOD ft distributions.
     acc, losses = evaluate_net(ft_net, id_val_loader)
     id_val_accs.append(acc)
     id_val_losses.append(losses[-1])
-    # Get accuracy and loss on test distribution.
     acc, losses = evaluate_net(ft_net, ood_val_loader)
     ood_val_accs.append(acc)
     ood_val_losses.append(losses[-1])
+    # Get accuracy and loss on test distribution.
     acc, losses = evaluate_net(ft_net, test_loader)
     test_accs.append(acc)
     test_losses.append(losses[-1])
@@ -154,20 +166,38 @@ def run_method(method, args):
     assert method in ["full", "surgical", "ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
     source_val_accs, id_val_accs, ood_val_accs, test_accs = [], [], [], []
-    for _ in range(args.num_seeds):
-        ft_net = get_ft_net(method, args)
+    for seed in args.seeds:
+        set_seed(seed)
+        ft_net, train_losses, val_losses = get_ft_net(method, args)
+
         source_val_acc, id_val_acc, ood_val_acc, test_acc = evaluate_ft_net(ft_net, args)
         source_val_accs.append(source_val_acc)
         id_val_accs.append(id_val_acc)
         ood_val_accs.append(ood_val_acc)
         test_accs.append(test_acc)
+
+    # Log train and val losses at each epoch of the last run (diff lengths of training due to early stopping)
+    for train_loss, val_loss in zip(train_losses, val_losses):
+        wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
+
+    # Log final accuracies
     source_val_accs, id_val_accs, ood_val_accs, test_accs = np.array(source_val_accs), np.array(id_val_accs), np.array(ood_val_accs), np.array(test_accs)
-    print(f"\n--- Results ({args.num_seeds} seeds) ---\n")
+    print(f"\n--- Results (seeds = {args.seeds}) ---\n")
     print(f"Source Val Acc: {100 * source_val_accs.mean():.2f} +- {100 * source_val_accs.std():.2f}")
     print(f"ID Val Acc: {100 * id_val_accs.mean():.2f} +- {100 * id_val_accs.std():.2f}")
     print(f"OOD Val Acc: {100 * ood_val_accs.mean():.2f} +- {100 * ood_val_accs.std():.2f}")
     print(f"Test Acc: {100 * test_accs.mean():.2f} +- {100 * test_accs.std():.2f}")
     print(f"\n----------------------------------------\n")
+    wandb.log({
+        "Source Val Accuracy (Avg)": 100 * source_val_accs.mean(),
+        "Source Val Accuracy (Std)": 100 * source_val_accs.std(),
+        "ID Val Accuracy (Avg)": 100 * id_val_accs.mean(),
+        "ID Val Accuracy (Std)": 100 * id_val_accs.std(),
+        "OOD Val Accuracy (Avg)": 100 * ood_val_accs.mean(),
+        "OOD Val Accuracy (Std)": 100 * ood_val_accs.std(),
+        "Test Accuracy (Avg)": 100 * test_accs.mean(),
+        "Test Accuracy (Std)": 100 * test_accs.std(),
+    })
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -217,7 +247,7 @@ if __name__ == "__main__":
     parser.add_argument("--patience", type=int, default=3)
     parser.add_argument("--l2_lambda", type=float, default=None)
     parser.add_argument("--val", type=str, choices='id, ood')
-    parser.add_argument("--num_seeds", type=int, default=3)
+    parser.add_argument("--seeds", nargs='+', type=int, default=[0, 1, 2])
 
     # Dataset & Dataloader
     parser.add_argument(
@@ -248,8 +278,17 @@ if __name__ == "__main__":
         args.exp_name = "_".join(nondefaults)
     else:
         args.exp_name = "default"
-
     os.makedirs(f"results/{args.exp_name}", exist_ok=True)
     pickle.dump(args, open(f"results/{args.exp_name}/args.pkl", "wb"))
 
+    # Log hyperparameters and run details to WandB
+    config = copy.deepcopy(vars(args))
+    del config["data_dir"], config["num_workers"], config["ckpt_path"], config["run_parallel"]
+    wandb.init(
+        project="robust-ft-meta",
+        config=config,
+        name=args.exp_name,
+    )
+
+    # Run method
     run_method(args.method, args)

@@ -1,11 +1,10 @@
 import copy
+
 import numpy as np
 import torch
 import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.backends.cudnn.benchmark = True
-
 
 def evaluate_net(net, loader):
     """Get test accuracy and losses of net."""
@@ -25,32 +24,12 @@ def evaluate_net(net, loader):
 
     return acc, np.array(losses)
 
-
-def fine_tune_epoch(_net, meta_params, train_loader, optimizer_obj, inner_lr=1e-1):
-    """Fine-tune net on ft_data, and return net, train accuracy, and train loss."""
-    net = copy.deepcopy(_net)
-    inner_opt = optimizer_obj(meta_params, net, lr=inner_lr)
-    loss_fn = nn.CrossEntropyLoss()
-    losses = []
-
-    for i, (train_images, train_labels) in enumerate(train_loader):
-        train_images, train_labels = train_images.to(device), train_labels.to(device)
-        preds = net(train_images)
-        loss = loss_fn(preds, train_labels)
-        inner_opt.zero_grad()
-        if i % 100 == 0:
-            print(f"Iteration {i} | Loss: {loss.item():.2f}")
-        loss.backward()
-        losses.append(loss.item())
-        inner_opt.step()
-
-    return net, meta_params
-
 def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, l2_lambda: int =None):
-    model = copy.deepcopy(model)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = optimizer_obj(meta_params, model, lr=lr)
 
+    train_losses = []
+    val_losses = []
     val_loss = 0.0
     best_val_loss = float('inf')
     epochs_without_improvement = 0
@@ -81,8 +60,9 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
             loss.backward()
             optimizer.step()
 
-        train_loss += loss.item() * inputs.size(0)
+            train_loss += loss.item()
         train_loss /= len(train_loader.dataset)
+        train_losses.append(train_loss)
 
         # Validation
         model.eval()
@@ -94,6 +74,7 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
                 val_loss += loss.item() * inputs.size(0)
 
             val_loss /= len(val_loader.dataset)
+            val_losses.append(val_loss)
 
         # Early stopping check
         if val_loss < best_val_loss:
@@ -103,48 +84,8 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
             epochs_without_improvement += 1
             if epochs_without_improvement == patience:
                 print("Early stopping! Validation loss hasn't improved in", patience, "epochs.")
-                return model
+                break
 
         print(f"Epoch {epoch + 1}/{num_epochs}: Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-    return model
 
-
-def full_fine_tune(_net, train_loader, lr=1e-1):
-    """Fine-tune net on train_loader."""
-    net = copy.deepcopy(_net)
-    opt = torch.optim.SGD(net.parameters(), lr=lr)
-    loss_fn = nn.CrossEntropyLoss()
-
-    for train_images, train_labels in train_loader:
-        train_images, train_labels = train_images.to(device), train_labels.to(device)
-        preds = net(train_images)
-        loss = loss_fn(preds, train_labels)
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-
-    return net
-
-def surgical_fine_tune(_net, train_loader, lr=1e-1):
-    """Fine-tune the first layer of net on train_loader."""
-    net = copy.deepcopy(_net)
-    # Freeze all layers except the first layer
-    for param in net.parameters():
-        param.requires_grad = False
-
-    # Set the first layer to be trainable
-    net.fc1.weight.requires_grad = True
-    net.fc1.bias.requires_grad = True
-
-    opt = torch.optim.SGD(net.parameters(), lr=lr)
-    loss_fn = nn.CrossEntropyLoss()
-
-    for train_images, train_labels in train_loader:
-        train_images, train_labels = train_images.to(device), train_labels.to(device)
-        preds = net(train_images)
-        loss = loss_fn(preds, train_labels)
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-
-    return net
+    return model, train_losses, val_losses
