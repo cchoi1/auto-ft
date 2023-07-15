@@ -44,7 +44,6 @@ class MNISTC(Dataset):
         else:
             images_file = os.path.join(self.root, corruption, _TEST_IMAGES_FILENAME)
             labels_file = os.path.join(self.root, corruption, _TEST_LABELS_FILENAME)
-
         images = np.load(images_file)
         labels = np.load(labels_file)
 

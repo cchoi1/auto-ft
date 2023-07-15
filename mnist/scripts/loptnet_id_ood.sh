@@ -28,6 +28,6 @@ done
 # Execute the Python script with --features argument for each subset
 for subset in "${subsets[@]}"; do
     echo $subset
-    python3 main.py --method ours --ft_id_ood --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LayerSGD --num_nets 1 \
+    python3 main.py --method ours --ft_id_ood --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
 --meta_steps 100 --patience 3 --val ood --num_seeds 3 --features "${subset}"
 done

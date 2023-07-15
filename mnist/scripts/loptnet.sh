@@ -14,20 +14,31 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-LIST=('p', 'g', 'depth', 'wb', 'dist_init_param', 'loss') # Define the input list
-
-# Generate all possible subsets of the list
-subsets=()
-for ((i = 0; i < ${#LIST[@]}; i++)); do
-    for ((j = i + 1; j <= ${#LIST[@]}; j++)); do
-        subset=(${LIST[@]:i:j-i})
-        subsets+=("${subset[*]}")
-    done
+for param in 'p' 'g' 'depth' 'wb' 'dist_init_param' 'loss' 'tensor_rank'
+do
+  echo "PARAM $param"
+  python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
+  --optimizer_name LOptNet --num_nets 1 \
+  --inner_steps 5 --meta_steps 150 --patience 3 --val ood --num_seeds 3 --features $param
 done
 
-# Execute the Python script with --features argument for each subset
-for subset in "${subsets[@]}"; do
-    echo $subset
-    python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LayerSGD --num_nets 1 \
---meta_steps 100 --patience 3 --val ood --num_seeds 3 --features "${subset}"
-done
+#python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
+#--optimizer_name LOptNet --num_nets 1 \
+#--inner_steps 5 --meta_steps 150 --patience 3 --val ood --num_seeds 3 --features 'p' 'g' 'depth' 'wb' 'dist_init_param' 'loss' 'tensor_rank'
+
+# LIST=('p', 'g', 'depth', 'wb', 'dist_init_param', 'loss') # Define the input list
+## Generate all possible subsets of the list
+#subsets=()
+#for ((i = 0; i < ${#LIST[@]}; i++)); do
+#    for ((j = i + 1; j <= ${#LIST[@]}; j++)); do
+#        subset=(${LIST[@]:i:j-i})
+#        subsets+=("${subset[*]}")
+#    done
+#done
+#
+## Execute the Python script with --features argument for each subset
+#for subset in "${subsets[@]}"; do
+#    echo $subset
+#    python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
+#--meta_steps 100 --patience 3 --val ood --num_seeds 3 --features "${subset}"
+#done

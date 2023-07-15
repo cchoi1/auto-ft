@@ -51,10 +51,10 @@ def get_ft_net(method, args):
         meta_params = torch.ones(4).float()
     elif method == "surgical":
         meta_params = torch.tensor([100, -100, -100, -100]).float()
-    elif method == "ours":
+    elif "ours" in method:
         meta_params = train_lopt(args)
     else:
-        raise ValueError("Method must be 'full', 'surgical', 'ours'")
+        raise ValueError("Method must be 'full', 'surgical', 'ours', 'ours-avg")
 
     _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
                                            meta_batch_size=args.meta_batch_size, num_workers=args.num_workers,
@@ -78,7 +78,10 @@ def get_ft_net(method, args):
             _, val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
                                                   batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                   num_workers=args.num_workers, use_meta_batch=False)
-    pretrained_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=False).to(device))
+    pretrained_net = get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=False).to(device)
+
+    if method == "ours-avg":
+        meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
 
     ft_net = train(
         num_epochs=args.num_epochs,
@@ -148,7 +151,7 @@ def evaluate_ft_net(ft_net, args):
 
 def run_method(method, args):
     print(f"\n--- Method: {method} ---\n")
-    assert method in ["full", "surgical", "ours"], "Method must be 'full', 'surgical', or 'ours'."
+    assert method in ["full", "surgical", "ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
     source_val_accs, id_val_accs, ood_val_accs, test_accs = [], [], [], []
     for _ in range(args.num_seeds):
@@ -169,7 +172,7 @@ def run_method(method, args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     dists = ["mnist", "mnistc", "mnist-label-shift"] + _CORRUPTIONS
-    parser.add_argument("--method", type=str, choices=["full", "surgical", "ours"])
+    parser.add_argument("--method", type=str, choices=["full", "surgical", "ours", "ours-avg"])
     parser.add_argument(
         "--ft_id_dist",
         type=str,
@@ -196,7 +199,7 @@ if __name__ == "__main__":
     parser.add_argument("--ft_id_ood", action="store_true", help="Fine-tune w/ meta-params on both ID and OOD data.")
 
     parser.add_argument("--features", nargs='+', type=str,
-                        help="Choose a subset of [p, g, depth, wb, dist_init_param, loss].",
+                        help="Choose a subset of [p, g, depth, wb, dist_init_param, loss, tensor_rank].",
                         default=None)
     parser.add_argument("--meta_steps", type=int, default=100)
     parser.add_argument("--inner_steps", type=int, default=10)
@@ -248,9 +251,5 @@ if __name__ == "__main__":
 
     os.makedirs(f"results/{args.exp_name}", exist_ok=True)
     pickle.dump(args, open(f"results/{args.exp_name}/args.pkl", "wb"))
-
-    # from unittests import test_fine_tune_func_single, test_outer_step_parallel
-    # test_fine_tune_func_single(args)
-    # test_outer_step_parallel(args)
 
     run_method(args.method, args)

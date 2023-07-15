@@ -144,7 +144,7 @@ class LOptNet(Optimizer):
         ]
         return torch.randn(sum(p_sizes))
 
-    def get_lopt_inputs(self, p, g, depth, wb, dist_init_param, loss_ft):
+    def get_lopt_inputs(self, p, g, depth, wb, dist_init_param, loss_ft, tensor_rank):
         features = []
         if "p" in self.features:
             features.append(p)
@@ -158,6 +158,8 @@ class LOptNet(Optimizer):
             features.append(dist_init_param)
         if "loss" in self.features:
             features.append(loss_ft)
+        if "tensor_rank" in self.features:
+            features.append(tensor_rank)
 
         return torch.stack(features, dim=1).to(device)
 
@@ -175,11 +177,12 @@ class LOptNet(Optimizer):
             g_flat = p.grad.data.flatten()
             depth = group["depth"].repeat(p_flat.shape[0]).to(device)
             wb = 0 if group["type"] == "w" else 1
-            wb_flat = torch.tensor(wb).repeat(p_flat.shape[0]).to(device)
+            wb_flat = torch.tensor(wb, dtype=p_flat.dtype).repeat(p_flat.shape[0]).to(device)
             dist_init_param = torch.norm(p_flat - group["init_param"].flatten()).repeat(p_flat.shape[0]).to(device)
             loss_ft = torch.tensor(curr_loss).repeat(p_flat.shape[0]).to(device)
+            tensor_rank = torch.argmin(torch.tensor(p.shape)).repeat(p_flat.shape[0]).to(device, dtype=p_flat.dtype)
 
-            lopt_inputs = self.get_lopt_inputs(p_flat, g_flat, depth, wb_flat, dist_init_param, loss_ft)
+            lopt_inputs = self.get_lopt_inputs(p_flat, g_flat, depth, wb_flat, dist_init_param, loss_ft, tensor_rank)
             self.lopt_net = self.lopt_net.to(device)
             with torch.no_grad():
                 lopt_outputs = self.lopt_net(lopt_inputs).detach()

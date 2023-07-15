@@ -47,6 +47,7 @@ def fine_tune_epoch(_net, meta_params, train_loader, optimizer_obj, inner_lr=1e-
     return net, meta_params
 
 def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, l2_lambda: int =None):
+    model = copy.deepcopy(model)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = optimizer_obj(meta_params, model, lr=lr)
 
