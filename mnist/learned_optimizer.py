@@ -78,8 +78,7 @@ def fine_tune_func_single(optimizer_obj, inner_steps, inner_lr, func_net, net_pa
         net_params = inner_opt.update(net_params, gradients)
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
-        outputs = func_net(net_params, test_images)
-        test_loss = F.cross_entropy(outputs, test_labels) # (meta_batch_size // 2, 1)
+        test_loss = compute_stateless_loss(net_params, test_images, test_labels)
         test_losses.append(test_loss)
 
     return test_losses
@@ -150,7 +149,7 @@ class OptimizerTrainer:
         elif self.run_parallel and self.num_nets == 1:
             """Use a single pretrained model for all finetuning tasks."""
             self.net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=self.ckpt_path, train=True))
-            self.func_net, self.weights = functorch.make_functional(self.net)
+            # self.func_net, self.weights = functorch.make_functional(self.net)
             _finetune = partial(
                 fine_tune_func_single,
                 self.optimizer_obj,
@@ -280,10 +279,8 @@ class OptimizerTrainer:
             else:
                 train_images, train_labels = train_x[_:(_+1)].squeeze(0), train_y[_:(_+1)].squeeze(0)
                 test_images, test_labels = test_x[_:(_+1)].squeeze(0), test_y[_:(_+1)].squeeze(0)
-            losses_plus = self.finetune_iter(net, mp_plus_epsilon, train_images, train_labels, test_images,
-                                                 test_labels)
-            losses_minus = self.finetune_iter(net, mp_minus_epsilon, train_images, train_labels, test_images,
-                                                  test_labels)
+            losses_plus = self.finetune_iter(net, mp_plus_epsilon, train_images, train_labels, test_images, test_labels)
+            losses_minus = self.finetune_iter(net, mp_minus_epsilon, train_images, train_labels, test_images, test_labels)
             loss_diff = losses_plus - losses_minus
             all_losses_diff.append(loss_diff)
             objective = (
@@ -316,13 +313,14 @@ class OptimizerTrainer:
             test_images, test_labels = next(iter(self.ood_val1_loader))
         else:
             train_images, train_labels, test_images, test_labels = train_x, train_y, test_x, test_y
-        train_images = train_images.view(self.meta_batch_size // 2, self.batch_size, 28, 28)
-        train_labels = train_labels.view(self.meta_batch_size // 2, self.batch_size)
-        test_images = test_images.view(self.meta_batch_size // 2, self.batch_size, 28, 28)
-        test_labels = test_labels.view(self.meta_batch_size // 2, self.batch_size)
+        x_shape = (self.meta_batch_size // 2, self.batch_size, 28, 28)
+        y_shape = (self.meta_batch_size // 2, self.batch_size)
+        train_images, test_images = train_images.view(x_shape), test_images.view(x_shape)
+        train_labels, test_labels = train_labels.view(y_shape), test_labels.view(y_shape)
 
         if self.num_nets == 1:
-            func_net, net_params = functorch.make_functional(copy.deepcopy(self.net))
+            net_copy = copy.deepcopy(self.net)
+            func_net, net_params = functorch.make_functional(net_copy)
             losses_plus = self.finetune(func_net, net_params, mp_plus_epsilon, train_images, train_labels, test_images, test_labels)
             losses_minus = self.finetune(func_net, net_params, mp_minus_epsilon, train_images, train_labels, test_images, test_labels)
         else:
@@ -331,9 +329,11 @@ class OptimizerTrainer:
                                         test_images, test_labels)
             losses_minus = self.finetune(func_net, buffers, net_params, mp_minus_epsilon, train_images, train_labels,
                                          test_images, test_labels)
-        losses_plus = torch.stack(losses_plus, dim=0) # (meta_batch_size//2, inner_steps)
-        losses_minus = torch.stack(losses_minus, dim=0) # (meta_batch_size//2, inner_steps)
-        loss_diff = losses_plus - losses_minus # (meta_batch_size//2, inner_steps)
+        losses_plus = torch.stack(losses_plus, dim=0).transpose(0, 1)
+        losses_minus = torch.stack(losses_minus, dim=0).transpose(0, 1) 
+        loss_diff = losses_plus - losses_minus 
+        # print(losses_plus.shape, losses_minus.shape, loss_diff.shape) 
+        # (meta_batch_size//2, inner_steps)
 
         objective = (
                 loss_diff[:, -1].mean() * self.meta_loss_final_w
