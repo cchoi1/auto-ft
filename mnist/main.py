@@ -1,4 +1,3 @@
-import argparse
 import copy
 import os
 import pickle
@@ -6,16 +5,15 @@ import random
 import time
 
 import numpy as np
+import optimizers
 import torch
 import wandb
-
-import optimizers
-from baselines import train, evaluate_net
+from baselines import evaluate_net, train
 from learned_optimizer import OptimizerTrainer
-from mnist import _CORRUPTIONS
+from networks import get_pretrained_net_fixed, pretrain_nets
+
+from parser import get_args
 from mnist import get_dataloaders
-from networks import get_pretrained_net_fixed
-from networks import pretrain_nets
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -35,13 +33,32 @@ def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
     meta_params = opt_trainer.meta_params.cpu().detach().numpy()
     fn = f"results/{exp_name}/{meta_step}.npy"
     np.save(fn, np.array(meta_params))
-    print(f"Saved results to {fn}")
+    # print(f"Saved results to {fn}")
 
-def train_lopt(args):
+def train_optimizer(args):
+    """ Train optimizer and return meta-params. """
+    if args.method == "full":
+        return torch.ones(4).float()
+    elif args.method == "surgical":
+        return torch.tensor([100, -100, -100, -100]).float()
+    assert args.method in ["ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
+
     pretrain_nets(ckpt_path=args.ckpt_path, data_dir=args.data_dir, num_nets=args.num_nets)
-
     start = time.time()
     opt_trainer = OptimizerTrainer(args)
+
+    meta_learning_info = [
+        f"ID={args.ft_id_dist}, OOD={args.ft_ood_dist}, Test={args.test_dist}",
+        f"Num meta params: {opt_trainer.meta_params.numel()}",
+        f"Outer loop info:",
+        f"\tsteps={args.meta_steps}, bs={args.meta_batch_size}, lr={args.meta_lr}, noise_std={args.noise_std}",
+        f"Inner loop info:",
+        f"\tsteps={args.inner_steps}, bs={args.batch_size}, lr={args.inner_lr}",
+        ]
+    if args.optimizer_name == "LOptNet":
+        meta_learning_info.append(f"LOptNet features: {args.features}")
+    print("\n".join(meta_learning_info), "\n")
+
     best_val_loss = np.inf
     for meta_step in range(args.meta_steps + 1):
         if meta_step % args.val_freq == 0:
@@ -56,54 +73,42 @@ def train_lopt(args):
     print(f"Time taken: {elapsed:.2f}s")
     save_meta_params(opt_trainer, args.exp_name, args.meta_steps)
 
-    return opt_trainer.meta_params
+    meta_params = opt_trainer.meta_params.detach().cpu()
+    if args.method == "ours-avg":
+        meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
+    return meta_params
 
-def get_ft_net(method, args):
-    if method == "full":
-        meta_params = torch.ones(4).float()
-    elif method == "surgical":
-        meta_params = torch.tensor([100, -100, -100, -100]).float()
-    elif "ours" in method:
-        meta_params = train_lopt(args)
-    else:
-        raise ValueError("Method must be 'full', 'surgical', 'ours', 'ours-avg")
+def get_ft_net(meta_params, args):
+    """ Fine-tune pretrained net with meta-learned optimizer. """
+    loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, num_workers=args.num_workers, use_meta_batch=False)
+    _, source_val_loader = get_dataloaders(dataset_names=["mnist"], **loader_kwargs)
 
-    _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
-                                           meta_batch_size=args.meta_batch_size, num_workers=args.num_workers,
-                                           use_meta_batch=False)
-    if not args.ft_id_ood:
-        train_loader, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
-                                                      batch_size=args.batch_size,
-                                                      meta_batch_size=args.meta_batch_size // 2,
-                                                      num_workers=args.num_workers, use_meta_batch=False)
-        _, ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
-                                            batch_size=args.batch_size,
-                                            meta_batch_size=args.meta_batch_size // 2,
-                                            num_workers=args.num_workers, use_meta_batch=False)
+    if not args.ft_id_ood:  # Fine-tune on ID data only
+        train_loader, id_val_loader = get_dataloaders(
+            dataset_names=[args.ft_id_dist], **loader_kwargs)
+        _, ood_val_loader = get_dataloaders(
+            dataset_names=[args.ft_ood_dist], **loader_kwargs)
         val_loader = id_val_loader if args.val == "id" else ood_val_loader
-    else:
-        """Fine-tune on both ID and OOD data."""
-        train_loader, val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist, args.ft_ood_dist],
-                                                  batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
-                                                  num_workers=args.num_workers, use_meta_batch=False)
+    else:  # Fine-tune on both ID and OOD data
+        train_loader, val_loader = get_dataloaders(
+            dataset_names=[args.ft_id_dist, args.ft_ood_dist], **loader_kwargs)
         if args.val == "id":
-            _, val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
-                                                  batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
-                                                  num_workers=args.num_workers, use_meta_batch=False)
+            _, val_loader = get_dataloaders(
+                dataset_names=[args.ft_ood_dist], **loader_kwargs)
+
     pretrained_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, train=False).to(device))
 
-    if method == "ours-avg":
-        meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
-
+    optimizer_obj = getattr(optimizers, args.optimizer_name)
     ft_net, train_losses, val_losses = train(
         num_epochs=args.num_epochs,
         model=pretrained_net,
         meta_params=meta_params,
         train_loader=train_loader,
         val_loader=val_loader,
-        optimizer_obj=optimizers.LayerSGD,
-        lr=0.1,
+        optimizer_obj=optimizer_obj,
+        lr=args.inner_lr,
         patience=args.patience,
+        features=args.features,
         l2_lambda=args.l2_lambda,
     )
 
@@ -161,24 +166,27 @@ def evaluate_ft_net(ft_net, args):
         f"| Test Loss: {test_losses.mean():.2f} +- {test_losses.std():.2f}")
     return source_val_accs.mean(), id_val_accs.mean(), ood_val_accs.mean(), test_accs.mean()
 
-def run_method(method, args):
-    print(f"\n--- Method: {method} ---\n")
-    assert method in ["full", "surgical", "ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
+def run_method(args):
+    print(f"\n--- Method: {args.method} ---\n")
+    assert args.method in ["full", "surgical", "ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
     source_val_accs, id_val_accs, ood_val_accs, test_accs = [], [], [], []
     for seed in args.seeds:
         set_seed(seed)
-        ft_net, train_losses, val_losses = get_ft_net(method, args)
 
+        meta_params = train_optimizer(args)
+        ft_net, train_losses, val_losses = get_ft_net(meta_params, args)
         source_val_acc, id_val_acc, ood_val_acc, test_acc = evaluate_ft_net(ft_net, args)
+
         source_val_accs.append(source_val_acc)
         id_val_accs.append(id_val_acc)
         ood_val_accs.append(ood_val_acc)
         test_accs.append(test_acc)
 
     # Log train and val losses at each epoch of the last run (diff lengths of training due to early stopping)
-    for train_loss, val_loss in zip(train_losses, val_losses):
-        wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
+    if not args.no_wandb:
+        for train_loss, val_loss in zip(train_losses, val_losses):
+            wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
 
     # Log final accuracies
     source_val_accs, id_val_accs, ood_val_accs, test_accs = np.array(source_val_accs), np.array(id_val_accs), np.array(ood_val_accs), np.array(test_accs)
@@ -188,7 +196,7 @@ def run_method(method, args):
     print(f"OOD Val Acc: {100 * ood_val_accs.mean():.2f} +- {100 * ood_val_accs.std():.2f}")
     print(f"Test Acc: {100 * test_accs.mean():.2f} +- {100 * test_accs.std():.2f}")
     print(f"\n----------------------------------------\n")
-    wandb.log({
+    wandb_dict = {
         "Source Val Accuracy (Avg)": 100 * source_val_accs.mean(),
         "Source Val Accuracy (Std)": 100 * source_val_accs.std(),
         "ID Val Accuracy (Avg)": 100 * id_val_accs.mean(),
@@ -197,98 +205,22 @@ def run_method(method, args):
         "OOD Val Accuracy (Std)": 100 * ood_val_accs.std(),
         "Test Accuracy (Avg)": 100 * test_accs.mean(),
         "Test Accuracy (Std)": 100 * test_accs.std(),
-    })
+    }
+    if not args.no_wandb:
+        wandb.log(wandb_dict)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    dists = ["mnist", "mnistc", "mnist-label-shift"] + _CORRUPTIONS
-    parser.add_argument("--method", type=str, choices=["full", "surgical", "ours", "ours-avg"])
-    parser.add_argument(
-        "--ft_id_dist",
-        type=str,
-        default="mnistc",
-        choices=dists,
-    )
-    parser.add_argument(
-        "--ft_ood_dist",
-        type=str,
-        default="mnistc",
-        choices=dists,
-    )
-    parser.add_argument(
-        "--test_dist",
-        type=str,
-        default="mnist-label-shift",
-        choices=dists,
-    )
-    parser.add_argument(
-        "--optimizer_name",
-        type=str,
-        default="LayerSGDLinear",
-    )
-    parser.add_argument("--ft_id_ood", action="store_true", help="Fine-tune w/ meta-params on both ID and OOD data.")
-
-    parser.add_argument("--features", nargs='+', type=str,
-                        help="Choose a subset of [p, g, depth, wb, dist_init_param, loss, tensor_rank].",
-                        default=None)
-    parser.add_argument("--meta_steps", type=int, default=100)
-    parser.add_argument("--inner_steps", type=int, default=10)
-    parser.add_argument("--meta_loss_avg_w", type=float, default=0.0)
-    parser.add_argument("--meta_loss_final_w", type=float, default=1.0)
-    parser.add_argument("--meta_batch_size", type=int, default=20)
-    parser.add_argument("--val_freq", type=int, default=10)
-    parser.add_argument("--val_meta_batch_size", type=int, default=100)
-    parser.add_argument("--noise_std", type=float, default=1.0)
-    parser.add_argument("--meta_lr", type=float, default=3e-3)
-    parser.add_argument("--inner_lr", type=float, default=1e-1)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--num_nets", type=int, default=1)
-    parser.add_argument("--num_epochs", type=int, default=40)
-    parser.add_argument("--patience", type=int, default=3)
-    parser.add_argument("--l2_lambda", type=float, default=None)
-    parser.add_argument("--val", type=str, choices='id, ood')
-    parser.add_argument("--seeds", nargs='+', type=int, default=[0, 1, 2])
-
-    # Dataset & Dataloader
-    parser.add_argument(
-        "--data_dir", type=str, default="/iris/u/cchoi1/Data"
-    )
-    parser.add_argument("--num_workers", type=int, default=0)
-    parser.add_argument(
-        "--ckpt_path", type=str, default="/iris/u/cchoi1/robust-optimizer/mnist/ckpts"
-    )
-
-    # Parallelize inner loop
-    parser.add_argument("--run_parallel", action="store_true")
-
-    args = parser.parse_args()
-    print(args)
-
-    defaults = vars(parser.parse_args([]))
-    actuals = vars(args)
-    nondefaults = []
-    for k in sorted(actuals.keys()):
-        if defaults[k] != actuals[k]:
-            first_letters = "".join([w[0] for w in k.split("_")])
-            if type(actuals[k]) == float:
-                nondefaults.append(f"{first_letters}={actuals[k]:.2e}")
-            else:
-                nondefaults.append(f"{first_letters}={actuals[k]}")
-    if len(nondefaults) > 0:
-        args.exp_name = "_".join(nondefaults)
-    else:
-        args.exp_name = "default"
+    args = get_args()
     os.makedirs(f"results/{args.exp_name}", exist_ok=True)
     pickle.dump(args, open(f"results/{args.exp_name}/args.pkl", "wb"))
 
     # Log hyperparameters and run details to WandB
-    config = copy.deepcopy(vars(args))
-    del config["data_dir"], config["num_workers"], config["ckpt_path"], config["run_parallel"]
-    wandb.init(
-        project="robust-ft-meta",
-        config=config,
-        name=args.exp_name,
-    )
+    if not args.no_wandb:
+        config = copy.deepcopy(vars(args))
+        ignore_keys = ["ckpt_path", "num_workers", "run_parallel"]
+        for key in ignore_keys:
+            del config[key]
+        wandb.init(project="robust-ft-meta", config=config, name=args.exp_name)
 
     # Run method
-    run_method(args.method, args)
+    run_method(args)

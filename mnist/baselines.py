@@ -1,5 +1,3 @@
-import copy
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -24,9 +22,9 @@ def evaluate_net(net, loader):
 
     return acc, np.array(losses)
 
-def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, l2_lambda: int =None):
+def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, features, l2_lambda=None):
+    optimizer = optimizer_obj(meta_params, model, features, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = optimizer_obj(meta_params, model, lr=lr)
 
     train_losses = []
     val_losses = []
@@ -34,7 +32,7 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
     best_val_loss = float('inf')
     epochs_without_improvement = 0
     init_params = [p.clone().detach() for p in model.parameters()]
-    # Training loop
+    total_iters = 0
     for epoch in range(num_epochs):
         model.train()  # Set the model in training mode
         train_loss = 0.0
@@ -58,9 +56,10 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
 
             # Backward pass and optimization
             loss.backward()
-            optimizer.step()
+            optimizer.step(curr_loss=loss.item())
 
             train_loss += loss.item()
+            total_iters += 1
         train_loss /= len(train_loader.dataset)
         train_losses.append(train_loss)
 
@@ -86,6 +85,6 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
                 print("Early stopping! Validation loss hasn't improved in", patience, "epochs.")
                 break
 
-        print(f"Epoch {epoch + 1}/{num_epochs}: Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
     return model, train_losses, val_losses

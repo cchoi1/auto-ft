@@ -1,3 +1,4 @@
+""" Definitions for meta-learned optimizers."""
 from abc import ABC, abstractstaticmethod
 
 import torch
@@ -31,6 +32,7 @@ class LayerSGD(Optimizer):
     """meta-params: pre-sigmoid lr_multiplier per parameter."""
 
     def __init__(self, meta_params, net, features=None, lr=required):
+        assert meta_params.numel() == 4
         defaults = dict(lr=lr)
         params = net.parameters()
         super().__init__(params, defaults)
@@ -65,6 +67,7 @@ class LayerSGDLinear(Optimizer):
     """meta-params: weights of linear layer with depth as input."""
 
     def __init__(self, meta_params, net, features=None, lr=required):
+        assert meta_params.numel() == 4
         defaults = dict(lr=lr)
         param_groups = []
         layers = list(

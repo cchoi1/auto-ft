@@ -1,5 +1,4 @@
-import argparse
-import copy
+""" Network architecture and pretraining. """
 import random
 from glob import glob
 from pathlib import Path
@@ -13,6 +12,7 @@ from mnist import get_dataloaders
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class MNISTNet(nn.Module):
+    """ Small MLP for MNIST. """
     def __init__(self):
         super(MNISTNet, self).__init__()
         self.fc1 = nn.Linear(784, 64)  # Input size: 28x28=784, Output size: 64
@@ -25,29 +25,21 @@ class MNISTNet(nn.Module):
         return x
 
 
-def get_network():
-    net = MNISTNet().to(device)
-    return net
-
-
+@torch.no_grad()
 def get_test_accuracy(test_loader, model):
-    correct = 0
-    total = 0
+    correct, total = 0, 0
 
     model.eval()
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images = images.to(device)
-            labels = labels.to(device)
+    for images, labels in test_loader:
+        images = images.to(device)
+        labels = labels.to(device)
 
-            outputs = model(images)
-            _, predicted = torch.max(outputs.data, 1)
-
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
+        outputs = model(images)
+        _, predicted = torch.max(outputs.data, 1)
+        correct += (predicted == labels).sum().item()
+        total += labels.size(0)
 
     accuracy = correct / total
-
     return accuracy
 
 
@@ -56,7 +48,8 @@ def pretrain_net(data_dir, seed=0, lr=1e-3, num_epochs=20):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    net = get_network()
+    net = MNISTNet()
+    net.to(device)
     opt = torch.optim.Adam(net.parameters(), lr=lr)
 
     train_loader, test_loader = get_dataloaders(root_dir=data_dir, dataset="mnist", batch_size=64, meta_batch_size=None)
@@ -68,14 +61,12 @@ def pretrain_net(data_dir, seed=0, lr=1e-3, num_epochs=20):
             images = images.to(device)
             labels = labels.to(device)
 
-            opt.zero_grad()
-
             outputs = net(images)
             loss = criterion(outputs, labels)
 
+            opt.zero_grad()
             loss.backward()
             opt.step()
-
             running_loss += loss.item()
 
         epoch_loss = running_loss / len(train_loader)
@@ -83,7 +74,6 @@ def pretrain_net(data_dir, seed=0, lr=1e-3, num_epochs=20):
 
     accuracy = get_test_accuracy(test_loader=test_loader, model=net)
     print('Test Accuracy: {:.2f}%'.format(accuracy * 100))
-
     return net
 
 
@@ -110,10 +100,11 @@ def get_pretrained_net(ckpt_path, train):
     else:
         random_fn = np.random.choice(test_ckpts)
     rand_checkpoint = torch.load(random_fn)
-    net = get_network()
+    net = MNISTNet()
     net.load_state_dict(rand_checkpoint)
     net = net.to(device)
     return net
+
 
 def get_pretrained_net_fixed(ckpt_path, train):
     """Return a fixed pretrained net. For unittesting purposes."""
@@ -126,7 +117,7 @@ def get_pretrained_net_fixed(ckpt_path, train):
         checkpoint = torch.load(train_ckpts[0])
     else:
         checkpoint = torch.load(test_ckpts[0])
-    net = get_network()
+    net = MNISTNet()
     net.load_state_dict(checkpoint)
     net = net.to(device)
     return net
