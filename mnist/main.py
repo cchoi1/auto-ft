@@ -3,16 +3,17 @@ import os
 import pickle
 import random
 import time
+from collections import defaultdict
+from parser import get_args
 
 import numpy as np
-import optimizers
 import torch
 import wandb
+
+import optimizers
 from baselines import evaluate_net, train
 from learned_optimizer import OptimizerTrainer
 from networks import get_pretrained_net_fixed, pretrain_nets
-
-from parser import get_args
 from mnist import get_dataloaders
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -38,8 +39,10 @@ def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
 def train_optimizer(args):
     """ Train optimizer and return meta-params. """
     if args.method == "full":
+        assert args.optimizer_name == "LayerSGD"
         return torch.ones(4).float()
     elif args.method == "surgical":
+        assert args.optimizer_name == "LayerSGD"
         return torch.tensor([100, -100, -100, -100]).float()
     assert args.method in ["ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
@@ -59,14 +62,15 @@ def train_optimizer(args):
         meta_learning_info.append(f"LOptNet features: {args.features}")
     print("\n".join(meta_learning_info), "\n")
 
+    metrics = defaultdict(list)
     best_val_loss = np.inf
     for meta_step in range(args.meta_steps + 1):
         if meta_step % args.val_freq == 0:
             losses = opt_trainer.validation(args.val_meta_batch_size)
+            for k, v in losses.items():
+                metrics[f"{k}_loss_post"].append(np.array(v).mean())
             save_meta_params(opt_trainer, args.exp_name, meta_step)
-        # outer_start = time.time()
         opt_trainer.outer_loop_step()
-        # print(f"Outer Loop Time: {time.time() - outer_start:.2f}")
 
     elapsed = time.time() - start
     print(f"Final meta-params: {opt_trainer.meta_params.detach().cpu().numpy()}")
@@ -76,12 +80,12 @@ def train_optimizer(args):
     meta_params = opt_trainer.meta_params.detach().cpu()
     if args.method == "ours-avg":
         meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
-    return meta_params
+    return meta_params, metrics
 
-def get_ft_net(meta_params, args):
+def finetune_with_meta_params(meta_params, args):
     """ Fine-tune pretrained net with meta-learned optimizer. """
     loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, num_workers=args.num_workers, use_meta_batch=False)
-    _, source_val_loader = get_dataloaders(dataset_names=["mnist"], **loader_kwargs)
+    # _, source_val_loader = get_dataloaders(dataset_names=["mnist"], **loader_kwargs)
 
     if not args.ft_id_ood:  # Fine-tune on ID data only
         train_loader, id_val_loader = get_dataloaders(
@@ -105,7 +109,7 @@ def get_ft_net(meta_params, args):
         meta_params=meta_params,
         train_loader=train_loader,
         val_loader=val_loader,
-        optimizer_obj=optimizer_obj,
+        optimizer_obj=optimizer_obj if args.method != "ours-avg" else optimizers.LayerSGD,
         lr=args.inner_lr,
         patience=args.patience,
         features=args.features,
@@ -115,96 +119,71 @@ def get_ft_net(meta_params, args):
     return ft_net, train_losses, val_losses
 
 def evaluate_ft_net(ft_net, args):
-    _, source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
-                                           meta_batch_size=args.meta_batch_size, num_workers=args.num_workers,
-                                           use_meta_batch=False)
-    _, id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
-                                                  batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
-                                                  num_workers=args.num_workers, use_meta_batch=False)
-    _, ood_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
-                                                  batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
-                                                  num_workers=args.num_workers, use_meta_batch=False)
-    _, test_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.test_dist],
-                                                  batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
-                                                  num_workers=args.num_workers, use_meta_batch=False)
-    source_val_accs, source_val_losses = [], []
-    id_val_accs, id_val_losses = [], []
-    ood_val_accs, ood_val_losses = [], []
-    test_accs, test_losses = [], []
+    loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, num_workers=args.num_workers, use_meta_batch=False)
+    _, source_val_loader = get_dataloaders(dataset_names=["mnist"], **loader_kwargs)
+    _, id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
+    _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
+    _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
-    # Get accuracy and loss on source distribution.
-    acc, losses = evaluate_net(ft_net, source_val_loader)
-    source_val_accs.append(acc)
-    source_val_losses.append(losses[-1])
-    # Get accuracy and loss on ID and OOD ft distributions.
-    acc, losses = evaluate_net(ft_net, id_val_loader)
-    id_val_accs.append(acc)
-    id_val_losses.append(losses[-1])
-    acc, losses = evaluate_net(ft_net, ood_val_loader)
-    ood_val_accs.append(acc)
-    ood_val_losses.append(losses[-1])
-    # Get accuracy and loss on test distribution.
-    acc, losses = evaluate_net(ft_net, test_loader)
-    test_accs.append(acc)
-    test_losses.append(losses[-1])
+    metrics = {}
+    metrics.update({f"src/{k}": v for k, v in evaluate_net(ft_net, source_val_loader).items()})
+    metrics.update({f"id_val/{k}": v for k, v in evaluate_net(ft_net, id_val_loader).items()})
+    metrics.update({f"ood_val/{k}": v for k, v in evaluate_net(ft_net, ood_val_loader).items()})
+    metrics.update({f"test/{k}": v for k, v in evaluate_net(ft_net, test_loader).items()})
 
-    source_val_accs, source_val_losses = np.array(source_val_accs), np.array(source_val_losses)
-    id_val_accs, id_val_losses = np.array(id_val_accs), np.array(id_val_losses)
-    ood_val_accs, ood_val_losses = np.array(ood_val_accs), np.array(ood_val_losses)
-    test_accs, test_losses = np.array(test_accs), np.array(test_losses)
     print(
-        f"Source Val Acc: {100 * source_val_accs.mean():.2f} +- {100 * source_val_accs.std():.2f} "
-        f"| Source Val Loss: {source_val_losses.mean():.2f} +- {source_val_losses.std():.2f}")
-    print(
-        f"ID Val Acc: {100 * id_val_accs.mean():.2f} +- {100 * id_val_accs.std():.2f} "
-        f"| ID Val Loss: {id_val_losses.mean():.2f} +- {id_val_losses.std():.2f}")
-    print(
-        f"OOD Val Acc: {100 * ood_val_accs.mean():.2f} +- {100 * ood_val_accs.std():.2f} "
-        f"| OOD Val Loss: {ood_val_losses.mean():.2f} +- {ood_val_losses.std():.2f}")
-    print(
-        f"Test Acc: {100 * test_accs.mean():.2f} +- {100 * test_accs.std():.2f} "
-        f"| Test Loss: {test_losses.mean():.2f} +- {test_losses.std():.2f}")
-    return source_val_accs.mean(), id_val_accs.mean(), ood_val_accs.mean(), test_accs.mean()
+        f"Source Val Acc: {100 * metrics['src/acc']:.2f} Loss: {metrics['src/loss']:.2f}\n"
+        f"ID Val Acc: {100 * metrics['id_val/acc']:.2f} Loss: {metrics['id_val/loss']:.2f}\n"
+        f"OOD Val Acc: {100 * metrics['ood_val/acc']:.2f} Loss: {metrics['ood_val/loss']:.2f}\n"
+        f"Test Acc: {100 * metrics['test/acc']:.2f} Loss: {metrics['test/loss']:.2f}\n"
+    )
+    return metrics
 
 def run_method(args):
     print(f"\n--- Method: {args.method} ---\n")
     assert args.method in ["full", "surgical", "ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
-    source_val_accs, id_val_accs, ood_val_accs, test_accs = [], [], [], []
+    all_metrics = defaultdict(list)
     for seed in args.seeds:
         set_seed(seed)
 
-        meta_params = train_optimizer(args)
-        ft_net, train_losses, val_losses = get_ft_net(meta_params, args)
-        source_val_acc, id_val_acc, ood_val_acc, test_acc = evaluate_ft_net(ft_net, args)
+        meta_params, meta_l_metrics = train_optimizer(args)
+        ft_net, train_losses, val_losses = finetune_with_meta_params(meta_params, args)
+        eval_metrics = evaluate_ft_net(ft_net, args)
+        for k, v in meta_l_metrics.items():
+            all_metrics[f"meta/{k}"].append(v)
+        for k, v in eval_metrics.items():
+            all_metrics[k].append(v)
+    all_metrics = {k: np.array(v) for k, v in all_metrics.items()}
 
-        source_val_accs.append(source_val_acc)
-        id_val_accs.append(id_val_acc)
-        ood_val_accs.append(ood_val_acc)
-        test_accs.append(test_acc)
-
-    # Log train and val losses at each epoch of the last run (diff lengths of training due to early stopping)
     if not args.no_wandb:
         for train_loss, val_loss in zip(train_losses, val_losses):
+            # Log train and val losses of the last run (diff lengths of training due to early stopping)
             wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
 
-    # Log final accuracies
-    source_val_accs, id_val_accs, ood_val_accs, test_accs = np.array(source_val_accs), np.array(id_val_accs), np.array(ood_val_accs), np.array(test_accs)
-    print(f"\n--- Results (seeds = {args.seeds}) ---\n")
-    print(f"Source Val Acc: {100 * source_val_accs.mean():.2f} +- {100 * source_val_accs.std():.2f}")
-    print(f"ID Val Acc: {100 * id_val_accs.mean():.2f} +- {100 * id_val_accs.std():.2f}")
-    print(f"OOD Val Acc: {100 * ood_val_accs.mean():.2f} +- {100 * ood_val_accs.std():.2f}")
-    print(f"Test Acc: {100 * test_accs.mean():.2f} +- {100 * test_accs.std():.2f}")
-    print(f"\n----------------------------------------\n")
+        # Log average meta losses per meta-step
+        avg_meta_losses = {k: v.mean(0) for k, v in all_metrics.items() if k.startswith("meta/")}
+        N = len(meta_l_metrics["source_loss_post"])
+        for i in range(N):
+            wandb.log({k: v[i] for k, v in avg_meta_losses.items()})
+
+    print(
+        f"\n--- Results (seeds = {args.seeds}) ---\n"
+        f"Source Val Acc: {100 * all_metrics['src/acc'].mean():.2f} +- {100 * all_metrics['src/acc'].std():.2f}\n"
+        f"ID Val Acc: {100 * all_metrics['id_val/acc'].mean():.2f} +- {100 * all_metrics['id_val/acc'].std():.2f}\n"
+        f"OOD Val Acc: {100 * all_metrics['ood_val/acc'].mean():.2f} +- {100 * all_metrics['ood_val/acc'].std():.2f}\n"
+        f"Test Acc: {100 * all_metrics['test/acc'].mean():.2f} +- {100 * all_metrics['test/acc'].std():.2f}\n"
+        f"\n----------------------------------------\n"
+        )
     wandb_dict = {
-        "Source Val Accuracy (Avg)": 100 * source_val_accs.mean(),
-        "Source Val Accuracy (Std)": 100 * source_val_accs.std(),
-        "ID Val Accuracy (Avg)": 100 * id_val_accs.mean(),
-        "ID Val Accuracy (Std)": 100 * id_val_accs.std(),
-        "OOD Val Accuracy (Avg)": 100 * ood_val_accs.mean(),
-        "OOD Val Accuracy (Std)": 100 * ood_val_accs.std(),
-        "Test Accuracy (Avg)": 100 * test_accs.mean(),
-        "Test Accuracy (Std)": 100 * test_accs.std(),
+        "Source Val Accuracy (Avg)": 100 * all_metrics["src/acc"].mean(),
+        "Source Val Accuracy (Std)": 100 * all_metrics["src/acc"].std(),
+        "ID Val Accuracy (Avg)": 100 * all_metrics["id_val/acc"].mean(),
+        "ID Val Accuracy (Std)": 100 * all_metrics["id_val/acc"].std(),
+        "OOD Val Accuracy (Avg)": 100 * all_metrics["ood_val/acc"].mean(),
+        "OOD Val Accuracy (Std)": 100 * all_metrics["ood_val/acc"].std(),
+        "Test Accuracy (Avg)": 100 * all_metrics["test/acc"].mean(),
+        "Test Accuracy (Std)": 100 * all_metrics["test/acc"].std(),
     }
     if not args.no_wandb:
         wandb.log(wandb_dict)
