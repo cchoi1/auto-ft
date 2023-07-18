@@ -1,12 +1,17 @@
+<<<<<<< HEAD:mnist/utils.py
 import os
 import random
 
 import numpy as np
+=======
+from collections import defaultdict
+>>>>>>> 42ddc76f68b729da1eed44383318ff5b29ece640:mnist/baselines.py
 import torch
 import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+<<<<<<< HEAD:mnist/utils.py
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     random.seed(seed)
@@ -26,35 +31,34 @@ def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
     np.save(fn, np.array(meta_params))
     print(f"Saved results to {fn}")
 
+=======
+@torch.no_grad()
+>>>>>>> 42ddc76f68b729da1eed44383318ff5b29ece640:mnist/baselines.py
 def evaluate_net(net, loader):
     """Get test accuracy and losses of net."""
-    accs, losses = [], []
-    total, correct = 0, 0
+    total, correct_sum, loss_sum = 0, 0, 0.0
     loss_fn = nn.CrossEntropyLoss()
-    with torch.no_grad():
-        for input, labels in loader:
-            input, labels = input.to(device), labels.to(device)
-            output = net(input)
-            loss = loss_fn(output, labels)
-            losses.append(loss.item())
-            preds = torch.argmax(output.data, -1)
-            total += labels.size(0)
-            correct += (preds == labels).sum().item()
-    acc = correct / total
+    net.eval()
+    for x, labels in loader:
+        x, labels = x.to(device), labels.to(device)
+        output = net(x)
+        loss = loss_fn(output, labels)
+        preds = torch.argmax(output.data, -1)
+        total += labels.size(0)
+        correct_sum += (preds == labels).sum().item()
+        loss_sum += loss.item() * labels.size(0)
+    return {"acc": correct_sum / total, "loss": loss_sum / total}
 
-    return acc, np.array(losses)
-
-def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, l2_lambda: int =None):
+def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, features, l2_lambda=None):
+    optimizer = optimizer_obj(meta_params, model, features, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = optimizer_obj(meta_params, model, lr=lr)
 
-    train_losses = []
-    val_losses = []
-    val_loss = 0.0
-    best_val_loss = float('inf')
-    epochs_without_improvement = 0
+    metrics = defaultdict(list)
+    best_val_acc = 0.0
+    train_losses_sum, count = 0.0, 0
+    no_improvement = 0
     init_params = [p.clone().detach() for p in model.parameters()]
-    # Training loop
+    total_iters = 0
     for epoch in range(num_epochs):
         model.train()  # Set the model in training mode
         train_loss = 0.0
@@ -62,13 +66,10 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
         # Iterate over the training dataset
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()  # Clear gradients
-
-            # Forward pass
             outputs = model(inputs)
             loss = loss_fn(outputs, labels)
 
-            # L2-regularization to initial model params
+            # L2 regularization towards initial model params
             l2_reg = torch.tensor(0.0, device=device)
             if l2_lambda is not None:
                 curr_params = [p.clone().detach() for p in model.parameters()]
@@ -77,35 +78,28 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
                 loss += l2_lambda * l2_reg
 
             # Backward pass and optimization
+            optimizer.zero_grad()  # Clear gradients
             loss.backward()
-            optimizer.step()
+            optimizer.step(curr_loss=loss.item())
 
-            train_loss += loss.item()
-        train_loss /= len(train_loader.dataset)
-        train_losses.append(train_loss)
+            train_losses_sum += loss.item() * inputs.size(0)
+            count += inputs.size(0)
+            total_iters += 1
+            if total_iters % 100 == 0:
+                val_metrics = evaluate_net(model, val_loader)
+                val_loss, val_acc = val_metrics["loss"], val_metrics["acc"]
+                train_loss = train_losses_sum / count
+                train_losses_sum, count = 0.0, 0
+                print(f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
+                metrics["train_loss"].append(train_loss)
+                metrics["val_loss"].append(val_loss)
 
-        # Validation
-        model.eval()
-        with torch.no_grad():
-            for inputs, labels in val_loader:
-                inputs, labels = inputs.to(device), labels.to(device)
-                outputs = model(inputs)
-                loss = loss_fn(outputs, labels)
-                val_loss += loss.item() * inputs.size(0)
-
-            val_loss /= len(val_loader.dataset)
-            val_losses.append(val_loss)
-
-        # Early stopping check
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            epochs_without_improvement = 0
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement == patience:
-                print("Early stopping! Validation loss hasn't improved in", patience, "epochs.")
-                break
-
-        print(f"Epoch {epoch + 1}/{num_epochs}: Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-
-    return model, train_losses, val_losses
+                if val_acc > best_val_acc:
+                    best_val_acc = val_acc
+                    no_improvement = 0
+                else:
+                    no_improvement += 1
+                if no_improvement >= patience:
+                    print(f"Early stopping!")
+                    return model, metrics["train_loss"], metrics["val_loss"]
+    return model, metrics["train_loss"], metrics["val_loss"]

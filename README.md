@@ -13,6 +13,10 @@ Torch optimizers
 - https://github.com/kach/gradient-descent-the-ultimate-optimizer/blob/main/src/gradient_descent_the_ultimate_optimizer/gdtuo.py
 - https://github.com/clovaai/AdamP/blob/master/adamp/adamp.py
 
+VeLO Features:
+- Code: https://github.com/google/learned_optimization/blob/687e72e7b5596dfb80c5196fd51f43058899edd9/learned_optimization/research/general_lopt/hyper_v2.py#L80
+- Appendix B of paper
+
 Documentation
 
 functorch documentation
