@@ -17,6 +17,6 @@ cd ../
 #python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LayerSGDLinear --num_nets 1 \
 #--meta_steps 100 --patience 3 --val ood
 
-python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
+python3 main.py --method ours --pretrain_dist mnist --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
 --optimizer_name LayerSGDLinear --num_nets 1 \
 --inner_steps 5 --meta_steps 150 --patience 3 --val ood

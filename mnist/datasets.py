@@ -61,22 +61,6 @@ def get_dataloaders(
             data_dir, corruptions=corruptions, train=False, transform=transform
         )
     elif dataset_names == ["mnist-label-shift"]:
-<<<<<<< HEAD:mnist/datasets.py
-        train_dataset = MNISTLabelShift(root_dir, training_size=60000, testing_size=10000,
-                                        shift_type=5, parameter=0.5, target_label=1, transform=transform, train=True,
-                                        download=True)
-        test_dataset = MNISTLabelShift(root_dir, training_size=60000, testing_size=10000,
-                                       shift_type=5, parameter=0.5, target_label=1, transform=transform, train=False,
-                                       download=True)
-    elif dataset_names == ["svhn"]:
-        transform = transforms.Compose([
-            transforms.Resize((28, 28)),  # Resize the image to (28, 28), which is the input size of MNIST
-            transforms.Grayscale(num_output_channels=1),  # Convert the image to grayscale
-            transforms.ToTensor(),  # Convert PIL image to a PyTorch tensor
-        ])
-        train_dataset = datasets.SVHN(root='./data', split='train', download=True, transform=transform)
-        test_dataset = datasets.SVHN(root='./data', split='test', download=True, transform=transform)
-=======
         train_dataset = MNISTLabelShift(
             root_dir,
             training_size=60000,
@@ -99,7 +83,14 @@ def get_dataloaders(
             train=False,
             download=True,
         )
->>>>>>> 42ddc76f68b729da1eed44383318ff5b29ece640:mnist/mnist.py
+    elif dataset_names == ["svhn"]:
+        transform = transforms.Compose([
+            transforms.Resize((28, 28)),  # Resize the image to (28, 28), which is the input size of MNIST
+            transforms.Grayscale(num_output_channels=1),  # Convert the image to grayscale
+            transforms.ToTensor(),  # Convert PIL image to a PyTorch tensor
+        ])
+        train_dataset = datasets.SVHN(root='./data', split='train', download=True, transform=transform)
+        test_dataset = datasets.SVHN(root='./data', split='test', download=True, transform=transform)
 
     if not use_meta_batch:
         train_loader = DataLoader(
@@ -109,10 +100,6 @@ def get_dataloaders(
             test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
         )
     else:
-<<<<<<< HEAD:mnist/datasets.py
-        meta_train_batches = meta_batch_sampler(train_dataset, meta_batch_size, batch_size)
-        meta_test_batches = meta_batch_sampler(test_dataset, meta_batch_size, batch_size)
-=======
         meta_train_batches = meta_batch_sampler(
             train_dataset, meta_batch_size, batch_size
         )
@@ -120,7 +107,6 @@ def get_dataloaders(
             test_dataset, meta_batch_size, batch_size
         )
 
->>>>>>> 42ddc76f68b729da1eed44383318ff5b29ece640:mnist/mnist.py
         # Wrap the base dataset with DataLoader using the meta-batches
         train_loader = DataLoader(
             train_dataset, batch_sampler=meta_train_batches, num_workers=num_workers

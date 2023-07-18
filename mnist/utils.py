@@ -1,39 +1,10 @@
-<<<<<<< HEAD:mnist/utils.py
-import os
-import random
-
-import numpy as np
-=======
 from collections import defaultdict
->>>>>>> 42ddc76f68b729da1eed44383318ff5b29ece640:mnist/baselines.py
 import torch
 import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-<<<<<<< HEAD:mnist/utils.py
-def set_seed(seed: int = 42) -> None:
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    # When running on the CuDNN backend, two further options must be set
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    # Set a fixed value for the hash seed
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    print(f"Random seed set as {seed}")
-
-
-def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
-    meta_params = opt_trainer.meta_params.cpu().detach().numpy()
-    fn = f"results/{exp_name}/{meta_step}.npy"
-    np.save(fn, np.array(meta_params))
-    print(f"Saved results to {fn}")
-
-=======
 @torch.no_grad()
->>>>>>> 42ddc76f68b729da1eed44383318ff5b29ece640:mnist/baselines.py
 def evaluate_net(net, loader):
     """Get test accuracy and losses of net."""
     total, correct_sum, loss_sum = 0, 0, 0.0
@@ -80,7 +51,7 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
             # Backward pass and optimization
             optimizer.zero_grad()  # Clear gradients
             loss.backward()
-            optimizer.step(curr_loss=loss.item())
+            optimizer.step(curr_loss=loss.item(), iter=total_iters, iter_frac=total_iters / (num_epochs * len(train_loader)))
 
             train_losses_sum += loss.item() * inputs.size(0)
             count += inputs.size(0)

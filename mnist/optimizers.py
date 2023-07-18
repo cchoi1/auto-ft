@@ -32,7 +32,7 @@ class LayerSGD(Optimizer):
     """meta-params: pre-sigmoid lr_multiplier per parameter."""
 
     def __init__(self, meta_params, net, features=None, lr=required):
-        assert meta_params.numel() == 4
+        # assert meta_params.numel() == 4
         defaults = dict(lr=lr)
         params = net.parameters()
         super().__init__(params, defaults)
@@ -46,7 +46,7 @@ class LayerSGD(Optimizer):
     def get_noise(num_params):
         return torch.randn(num_params)
 
-    def step(self, curr_loss=None, closure=None):
+    def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -67,7 +67,7 @@ class LayerSGDLinear(Optimizer):
     """meta-params: weights of linear layer with depth as input."""
 
     def __init__(self, meta_params, net, features=None, lr=required):
-        assert meta_params.numel() == 4
+        # assert meta_params.numel() == 4
         defaults = dict(lr=lr)
         param_groups = []
         layers = list(
@@ -87,7 +87,7 @@ class LayerSGDLinear(Optimizer):
     def get_noise(num_params):
         return torch.randn(num_params)
 
-    def step(self, curr_loss=None, closure=None):
+    def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -149,7 +149,7 @@ class LOptNet(Optimizer):
         ]
         return torch.randn(sum(p_sizes))
 
-    def get_lopt_inputs(self, p, g, p_norm, g_norm, g_norm_avg, depth, dist_init_param, iter, loss, loss_ema, tensor_rank):
+    def get_lopt_inputs(self, p, g, p_norm, g_norm, g_norm_avg, depth, wb, dist_init_param, iter, iter_frac, loss, loss_ema, tensor_rank):
         features = []
         if "p" in self.features:
             features.append(p)
@@ -163,10 +163,14 @@ class LOptNet(Optimizer):
             features.append(g_norm_avg)
         if "depth" in self.features:
             features.append(depth)
+        if "wb" in self.features:
+            features.append(wb)
         if "dist_init_param" in self.features:
             features.append(dist_init_param)
         if "iter" in self.features:
             features.append(iter)
+        if "iter_frac" in self.features:
+            features.append(iter_frac)
         if "loss" in self.features:
             features.append(loss)
         if "loss_ema" in self.features:
@@ -176,7 +180,7 @@ class LOptNet(Optimizer):
 
         return torch.stack(features, dim=1)
 
-    def step(self, curr_loss, iter, closure=None):
+    def step(self, curr_loss, iter, iter_frac, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -192,14 +196,17 @@ class LOptNet(Optimizer):
             g_norm = torch.norm(p.grad.data).flatten().repeat(p_flat.shape[0])
             g_norm_avg = torch.norm(p.grad.data, dim=-1).mean(dim=0).repeat(p_flat.shape[0]) # grad norm avg across batch
             depth = group["depth"].repeat(p_flat.shape[0]).to(device)
+            wb = 0 if group["type"] == "w" else 1
+            wb_flat = torch.tensor(wb, dtype=p_flat.dtype).repeat(p_flat.shape[0]).to(device)
             dist_init_param = torch.norm(p.data - group["init_param"]).repeat(p_flat.shape[0])
             loss = torch.tensor(curr_loss).repeat(p_flat.shape[0]).to(device)
             self.loss_ema = self.decay * self.loss_ema + (1 - self.decay) * curr_loss
             loss_ema = torch.tensor(self.loss_ema).repeat(p_flat.shape[0]).to(device)
-            iter_num = torch.tensor(iter).repeat(p_flat.shape[0]).to(device)
+            iter_num = torch.tensor(iter, dtype=p_flat.dtype).repeat(p_flat.shape[0]).to(device)
+            iter_frac_t = torch.tensor(iter_frac, dtype=p_flat.dtype).repeat(p_flat.shape[0]).to(device)
             tensor_rank = torch.argmin(torch.tensor(p.shape)).repeat(p_flat.shape[0]).to(device, dtype=p_norm.dtype)
 
-            lopt_inputs = self.get_lopt_inputs(p_flat, g_flat, p_norm, g_norm, g_norm_avg, depth, dist_init_param, iter_num, loss, loss_ema, tensor_rank)
+            lopt_inputs = self.get_lopt_inputs(p_flat, g_flat, p_norm, g_norm, g_norm_avg, depth, wb_flat, dist_init_param, iter_num, iter_frac_t, loss, loss_ema, tensor_rank)
             lopt_inputs = lopt_inputs.cpu()
 
             with torch.no_grad():

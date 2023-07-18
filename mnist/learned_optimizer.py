@@ -14,7 +14,7 @@ from networks import get_pretrained_net_fixed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def fine_tune(optimizer_obj, inner_steps, inner_lr, features, _net, meta_params, train_images, train_labels, test_images, test_labels, iter):
+def fine_tune(optimizer_obj, inner_steps, inner_lr, features, total_iters, _net, meta_params, train_images, train_labels, test_images, test_labels, iter):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     net = copy.deepcopy(_net)
     inner_opt = optimizer_obj(meta_params, net, features, lr=inner_lr)
@@ -26,7 +26,7 @@ def fine_tune(optimizer_obj, inner_steps, inner_lr, features, _net, meta_params,
         loss = loss_fn(preds, train_labels)
         inner_opt.zero_grad()
         loss.backward()
-        inner_opt.step(curr_loss=loss.item(), iter=iter)
+        inner_opt.step(curr_loss=loss.item(), iter=iter, iter_frac=iter/total_iters)
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
@@ -63,12 +63,13 @@ class OptimizerTrainer:
         self.ckpt_path = args.ckpt_path
         self.run_parallel = args.run_parallel
         self.num_workers = args.num_workers
+        self.pretrain_dist = args.pretrain_dist
         self.ft_id_dist = args.ft_id_dist
         self.ft_ood_dist = args.ft_ood_dist
         self.test_dist = args.test_dist
         self.num_nets = args.num_nets
         self.features = args.features
-        self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name= args.pretrain_dist, train=True)
+        self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name=args.pretrain_dist, train=True)
         if self.features is not None:
             self.num_features = len(self.features)
         else:
@@ -80,9 +81,6 @@ class OptimizerTrainer:
         self.meta_params = self.optimizer_obj.get_init_meta_params(self.num_features)
         self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
 
-        _, self.source_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=["mnist"], batch_size=args.batch_size,
-                                                    meta_batch_size=args.meta_batch_size // 2,
-                                                    num_workers=args.num_workers, use_meta_batch=self.run_parallel)
         self.train_loader, self.id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
                                                                 batch_size=args.batch_size,
                                                                 meta_batch_size=args.meta_batch_size // 2,
@@ -103,6 +101,8 @@ class OptimizerTrainer:
         self.noise_std = args.noise_std
         self.meta_loss_avg_w = args.meta_loss_avg_w
         self.meta_loss_final_w = args.meta_loss_final_w
+        self.meta_steps = args.meta_steps
+        self.total_iters = self.meta_steps * self.inner_steps
 
         if self.run_parallel:
             """Use a single pretrained model for all finetuning tasks."""
@@ -120,7 +120,8 @@ class OptimizerTrainer:
                 self.optimizer_obj,
                 self.inner_steps,
                 self.inner_lr,
-                self.features
+                self.features,
+                self.total_iters,
             )
 
     def validation_iter(self, repeat):

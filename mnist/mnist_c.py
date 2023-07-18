@@ -37,6 +37,13 @@ class MNISTC(Dataset):
         self.images = np.concatenate(all_images, axis=0)
         self.labels = np.concatenate(all_labels, axis=0)
 
+        if train:
+            print("TRAIN")
+        else:
+            print("TEST")
+        print(corruptions)
+        print("NUM EXAMPLES", len(self.labels))
+
     def _load_data(self, corruption):
         if self.train:
             images_file = os.path.join(self.root, corruption, _TRAIN_IMAGES_FILENAME)

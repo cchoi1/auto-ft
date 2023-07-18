@@ -2,8 +2,6 @@
 
 import torch
 
-import torch
-
 class MomAccumulator:
     def __init__(self, m, t):
         self.m = m
