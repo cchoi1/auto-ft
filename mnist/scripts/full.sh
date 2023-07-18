@@ -14,5 +14,5 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-python3 main.py --method full --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
---meta_steps 160 --patience 3 --val ood --num_seeds 3
+#python3 main.py --method full --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --patience 3 --val ood
+python3 main.py --method full --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist mnistc --patience 3 --val ood

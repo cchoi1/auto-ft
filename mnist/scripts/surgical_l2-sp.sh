@@ -14,16 +14,16 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-#for LAMBDA in 0.001 0.01 0.1 0.5 1.0
+#for LAMBDA in 0.001 0.01 0.1 0.5 1.0 1.5 2.0 3.0 5.0
 #do
 #    echo "L2 LAMBDA: $LAMBDA"
 #    python3 main.py --method surgical --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
-#--meta_steps 100 --l2_lambda $LAMBDA --patience 3 --val ood --num_seeds 3
+#--meta_steps 100 --l2_lambda $LAMBDA --patience 3 --val ood
 #done
 
-for LAMBDA in 1.5 2.0 3.0 5.0
+for LAMBDA in 0.001 0.01 0.1 0.5 1.0 1.5 2.0 3.0 5.0
 do
     echo "L2 LAMBDA: $LAMBDA"
-    python3 main.py --method surgical --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc --optimizer_name LOptNet --num_nets 1 \
---meta_steps 100 --l2_lambda $LAMBDA --patience 3 --val ood --num_seeds 3
+    python3 main.py --method surgical --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist mnistc \
+    --l2_lambda $LAMBDA --val ood
 done

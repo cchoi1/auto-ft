@@ -14,19 +14,18 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-#for INNERSTEPS in 5 10 20 30
-#do
-#  for METASTEPS in 80 100 150 200 250
-#  do
-#    echo "---------------------"
-#    echo "INNER STEPS: $INNERSTEPS, METASTEPS: $METASTEPS"
-#    echo "---------------------"
-#    python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
-#    --optimizer_name LayerSGD --num_nets 1 \
-#    --meta_steps $METASTEPS --inner_steps $INNERSTEPS --patience 3 --val ood --num_seeds 3
-#  done
-#done
+for INNERSTEPS in 5 10 20 30
+do
+  for METASTEPS in 80 100 150 200 250
+  do
+    echo "---------------------"
+    echo "INNER STEPS: $INNERSTEPS, METASTEPS: $METASTEPS"
+    echo "---------------------"
+    python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist mnistc \
+    --optimizer_name LayerSGD --inner_steps $INNERSTEPS --meta_steps $METASTEPS
+  done
+done
 
-python3 main.py --method ours --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
---optimizer_name LayerSGD --num_nets 1 \
---inner_steps 5 --meta_steps 150 --patience 3 --val ood --num_seeds 3
+#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist mnistc \
+#--optimizer_name LayerSGD --num_nets 1 \
+#--inner_steps 5 --meta_steps 150 --patience 3 --val ood

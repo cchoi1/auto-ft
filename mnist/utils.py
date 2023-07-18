@@ -1,10 +1,30 @@
-import copy
+import os
+import random
 
 import numpy as np
 import torch
 import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
+
+
+def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
+    meta_params = opt_trainer.meta_params.cpu().detach().numpy()
+    fn = f"results/{exp_name}/{meta_step}.npy"
+    np.save(fn, np.array(meta_params))
+    print(f"Saved results to {fn}")
 
 def evaluate_net(net, loader):
     """Get test accuracy and losses of net."""

@@ -37,12 +37,12 @@ class LayerSGD(Optimizer):
         self.meta_params = meta_params
 
     @staticmethod
-    def get_init_meta_params(num_features):
-        return torch.zeros(4)
+    def get_init_meta_params(num_params):
+        return torch.zeros(num_params)
 
     @staticmethod
-    def get_noise(num_features):
-        return torch.randn(4)
+    def get_noise(num_params):
+        return torch.randn(num_params)
 
     def step(self, curr_loss=None, closure=None):
         loss = None
@@ -77,12 +77,12 @@ class LayerSGDLinear(Optimizer):
         self.meta_params = {"w": meta_params[0:2], "b": meta_params[2:4]}
 
     @staticmethod
-    def get_init_meta_params(num_features):
-        return torch.zeros(4)
+    def get_init_meta_params(num_params):
+        return torch.zeros(num_params)
 
     @staticmethod
-    def get_noise(num_features):
-        return torch.randn(4)
+    def get_noise(num_params):
+        return torch.randn(num_params)
 
     def step(self, curr_loss=None, closure=None):
         loss = None
@@ -128,6 +128,8 @@ class LOptNet(Optimizer):
         split_p = meta_params.split(p_sizes)
         for i, p in enumerate(self.lopt_net.parameters()):
             p.data = split_p[i].reshape(p_shapes[i])
+        self.loss_ema = 0.0
+        self.decay = 0.9
 
     @staticmethod
     def get_init_meta_params(num_features):
@@ -144,26 +146,34 @@ class LOptNet(Optimizer):
         ]
         return torch.randn(sum(p_sizes))
 
-    def get_lopt_inputs(self, p, g, depth, wb, dist_init_param, loss_ft, tensor_rank):
+    def get_lopt_inputs(self, p, g, p_norm, g_norm, g_norm_avg, depth, dist_init_param, iter, loss, loss_ema, tensor_rank):
         features = []
         if "p" in self.features:
             features.append(p)
         if "g" in self.features:
             features.append(g)
+        if "p_norm" in self.features:
+            features.append(p_norm)
+        if "g_norm" in self.features:
+            features.append(g_norm)
+        if "g_norm_avg" in self.features:
+            features.append(g_norm_avg)
         if "depth" in self.features:
             features.append(depth)
-        if "wb" in self.features:
-            features.append(wb)
         if "dist_init_param" in self.features:
             features.append(dist_init_param)
+        if "iter" in self.features:
+            features.append(iter)
         if "loss" in self.features:
-            features.append(loss_ft)
+            features.append(loss)
+        if "loss_ema" in self.features:
+            features.append(loss_ema)
         if "tensor_rank" in self.features:
             features.append(tensor_rank)
 
-        return torch.stack(features, dim=1).to(device)
+        return torch.stack(features, dim=1)
 
-    def step(self, curr_loss, closure=None):
+    def step(self, curr_loss, iter, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -175,21 +185,24 @@ class LOptNet(Optimizer):
 
             p_flat = p.data.flatten()
             g_flat = p.grad.data.flatten()
+            p_norm = torch.norm(p.data).flatten().repeat(p_flat.shape[0])
+            g_norm = torch.norm(p.grad.data).flatten().repeat(p_flat.shape[0])
+            g_norm_avg = torch.norm(p.grad.data, dim=-1).mean(dim=0).repeat(p_flat.shape[0]) # grad norm avg across batch
             depth = group["depth"].repeat(p_flat.shape[0]).to(device)
-            wb = 0 if group["type"] == "w" else 1
-            wb_flat = torch.tensor(wb, dtype=p_flat.dtype).repeat(p_flat.shape[0]).to(device)
-            dist_init_param = torch.norm(p_flat - group["init_param"].flatten()).repeat(p_flat.shape[0]).to(device)
-            loss_ft = torch.tensor(curr_loss).repeat(p_flat.shape[0]).to(device)
-            tensor_rank = torch.argmin(torch.tensor(p.shape)).repeat(p_flat.shape[0]).to(device, dtype=p_flat.dtype)
+            dist_init_param = torch.norm(p.data - group["init_param"]).repeat(p_flat.shape[0])
+            loss = torch.tensor(curr_loss).repeat(p_flat.shape[0]).to(device)
+            self.loss_ema = self.decay * self.loss_ema + (1 - self.decay) * curr_loss
+            loss_ema = torch.tensor(self.loss_ema).repeat(p_flat.shape[0]).to(device)
+            iter_num = torch.tensor(iter).repeat(p_flat.shape[0]).to(device)
+            tensor_rank = torch.argmin(torch.tensor(p.shape)).repeat(p_flat.shape[0]).to(device, dtype=p_norm.dtype)
 
-            lopt_inputs = self.get_lopt_inputs(p_flat, g_flat, depth, wb_flat, dist_init_param, loss_ft, tensor_rank)
-            self.lopt_net = self.lopt_net.to(device)
+            lopt_inputs = self.get_lopt_inputs(p_flat, g_flat, p_norm, g_norm, g_norm_avg, depth, dist_init_param, iter_num, loss, loss_ema, tensor_rank)
+            lopt_inputs = lopt_inputs.cpu()
+
             with torch.no_grad():
                 lopt_outputs = self.lopt_net(lopt_inputs).detach()
 
-            # update = torch.tanh(lopt_outputs).reshape(p.data.shape)
-            # p.data = p.data + group["lr"] * update
+            lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape).to(device)
+            p.data.add_(-p.grad.data * group["lr"] * lr_multiplier)
 
-            lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape)
-            p.data = p.data - p.grad.data * group["lr"] * lr_multiplier
         return loss
