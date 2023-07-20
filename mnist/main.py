@@ -29,9 +29,14 @@ def set_seed(seed: int = 42) -> None:
     print(f"Random seed set as {seed}")
 
 def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
-    meta_params = opt_trainer.meta_params.cpu().detach().numpy()
     fn = f"results/{exp_name}/{meta_step}.npy"
-    np.save(fn, np.array(meta_params))
+    if type(opt_trainer.meta_params) == torch.Tensor:
+        meta_params = opt_trainer.meta_params.cpu().detach().numpy()
+        np.save(fn, np.array(meta_params))
+    else:
+        meta_params = [per_param_mp.cpu().detach().numpy() for per_param_mp in opt_trainer.meta_params]
+        np.savez(fn, *meta_params)
+
 
 def train_optimizer(args):
     """ Train optimizer and return meta-params. """
@@ -78,16 +83,18 @@ def train_optimizer(args):
             for k, v in losses.items():
                 metrics[f"{k}_loss_post"].append(np.array(v).mean())
             save_meta_params(opt_trainer, args.exp_name, meta_step)
-        start_outer = time.time()
         opt_trainer.outer_loop_step()
-        print(f"Outer Loop Step Time: {time.time() - start_outer:.2f}s")
 
     elapsed = time.time() - start
     print(f"Final meta-params: {opt_trainer.meta_params.detach().cpu().numpy()}")
+    print(f"Average meta-params: {opt_trainer.meta_params.detach().cpu().numpy().mean()}")
     print(f"Time taken: {elapsed:.2f}s")
     save_meta_params(opt_trainer, args.exp_name, args.meta_steps)
 
-    meta_params = opt_trainer.meta_params.detach().cpu()
+    if type(opt_trainer.meta_params) == list:
+        meta_params = [mp.detach().cpu() for mp in opt_trainer.meta_params]
+    else:
+        meta_params = opt_trainer.meta_params.detach().cpu()
     if args.method == "ours-avg":
         meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
     return meta_params, metrics

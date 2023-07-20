@@ -70,16 +70,19 @@ class OptimizerTrainer:
         self.num_nets = args.num_nets
         self.features = args.features
         self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name=args.pretrain_dist, train=True)
-        if self.features is not None:
-            self.num_features = len(self.features)
-        else:
-            self.num_features = len([p for p in self.net.parameters()])
+        self.lopt_info = {
+            "num_features": len(self.features) if self.features is not None else len([p for p in self.net.parameters()]),
+            "tensor_shapes": [p.shape for p in self.net.parameters()],
+        }
         self.num_iters = 0
 
         optimizer_module = importlib.import_module(f"optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers")
         self.optimizer_obj = getattr(optimizer_module, args.optimizer_name)
-        self.meta_params = self.optimizer_obj.get_init_meta_params(self.num_features)
-        self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
+        self.meta_params = self.optimizer_obj.get_init_meta_params(self.lopt_info)
+        if type(self.meta_params) == list:
+            self.meta_optimizer = torch.optim.SGD(self.meta_params, lr=args.meta_lr)
+        else:
+            self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
 
         self.train_loader, self.id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
                                                                 batch_size=args.batch_size,
@@ -210,15 +213,14 @@ class OptimizerTrainer:
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
         Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
         grads = []
-        all_losses_diff = []
         for _ in range(self.meta_batch_size // 2):
             net = copy.deepcopy(self.net)
-            if epsilon is None:
-                epsilon = (
-                        self.optimizer_obj.get_noise(self.num_features) * self.noise_std
-                ) # Antithetic sampling
+            epsilon = (
+                    self.optimizer_obj.get_noise(self.lopt_info) * self.noise_std
+            ) # Antithetic sampling
             mp_plus_epsilon = self.meta_params + epsilon
             mp_minus_epsilon = self.meta_params - epsilon
+
             if train_x is None or train_y is None or test_x is None or test_y is None:
                 train_images, train_labels = next(iter(self.train_loader))
                 test_images, test_labels = next(iter(self.ood_val1_loader))
@@ -232,12 +234,12 @@ class OptimizerTrainer:
             self.num_iters += self.inner_steps
 
             loss_diff = losses_plus - losses_minus
-            all_losses_diff.append(loss_diff)
             objective = (
                     loss_diff[-1] * self.meta_loss_final_w
                     + loss_diff.mean() * self.meta_loss_avg_w
             )
             grads.append(objective * epsilon / self.noise_std / 2)
+
         grads_mean = torch.stack(grads).mean(dim=0)
 
         self.meta_optimizer.zero_grad()
@@ -251,8 +253,9 @@ class OptimizerTrainer:
         Parallelizes over tasks in the meta batch using vmap.
         Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
         if epsilon is None:
+            self.lopt_info["num_features"] = self.meta_batch_size // 2
             epsilon = (
-                    self.optimizer_obj.get_noise(self.meta_batch_size // 2) * self.noise_std
+                    self.optimizer_obj.get_noise(self.lopt_info) * self.noise_std
             ) # Antithetic sampling
         mp_plus_epsilon = self.meta_params + epsilon
         mp_minus_epsilon = self.meta_params - epsilon

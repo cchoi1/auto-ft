@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import torch
 from torch.utils.data import Dataset
 
 _TRAIN_IMAGES_FILENAME = 'train_images.npy'

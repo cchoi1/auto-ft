@@ -1,6 +1,7 @@
 """ Definitions for meta-learned optimizers."""
 from abc import ABC, abstractstaticmethod
 
+import copy
 import torch
 from torch import nn
 from torch.optim.optimizer import Optimizer, required
@@ -29,7 +30,7 @@ class LearnedOptimizer(Optimizer, ABC):
 
 
 class LayerSGD(Optimizer):
-    """meta-params: pre-sigmoid lr_multiplier per parameter."""
+    """meta-params: pre-sigmoid lr_multiplier per tensor."""
 
     def __init__(self, meta_params, net, features=None, lr=required):
         # assert meta_params.numel() == 4
@@ -39,12 +40,13 @@ class LayerSGD(Optimizer):
         self.meta_params = meta_params
 
     @staticmethod
-    def get_init_meta_params(num_params):
-        return torch.zeros(num_params)
+    def get_init_meta_params(inp_info):
+        return torch.zeros(inp_info["num_features"])
 
     @staticmethod
-    def get_noise(num_params):
-        return torch.randn(num_params)
+    def get_noise(inp_info):
+        return torch.randn(inp_info["num_features"])
+        # return torch.ones(inp_info["num_features"]) * 0.5
 
     def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
         loss = None
@@ -63,6 +65,49 @@ class LayerSGD(Optimizer):
         return loss
 
 
+class PerParamSGD(Optimizer):
+    """meta-params: pre-sigmoid lr_multiplier per parameter."""
+
+    def __init__(self, meta_params, net, features=None, lr=required):
+        # assert meta_params.numel() == 4
+        defaults = dict(lr=lr)
+        params = net.parameters()
+        super().__init__(params, defaults)
+        self.meta_params = meta_params
+
+    @staticmethod
+    def get_init_meta_params(inp_info):
+        """tensor_shapes: a list of shapes of each tensor in the network."""
+        num_params = sum([t.numel() for t in inp_info["tensor_shapes"]])
+        return torch.zeros(num_params)
+
+    @staticmethod
+    def get_noise(inp_info):
+        """tensor_shapes: a list of shapes of each tensor in the network."""
+        num_params = sum([t.numel() for t in inp_info["tensor_shapes"]])
+        return torch.randn(num_params)
+
+    def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        idx = 0
+        for group in self.param_groups:
+            for i, p in enumerate(group["params"]):
+                if p.grad is None:
+                    continue
+                d_p = p.grad.data
+
+                p_meta_params = self.meta_params[idx : idx + p.numel()].reshape(p.shape)
+                idx += p.numel()
+
+                lr_multiplier = torch.sigmoid(p_meta_params)
+                local_lr = group["lr"] * lr_multiplier
+                local_lr = local_lr.to(device)
+                p.data.add_(d_p * -local_lr)
+        return loss
+
 class LayerSGDLinear(Optimizer):
     """meta-params: weights of linear layer with depth as input."""
 
@@ -80,12 +125,12 @@ class LayerSGDLinear(Optimizer):
         self.meta_params = {"w": meta_params[0:2], "b": meta_params[2:4]}
 
     @staticmethod
-    def get_init_meta_params(num_params):
-        return torch.zeros(num_params)
+    def get_init_meta_params(inp_info):
+        return torch.zeros(inp_info["num_features"])
 
     @staticmethod
-    def get_noise(num_params):
-        return torch.randn(num_params)
+    def get_noise(inp_info):
+        return torch.randn(inp_info["num_features"])
 
     def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
         loss = None
@@ -105,7 +150,8 @@ class LayerSGDLinear(Optimizer):
 
 
 def get_lopt_net(in_dim):
-    hid = 2
+    # hid = 2
+    hid = 64
     return nn.Sequential(nn.Linear(in_dim, hid), nn.ReLU(), nn.Linear(hid, 1))
 
 
@@ -135,15 +181,15 @@ class LOptNet(Optimizer):
         self.decay = 0.9
 
     @staticmethod
-    def get_init_meta_params(num_features):
-        dummy_net = get_lopt_net(num_features)
+    def get_init_meta_params(inp_info):
+        dummy_net = get_lopt_net(inp_info["num_features"])
         dummy_params = [p for p in dummy_net.parameters()]
         init_weights = [p.data.flatten() for p in dummy_params]
         return torch.cat(init_weights)
 
     @staticmethod
-    def get_noise(num_features):
-        dummy_net = get_lopt_net(num_features)
+    def get_noise(inp_info):
+        dummy_net = get_lopt_net(inp_info["num_features"])
         p_sizes = [
             torch.prod(torch.tensor(p.data.shape)) for p in dummy_net.parameters()
         ]
