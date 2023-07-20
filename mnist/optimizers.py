@@ -99,7 +99,7 @@ class PerParamSGD(Optimizer):
                     continue
                 d_p = p.grad.data
 
-                p_meta_params = self.meta_params[idx : idx + p.numel()].reshape(p.shape)
+                p_meta_params = self.meta_params[idx : idx + p.numel()].view(p.shape)
                 idx += p.numel()
 
                 lr_multiplier = torch.sigmoid(p_meta_params)
