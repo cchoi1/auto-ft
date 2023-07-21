@@ -329,19 +329,19 @@ class PerParamLOptNet(Optimizer):
     @staticmethod
     def get_init_meta_params(inp_info):
         num_params = sum([torch.prod(torch.tensor(p_shape)) for p_shape in inp_info["tensor_shapes"]])
-        dummy_net = LargeMLP(input_dim=num_params, output_dim=num_params).to(device)
+        dummy_net = LargeMLP(input_dim=num_params, output_dim=num_params)
         dummy_params = [p for p in dummy_net.parameters()]
         init_weights = [p.data.flatten() for p in dummy_params]
-        return torch.cat(init_weights)
+        return torch.cat(init_weights).to(device)
 
     @staticmethod
     def get_noise(inp_info):
         num_params = sum([torch.prod(torch.tensor(p_shape)) for p_shape in inp_info["tensor_shapes"]])
-        dummy_net = LargeMLP(input_dim=num_params, output_dim=num_params).to(device)
+        dummy_net = LargeMLP(input_dim=num_params, output_dim=num_params)
         p_sizes = [
             torch.prod(torch.tensor(p.data.shape)) for p in dummy_net.parameters()
         ]
-        return torch.randn(sum(p_sizes))
+        return torch.randn(sum(p_sizes)).to(device)
 
     def step(self, curr_loss, iter, iter_frac, closure=None):
         loss = None

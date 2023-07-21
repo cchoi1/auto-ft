@@ -218,6 +218,8 @@ class OptimizerTrainer:
             epsilon = (
                     self.optimizer_obj.get_noise(self.lopt_info) * self.noise_std
             ) # Antithetic sampling
+            if epsilon.device != self.meta_params.device:
+                self.meta_params.to(epsilon.device)
             mp_plus_epsilon = self.meta_params + epsilon
             mp_minus_epsilon = self.meta_params - epsilon
 

@@ -155,17 +155,20 @@ def evaluate_ft_net(ft_net, args):
 
 def run_method(args):
     print(f"\n--- Method: {args.method} ---\n")
-    assert args.method in ["full", "surgical", "ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
+    assert args.method in ["full", "surgical", "ours", "ours-avg", "pretrained"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
     all_metrics = defaultdict(list)
     for seed in args.seeds:
         set_seed(seed)
 
-        meta_params, meta_l_metrics = train_optimizer(args)
-        ft_net, train_losses, val_losses = finetune_with_meta_params(meta_params, args)
+        if args.method == "pretrained":
+            ft_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, train=False).to(device))
+        else:
+            meta_params, meta_l_metrics = train_optimizer(args)
+            ft_net, train_losses, val_losses = finetune_with_meta_params(meta_params, args)
+            for k, v in meta_l_metrics.items():
+                all_metrics[f"meta/{k}"].append(v)
         eval_metrics = evaluate_ft_net(ft_net, args)
-        for k, v in meta_l_metrics.items():
-            all_metrics[f"meta/{k}"].append(v)
         for k, v in eval_metrics.items():
             all_metrics[k].append(v)
     all_metrics = {k: np.array(v) for k, v in all_metrics.items()}
