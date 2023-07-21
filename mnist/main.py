@@ -46,6 +46,8 @@ def train_optimizer(args):
     )
     start = time.time()
     opt_trainer = OptimizerTrainer(args)
+    init_meta_params = opt_trainer.meta_params.detach().cpu().numpy()
+    # print(f"Initial meta-params: {init_meta_params}")
 
     metrics = defaultdict(list)
     if args.method == "full":
@@ -86,15 +88,11 @@ def train_optimizer(args):
         opt_trainer.outer_loop_step()
 
     elapsed = time.time() - start
-    print(f"Final meta-params: {opt_trainer.meta_params.detach().cpu().numpy()}")
-    print(f"Average meta-params: {opt_trainer.meta_params.detach().cpu().numpy().mean()}")
+    # print(f"Final meta-params: {opt_trainer.meta_params.detach().cpu().numpy()}")
     print(f"Time taken: {elapsed:.2f}s")
     save_meta_params(opt_trainer, args.exp_name, args.meta_steps)
 
-    if type(opt_trainer.meta_params) == list:
-        meta_params = [mp.detach().cpu() for mp in opt_trainer.meta_params]
-    else:
-        meta_params = opt_trainer.meta_params.detach().cpu()
+    meta_params = opt_trainer.meta_params.detach().cpu()
     if args.method == "ours-avg":
         meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
     return meta_params, metrics
