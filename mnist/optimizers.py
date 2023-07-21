@@ -73,7 +73,7 @@ class PerParamSGD(Optimizer):
         defaults = dict(lr=lr)
         params = net.parameters()
         super().__init__(params, defaults)
-        self.meta_params = meta_params
+        self.lr_multiplier = torch.sigmoid(meta_params).to(device)
 
     @staticmethod
     def get_init_meta_params(inp_info):
@@ -92,20 +92,20 @@ class PerParamSGD(Optimizer):
         if closure is not None:
             loss = closure()
 
-        idx = 0
+        start = 0
         for group in self.param_groups:
             for i, p in enumerate(group["params"]):
                 if p.grad is None:
                     continue
                 d_p = p.grad.data
 
-                p_meta_params = self.meta_params[idx : idx + p.numel()].view(p.shape)
-                idx += p.numel()
+                end = start + p.numel()
+                p_lr_multiplier = self.lr_multiplier[start:end].view(p.shape)
+                start = end
 
-                lr_multiplier = torch.sigmoid(p_meta_params)
-                local_lr = group["lr"] * lr_multiplier
-                local_lr = local_lr.to(device)
-                p.data.add_(d_p * -local_lr)
+                p_lr = group["lr"] * p_lr_multiplier
+                p.data.add_(d_p * -p_lr)
+        assert end == self.lr_multiplier.numel()
         return loss
 
 class LayerSGDLinear(Optimizer):
