@@ -4,6 +4,22 @@ import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def get_lopt_info(features, net):
+    if features is not None:
+        num_features = len(features)
+        if "pos_enc_cont" in features:
+            num_features += 1
+        if "pos_enc" in features:
+            num_features += 1
+    else:
+        num_features = len([p for p in net.parameters()])
+    lopt_info = {
+        "features": features,
+        "num_features": num_features,
+        "tensor_shapes": [p.shape for p in net.parameters()],
+    }
+    return lopt_info
+
 @torch.no_grad()
 def evaluate_net(net, loader):
     """Get test accuracy and losses of net."""
@@ -21,7 +37,8 @@ def evaluate_net(net, loader):
     return {"acc": correct_sum / total, "loss": loss_sum / total}
 
 def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, features, l2_lambda=None):
-    optimizer = optimizer_obj(meta_params, model, features, lr=lr)
+    lopt_info = get_lopt_info(features, model)
+    optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
 
     metrics = defaultdict(list)

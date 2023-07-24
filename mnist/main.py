@@ -47,7 +47,7 @@ def train_optimizer(args):
     start = time.time()
     opt_trainer = OptimizerTrainer(args)
     init_meta_params = opt_trainer.meta_params.detach().cpu().numpy()
-    # print(f"Initial meta-params: {init_meta_params}")
+    print(f"Initial meta-params: {init_meta_params}")
 
     metrics = defaultdict(list)
     if args.method == "full":
@@ -81,14 +81,15 @@ def train_optimizer(args):
 
     for meta_step in range(args.meta_steps + 1):
         if meta_step % args.val_freq == 0:
-            losses = opt_trainer.validation(args.val_meta_batch_size)
-            for k, v in losses.items():
-                metrics[f"{k}_loss_post"].append(np.array(v).mean())
+            val_metrics = opt_trainer.validation(args.val_meta_batch_size)
+            for k, v in val_metrics.items():
+                metrics[f"{k}_post"].append(np.array(v).mean())
             save_meta_params(opt_trainer, args.exp_name, meta_step)
-        opt_trainer.outer_loop_step()
+        _, _, meta_losses = opt_trainer.outer_loop_step()
+        metrics[f"meta_train_loss"].append(np.array(meta_losses).mean())
 
     elapsed = time.time() - start
-    # print(f"Final meta-params: {opt_trainer.meta_params.detach().cpu().numpy()}")
+    print(f"Final meta-params: {opt_trainer.meta_params.detach().cpu().numpy()}")
     print(f"Time taken: {elapsed:.2f}s")
     save_meta_params(opt_trainer, args.exp_name, args.meta_steps)
 
