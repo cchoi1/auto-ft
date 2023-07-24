@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import wandb
 
-import optimizers
+from optimizers import optimizers
 from utils import evaluate_net, train
 from learned_optimizer import OptimizerTrainer
 from networks import get_pretrained_net_fixed, pretrain_nets
@@ -52,10 +52,10 @@ def train_optimizer(args):
     metrics = defaultdict(list)
     if args.method == "full":
         assert args.optimizer_name == "LayerSGD"
-        return torch.ones(opt_trainer.num_features).float(), metrics
+        return torch.ones(opt_trainer.lopt_info["num_features"]).float(), metrics
     elif args.method == "surgical":
         assert args.optimizer_name == "LayerSGD"
-        meta_params = (-100 * torch.ones(opt_trainer.num_features)).float()
+        meta_params = (-100 * torch.ones(opt_trainer.lopt_info["num_features"])).float()
         #TODO (cchoi1) - add support for surgical fine-tuning an arbitrary network
         if args.pretrain_dist == "mnist":
             meta_params[0] = 100

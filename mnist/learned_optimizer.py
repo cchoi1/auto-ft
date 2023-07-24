@@ -14,10 +14,10 @@ from networks import get_pretrained_net_fixed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def fine_tune(optimizer_obj, inner_steps, inner_lr, features, total_iters, _net, meta_params, train_images, train_labels, test_images, test_labels, iter):
+def fine_tune(optimizer_obj, inner_steps, inner_lr, inp_info, total_iters, _net, meta_params, train_images, train_labels, test_images, test_labels, iter):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     net = copy.deepcopy(_net)
-    inner_opt = optimizer_obj(meta_params, net, features, lr=inner_lr)
+    inner_opt = optimizer_obj(meta_params, net, inp_info, lr=inner_lr)
     loss_fn = nn.CrossEntropyLoss()
     test_losses = []
     for _ in range(inner_steps):
@@ -70,13 +70,22 @@ class OptimizerTrainer:
         self.num_nets = args.num_nets
         self.features = args.features
         self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name=args.pretrain_dist, train=True)
+        if self.features is not None:
+            num_features = len(self.features)
+            if "pos_enc_cont" in self.features:
+                num_features += 1
+            if "pos_enc" in self.features:
+                num_features += 1
+        else:
+            num_features = len([p for p in self.net.parameters()])
         self.lopt_info = {
-            "num_features": len(self.features) if self.features is not None else len([p for p in self.net.parameters()]),
+            "features": self.features,
+            "num_features": num_features,
             "tensor_shapes": [p.shape for p in self.net.parameters()],
         }
         self.num_iters = 0
 
-        optimizer_module = importlib.import_module(f"optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers")
+        optimizer_module = importlib.import_module(f"optimizers.optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers.optimizers")
         self.optimizer_obj = getattr(optimizer_module, args.optimizer_name)
         self.meta_params = self.optimizer_obj.get_init_meta_params(self.lopt_info)
         if type(self.meta_params) == list:
@@ -123,7 +132,7 @@ class OptimizerTrainer:
                 self.optimizer_obj,
                 self.inner_steps,
                 self.inner_lr,
-                self.features,
+                self.lopt_info,
                 self.total_iters,
             )
 
@@ -133,7 +142,7 @@ class OptimizerTrainer:
         net = copy.deepcopy(self.net)
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
-            source_val_images, source_val_labels = next(iter(self.id_val_loader))
+            source_val_images, source_val_labels = next(iter(self.train_loader))
             source_val_losses = self.finetune_iter(net, self.meta_params, train_images, train_labels, source_val_images, source_val_labels, self.num_iters)
             self.num_iters += self.inner_steps
             losses["source"].append(source_val_losses[-1])

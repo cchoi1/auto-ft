@@ -28,9 +28,15 @@ class MNISTC(Dataset):
         self.transform = transform
 
         all_images, all_labels = [], []
-        for corruption in self.corruptions:
-            check_exists(root, corruption)
-            images, labels = self._load_data(corruption)
+        if type(corruptions) == list:
+            for corruption in corruptions:
+                check_exists(root, corruption)
+                images, labels = self._load_data(corruption)
+                all_images.append(images)
+                all_labels.append(labels)
+        else:
+            check_exists(root, corruptions)
+            images, labels = self._load_data(corruptions)
             all_images.append(images)
             all_labels.append(labels)
         self.images = np.concatenate(all_images, axis=0)

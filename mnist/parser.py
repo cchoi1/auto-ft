@@ -37,7 +37,8 @@ def get_args():
     parser.add_argument("--ft_id_ood", action="store_true", help="Fine-tune w/ meta-params on both ID and OOD data.")
 
     parser.add_argument("--features", nargs='+', type=str,
-                        help="Choose a subset of [p, g, p_norm, g_norm, depth, wb, dist_init_param, iter, loss, loss_ema, tensor_rank, idx, i, j].",
+                        help="Choose a subset of [p, g, p_norm, g_norm, depth, wb, dist_init_param, iter, loss, "
+                             "loss_ema, tensor_rank, pos_enc, pos_enc_cont].",
                         default=None)
     parser.add_argument("--meta_steps", type=int, default=100)
     parser.add_argument("--inner_steps", type=int, default=10)
