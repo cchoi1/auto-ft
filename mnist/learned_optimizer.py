@@ -83,7 +83,7 @@ class OptimizerTrainer:
         self.num_nets = args.num_nets
         self.features = args.features
         self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name=args.pretrain_dist, train=True)
-        self.lopt_info = get_lopt_info(self.features, self.net)
+        self.lopt_info = get_lopt_info(self.features, self.net, args)
         self.num_iters = 0
 
         optimizer_module = importlib.import_module(f"optimizers.optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers.optimizers")

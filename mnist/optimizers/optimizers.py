@@ -34,7 +34,11 @@ class LayerSGD(Optimizer):
     """meta-params: pre-sigmoid lr_multiplier per tensor."""
 
     def __init__(self, meta_params, net, lopt_info=None, lr=required):
-        # assert meta_params.numel() == 4
+        self.lopt_info = lopt_info
+        if lopt_info["wnb"]:
+            assert meta_params.numel() == 2 * lopt_info["num_features"]
+        else:
+            assert meta_params.numel() == lopt_info["num_features"]
         defaults = dict(lr=lr)
         params = net.parameters()
         super().__init__(params, defaults)
@@ -42,10 +46,14 @@ class LayerSGD(Optimizer):
 
     @staticmethod
     def get_init_meta_params(lopt_info):
+        if lopt_info["wnb"]:
+            return torch.zeros(2 * lopt_info["num_features"])
         return torch.zeros(lopt_info["num_features"])
 
     @staticmethod
     def get_noise(lopt_info):
+        if lopt_info["wnb"]:
+            return torch.randn(2 * lopt_info["num_features"])
         return torch.randn(lopt_info["num_features"])
 
     def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
@@ -59,11 +67,14 @@ class LayerSGD(Optimizer):
                     continue
                 d_p = p.grad.data
 
-                lr_multiplier = torch.sigmoid(self.meta_params[i])
-                local_lr = group["lr"] * lr_multiplier
+                if self.lopt_info["wnb"]:
+                    # grad clipping?? b/c inner loop loss immediately shoots up to NaN on SVHN task
+                    # torch.nn.utils.clip_grad_norm_(p, 1.0)
+                    local_lr = group["lr"] * torch.sigmoid(self.meta_params[2*i]) + torch.sigmoid(self.meta_params[2*i+1])
+                else:
+                    local_lr = group["lr"] * torch.sigmoid(self.meta_params[i])
                 p.data.add_(d_p, alpha=-local_lr)
         return loss
-
 
 class LayerSGDLinear(Optimizer):
     """meta-params: weights of linear layer with depth as input."""
@@ -122,7 +133,8 @@ class LOptNet(Optimizer):
         super().__init__(param_groups, defaults)
 
         self.lopt_info = lopt_info
-        self.lopt_net = get_lopt_net(in_dim=self.lopt_info["num_features"], hid_dim=2, out_dim=1).to(device)
+        out_dim = 2 if self.lopt_info["wnb"] else 1
+        self.lopt_net = get_lopt_net(in_dim=self.lopt_info["num_features"], hid_dim=2, out_dim=out_dim).to(device)
         p_shapes = [p.data.shape for p in self.lopt_net.parameters()]
         p_sizes = [torch.prod(torch.tensor(s)) for s in p_shapes]
         meta_params_split_p = meta_params.split(p_sizes)
@@ -133,14 +145,16 @@ class LOptNet(Optimizer):
 
     @staticmethod
     def get_init_meta_params(lopt_info):
-        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=2, out_dim=1)
+        out_dim = 2 if lopt_info["wnb"] else 1
+        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=2, out_dim=out_dim)
         dummy_params = [p for p in dummy_net.parameters()]
         init_weights = [p.data.flatten() for p in dummy_params]
         return torch.cat(init_weights)
 
     @staticmethod
     def get_noise(lopt_info):
-        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=2, out_dim=1)
+        out_dim = 2 if lopt_info["wnb"] else 1
+        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=2, out_dim=out_dim)
         p_sizes = [
             torch.prod(torch.tensor(p.data.shape)) for p in dummy_net.parameters()
         ]
@@ -214,8 +228,14 @@ class LOptNet(Optimizer):
             with torch.no_grad():
                 self.lopt_net = self.lopt_net.to(device)
                 lopt_outputs = self.lopt_net(lopt_inputs).detach()
-            lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape).to(device)
-            p.data.add_(-p.grad.data * group["lr"] * lr_multiplier)
+            if self.lopt_info["wnb"]:
+                w = torch.sigmoid(lopt_outputs[:, 0]).reshape(p.data.shape).to(device)
+                b = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
+                update = -p.grad.data * group["lr"] * w + b
+            else:
+                lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape).to(device)
+                update = -p.grad.data * lr_multiplier
+            p.data.add_(update)
 
         return loss
 

@@ -34,8 +34,8 @@ def get_args():
         type=str,
         default="LayerSGDLinear",
     )
+    parser.add_argument("--wnb", action="store_true", help="Learn both weights and biases to scale LRs")
     parser.add_argument("--ft_id_ood", action="store_true", help="Fine-tune w/ meta-params on both ID and OOD data.")
-
     parser.add_argument("--features", nargs='+', type=str,
                         help="Choose a subset of [p, g, p_norm, g_norm, depth, wb, dist_init_param, iter, loss, "
                              "loss_ema, tensor_rank, pos_enc, pos_enc_cont].",

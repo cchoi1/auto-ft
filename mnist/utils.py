@@ -4,7 +4,7 @@ import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def get_lopt_info(features, net):
+def get_lopt_info(features, net, args):
     if features is not None:
         num_features = len(features)
         if "pos_enc_cont" in features:
@@ -17,6 +17,7 @@ def get_lopt_info(features, net):
         "features": features,
         "num_features": num_features,
         "tensor_shapes": [p.data.shape for p in net.parameters()],
+        "wnb": args.wnb
     }
     return lopt_info
 
@@ -87,7 +88,10 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader,
             metrics["test_acc"].append(test_acc)
             if total_iters % 100 == 0:
                 print(
-                    f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
+                    f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. "
+                    f"Train Loss: {train_loss:.4f} | "
+                    f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+                    f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                     no_improvement = 0
