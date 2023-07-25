@@ -1,4 +1,12 @@
 import torch
+import torch.nn as nn
+
+def get_lopt_net(in_dim, hid_dim=2, out_dim=1):
+    return nn.Sequential(
+        nn.Linear(in_dim, hid_dim),
+        nn.ReLU(),
+        nn.Linear(hid_dim, out_dim)
+    )
 
 def compute_positional_encoding(tensor_shape):
     if len(tensor_shape) == 1:

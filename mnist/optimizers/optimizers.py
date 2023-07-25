@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.optim.optimizer import Optimizer, required
 
-from .utils import compute_positional_encoding, compute_continuous_positional_encoding
+from .utils import compute_positional_encoding, compute_continuous_positional_encoding, get_lopt_net
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -104,14 +104,6 @@ class LayerSGDLinear(Optimizer):
             lr_multiplier = torch.sigmoid(meta_params[0] * depth + meta_params[1])
             p.data.add_(p.grad.data, alpha=-group["lr"] * lr_multiplier)
         return loss
-
-
-def get_lopt_net(in_dim, hid_dim=2, out_dim=1):
-    return nn.Sequential(
-        nn.Linear(in_dim, hid_dim),
-        nn.ReLU(),
-        nn.Linear(hid_dim, out_dim)
-    )
 
 
 class LOptNet(Optimizer):
@@ -228,40 +220,30 @@ class LOptNet(Optimizer):
         return loss
 
 
-class LargeMLP(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim=2048, num_hidden_layers=3):
-        super(LargeMLP, self).__init__()
-
-        layers = []
-        layers.append(nn.Linear(input_dim, hidden_dim))
-        layers.append(nn.ReLU())
-
-        for _ in range(num_hidden_layers):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.ReLU())
-
-        layers.append(nn.Linear(hidden_dim, output_dim))
-        self.mlp = nn.Sequential(*layers)
+class GlobalLOptNetMLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(GlobalLOptNetMLP, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
-        return self.mlp(x)
+        # Pass the input (gradients) through the MLP
+        g = torch.relu(self.fc1(x))
+        g = torch.sigmoid(self.fc2(g))
+
+        # Compute the residual channel y = x + g * x
+        y = x + (g * x)
+        return y
 
 
-class PerParamLOptNet(Optimizer):
-    def __init__(self, meta_params, net, features, lr=required):
+class GlobalLOptNet(Optimizer):
+    def __init__(self, meta_params, net, lopt_info, lr=required):
         defaults = dict(lr=lr)
-        param_groups = []
-        layers = list(
-            [p for p in net.children() if isinstance(p, nn.Linear)]
-        )  # Assumes nn.Sequential model
-        for depth, layer in enumerate(layers):
-            depth = torch.tensor(depth).float()
-            param_groups.append({"params": layer.weight, "depth": depth, "type": "w", "init_param": layer.weight})
-            param_groups.append({"params": layer.bias, "depth": depth, "type": "b", "init_param": layer.bias})
-        super().__init__(param_groups, defaults)
+        params = net.parameters()
+        super().__init__(params, defaults)
 
         self.num_params = sum([torch.prod(torch.tensor(p.data.shape)) for p in net.parameters()])
-        self.lopt_net = LargeMLP(input_dim=self.num_params, output_dim=self.num_params).to(device)
+        self.lopt_net = GlobalLOptNetMLP(input_dim=self.num_params, hidden_dim=2, output_dim=self.num_params).to(device)
         p_shapes = [p.data.shape for p in self.lopt_net.parameters()]
         p_sizes = [torch.prod(torch.tensor(s)) for s in p_shapes]
         meta_params_split_p = meta_params.split(p_sizes)
@@ -271,7 +253,7 @@ class PerParamLOptNet(Optimizer):
     @staticmethod
     def get_init_meta_params(lopt_info):
         num_params = sum([torch.prod(torch.tensor(p_shape)) for p_shape in lopt_info["tensor_shapes"]])
-        dummy_net = LargeMLP(input_dim=num_params, output_dim=num_params)
+        dummy_net = GlobalLOptNetMLP(input_dim=num_params, hidden_dim=2, output_dim=num_params)
         dummy_params = [p for p in dummy_net.parameters()]
         init_weights = [p.data.flatten() for p in dummy_params]
         return torch.cat(init_weights).to(device)
@@ -279,7 +261,7 @@ class PerParamLOptNet(Optimizer):
     @staticmethod
     def get_noise(lopt_info):
         num_params = sum([torch.prod(torch.tensor(p_shape)) for p_shape in lopt_info["tensor_shapes"]])
-        dummy_net = LargeMLP(input_dim=num_params, output_dim=num_params)
+        dummy_net = GlobalLOptNetMLP(input_dim=num_params, hidden_dim=2, output_dim=num_params)
         p_sizes = [
             torch.prod(torch.tensor(p.data.shape)) for p in dummy_net.parameters()
         ]

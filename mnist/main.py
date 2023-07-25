@@ -85,8 +85,8 @@ def train_optimizer(args):
             for k, v in val_metrics.items():
                 metrics[f"{k}_post"].append(np.array(v).mean())
             save_meta_params(opt_trainer, args.exp_name, meta_step)
-        _, _, meta_losses = opt_trainer.outer_loop_step()
-        metrics[f"meta_train_loss"].append(np.array(meta_losses).mean())
+        _, _, meta_train_loss = opt_trainer.outer_loop_step()
+        metrics[f"meta_train_loss"].append(meta_train_loss)
 
     elapsed = time.time() - start
     print(f"Final meta-params: {opt_trainer.meta_params.detach().cpu().numpy()}")
@@ -113,16 +113,18 @@ def finetune_with_meta_params(meta_params, args):
         if args.val == "id":
             _, val_loader = get_dataloaders(
                 dataset_names=[args.ft_id_dist], **loader_kwargs)
+    _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
     pretrained_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, train=False).to(device))
 
     optimizer_obj = getattr(optimizers, args.optimizer_name)
-    ft_net, train_losses, val_losses = train(
+    ft_net, ft_metrics = train(
         num_epochs=args.num_epochs,
         model=pretrained_net,
         meta_params=meta_params,
         train_loader=train_loader,
         val_loader=val_loader,
+        test_loader=test_loader,
         optimizer_obj=optimizer_obj if args.method != "ours-avg" else optimizers.LayerSGD,
         lr=args.inner_lr,
         patience=args.patience,
@@ -130,7 +132,7 @@ def finetune_with_meta_params(meta_params, args):
         l2_lambda=args.l2_lambda,
     )
 
-    return ft_net, train_losses, val_losses
+    return ft_net, ft_metrics
 
 
 def evaluate_ft_net(ft_net, args):
@@ -166,7 +168,7 @@ def run_method(args):
             ft_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, train=False).to(device))
         else:
             meta_params, meta_l_metrics = train_optimizer(args)
-            ft_net, train_losses, val_losses = finetune_with_meta_params(meta_params, args)
+            ft_net, ft_metrics = finetune_with_meta_params(meta_params, args)
             for k, v in meta_l_metrics.items():
                 all_metrics[f"meta/{k}"].append(v)
         eval_metrics = evaluate_ft_net(ft_net, args)
@@ -175,9 +177,9 @@ def run_method(args):
     all_metrics = {k: np.array(v) for k, v in all_metrics.items()}
 
     if not args.no_wandb:
-        for train_loss, val_loss in zip(train_losses, val_losses):
+        for train_loss, val_loss, test_loss, val_acc, test_acc in zip(ft_metrics["train_loss"], ft_metrics["val_loss"], ft_metrics["test_loss"], ft_metrics["val_acc"], ft_metrics["test_acc"]):
             # Log train and val losses of the last run (diff lengths of training due to early stopping)
-            wandb.log({"Train Loss": train_loss, "Val Loss": val_loss})
+            wandb.log({"Train Loss": train_loss, "Val Loss": val_loss, "Test Loss": test_loss, "Val Acc": val_acc, "Test Acc": test_acc})
 
         # Log average meta losses per meta-step
         avg_meta_losses = {k: v.mean(0) for k, v in all_metrics.items() if k.startswith("meta/")}

@@ -16,7 +16,7 @@ def get_lopt_info(features, net):
     lopt_info = {
         "features": features,
         "num_features": num_features,
-        "tensor_shapes": [p.shape for p in net.parameters()],
+        "tensor_shapes": [p.data.shape for p in net.parameters()],
     }
     return lopt_info
 
@@ -36,7 +36,7 @@ def evaluate_net(net, loader):
         loss_sum += loss.item() * labels.size(0)
     return {"acc": correct_sum / total, "loss": loss_sum / total}
 
-def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_obj, lr, patience, features, l2_lambda=None):
+def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader, optimizer_obj, lr, patience, features, l2_lambda=None):
     lopt_info = get_lopt_info(features, model)
     optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
@@ -73,15 +73,21 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
             train_losses_sum += loss.item() * inputs.size(0)
             count += inputs.size(0)
             total_iters += 1
-            if total_iters % 100 == 0:
-                val_metrics = evaluate_net(model, val_loader)
-                val_loss, val_acc = val_metrics["loss"], val_metrics["acc"]
-                train_loss = train_losses_sum / count
-                train_losses_sum, count = 0.0, 0
-                print(f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
-                metrics["train_loss"].append(train_loss)
-                metrics["val_loss"].append(val_loss)
 
+            val_metrics = evaluate_net(model, val_loader)
+            val_loss, val_acc = val_metrics["loss"], val_metrics["acc"]
+            test_metrics = evaluate_net(model, test_loader)
+            test_loss, test_acc = test_metrics["loss"], test_metrics["acc"]
+            train_loss = train_losses_sum / count
+            train_losses_sum, count = 0.0, 0
+            metrics["train_loss"].append(train_loss)
+            metrics["val_loss"].append(val_loss)
+            metrics["val_acc"].append(val_acc)
+            metrics["test_loss"].append(test_loss)
+            metrics["test_acc"].append(test_acc)
+            if total_iters % 100 == 0:
+                print(
+                    f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                     no_improvement = 0
@@ -89,5 +95,6 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, optimizer_ob
                     no_improvement += 1
                 if no_improvement >= patience:
                     print(f"Early stopping!")
-                    return model, metrics["train_loss"], metrics["val_loss"]
-    return model, metrics["train_loss"], metrics["val_loss"]
+                    return model, metrics
+
+    return model, metrics

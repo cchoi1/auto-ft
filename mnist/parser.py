@@ -47,6 +47,7 @@ def get_args():
     parser.add_argument("--meta_batch_size", type=int, default=20)
     parser.add_argument("--val_freq", type=int, default=10)
     parser.add_argument("--val_meta_batch_size", type=int, default=100)
+    parser.add_argument("--val_inner_steps", type=int, default=20)
     parser.add_argument("--noise_std", type=float, default=1.0)
     parser.add_argument("--meta_lr", type=float, default=3e-3)
     parser.add_argument("--inner_lr", type=float, default=1e-1)

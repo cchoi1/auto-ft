@@ -15,7 +15,7 @@ from utils import get_lopt_info
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def fine_tune(optimizer_obj, inner_steps, inner_lr, inp_info, total_iters, _net, meta_params, train_images, train_labels, test_images, test_labels, iter):
+def fine_tune(optimizer_obj, inner_lr, inp_info, total_iters, _net, meta_params, inner_steps, train_images, train_labels, test_images, test_labels, iter):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     net = copy.deepcopy(_net)
     inner_opt = optimizer_obj(meta_params, net, inp_info, lr=inner_lr)
@@ -42,7 +42,7 @@ def fine_tune(optimizer_obj, inner_steps, inner_lr, inp_info, total_iters, _net,
 
     return np.array(test_losses), np.array(test_accs)
 
-def fine_tune_func_single(optimizer_obj, inner_steps, inner_lr, func_net, net_params, meta_params, train_images, train_labels, test_images, test_labels):
+def fine_tune_func_single(optimizer_obj, inner_lr, func_net, net_params, meta_params, inner_steps, train_images, train_labels, test_images, test_labels):
     """Fine-tune the functional model func_net on (train_images, train_labels), and return test losses.
     In the outer loop, we use vmap to parallelize calls to this function for each task in the meta-batch."""
     inner_opt = optimizer_obj(meta_params=meta_params, params=net_params, lr=inner_lr)
@@ -101,9 +101,13 @@ class OptimizerTrainer:
         self.ood_val1_loader, self.ood_val2_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
                                                                 batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
                                                                 num_workers=args.num_workers, use_meta_batch=self.run_parallel)
+        _, self.test_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.test_dist],
+                                              batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
+                                              num_workers=args.num_workers, use_meta_batch=self.run_parallel)
 
         # Inner Loop Hyperparameters
         self.val_meta_batch_size = args.val_meta_batch_size
+        self.val_inner_steps = args.val_inner_steps
         self.inner_steps = args.inner_steps
         self.inner_lr = args.inner_lr
         self.batch_size = args.batch_size
@@ -123,7 +127,6 @@ class OptimizerTrainer:
             _finetune = partial(
                 fine_tune_func_single,
                 self.optimizer_obj,
-                self.inner_steps,
                 self.inner_lr,
             )
             self.finetune = functorch.vmap(_finetune, in_dims=(None, None, 0, 0, 0, 0, 0))
@@ -131,7 +134,6 @@ class OptimizerTrainer:
             self.finetune_iter = partial(
                 fine_tune,
                 self.optimizer_obj,
-                self.inner_steps,
                 self.inner_lr,
                 self.lopt_info,
                 self.total_iters,
@@ -144,7 +146,7 @@ class OptimizerTrainer:
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             source_val_images, source_val_labels = next(iter(self.train_loader))
-            source_val_losses, source_val_accs = self.finetune_iter(net, self.meta_params, train_images, train_labels, source_val_images, source_val_labels, self.num_iters)
+            source_val_losses, source_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, source_val_images, source_val_labels, self.num_iters)
             self.num_iters += self.inner_steps
             metrics["source_loss"].append(source_val_losses[-1])
             metrics["source_acc"].append(source_val_accs[-1])
@@ -153,7 +155,7 @@ class OptimizerTrainer:
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             id_val_images, id_val_labels = next(iter(self.id_val_loader))
-            id_val_losses, id_val_accs = self.finetune_iter(net, self.meta_params, train_images, train_labels, id_val_images, id_val_labels, self.num_iters)
+            id_val_losses, id_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, id_val_images, id_val_labels, self.num_iters)
             self.num_iters += self.inner_steps
             metrics["id_loss"].append(id_val_losses[-1])
             metrics["id_acc"].append(id_val_accs[-1])
@@ -162,10 +164,19 @@ class OptimizerTrainer:
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             ood_val_images, ood_val_labels = next(iter(self.ood_val2_loader))
-            ood_val_losses, ood_val_accs = self.finetune_iter(net, self.meta_params, train_images, train_labels, ood_val_images, ood_val_labels, self.num_iters)
+            ood_val_losses, ood_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, ood_val_images, ood_val_labels, self.num_iters)
             self.num_iters += self.inner_steps
             metrics["ood_loss"].append(ood_val_losses[-1])
             metrics["ood_acc"].append(ood_val_accs[-1])
+
+        net = copy.deepcopy(self.net)
+        for _ in range(repeat):
+            train_images, train_labels = next(iter(self.train_loader))
+            test_images, test_labels = next(iter(self.test_loader))
+            test_losses, test_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
+            self.num_iters += self.inner_steps
+            metrics["test_loss"].append(test_losses[-1])
+            metrics["test_acc"].append(test_accs[-1])
 
         source_val_str = f"Source Loss: {np.mean(metrics['source_loss']):.4f} +- {np.std(metrics['source_loss']):.4f} " \
                          f"Source Acc: {100 * np.mean(metrics['source_acc']):.4f} +- {100 * np.std(metrics['source_acc']):.4f}"
@@ -175,7 +186,11 @@ class OptimizerTrainer:
             f"\nOOD Loss: {np.mean(metrics['ood_loss']):.4f} +- {np.std(metrics['ood_loss']):.4f} "
             f"OOD Acc: {100 * np.mean(metrics['ood_acc']):.4f} +- {100 * np.std(metrics['ood_acc']):.4f}"
         )
-        print(source_val_str, '|', id_val_str, '|', ood_val_str, '\n')
+        test_str = (
+            f"\nTest Loss: {np.mean(metrics['test_loss']):.4f} +- {np.std(metrics['test_loss']):.4f} "
+            f"Test Acc: {100 * np.mean(metrics['test_acc']):.4f} +- {100 * np.std(metrics['test_acc']):.4f}"
+        )
+        print(source_val_str, '|', id_val_str, '|', ood_val_str, '|', test_str, '\n')
         return metrics
 
     def validation_parallel(self):
@@ -198,7 +213,7 @@ class OptimizerTrainer:
         train_images2 = train_images2.view(self.val_meta_batch_size // 2, self.batch_size, 28, 28)
         train_labels2 = train_labels2.view(self.val_meta_batch_size // 2, self.batch_size)
         func_net, net_params = functorch.make_functional(copy.deepcopy(self.net))
-        train_losses, train_accs = self.finetune(func_net, net_params, meta_params, train_images, train_labels, train_images2, train_labels2)
+        train_losses, train_accs = self.finetune(func_net, net_params, meta_params, self.val_inner_steps, train_images, train_labels, train_images2, train_labels2)
         metrics["source_loss"].append(train_losses[-1].cpu().detach().numpy().mean(axis=0))
         metrics["source_acc"].append(train_accs[-1].cpu().detach().numpy().mean(axis=0))
 
@@ -209,7 +224,7 @@ class OptimizerTrainer:
         val_images = val_images.view(self.val_meta_batch_size // 2, self.batch_size, 28, 28)
         val_labels = val_labels.view(self.val_meta_batch_size // 2, self.batch_size)
         func_net, net_params = functorch.make_functional(copy.deepcopy(self.net))
-        id_val_losses, id_val_accs = self.finetune(func_net, net_params, meta_params, train_images, train_labels, val_images, val_labels)
+        id_val_losses, id_val_accs = self.finetune(func_net, net_params, meta_params, self.val_inner_steps, train_images, train_labels, val_images, val_labels)
         metrics["id_loss"].append(id_val_losses[-1].cpu().detach().numpy().mean(axis=0))
         metrics["id_acc"].append(id_val_accs[-1].cpu().detach().numpy().mean(axis=0))
 
@@ -220,9 +235,20 @@ class OptimizerTrainer:
         val_images = val_images.view(self.val_meta_batch_size // 2, self.batch_size, 28, 28)
         val_labels = val_labels.view(self.val_meta_batch_size // 2, self.batch_size)
         func_net, net_params = functorch.make_functional(copy.deepcopy(self.net))
-        ood_val_losses, ood_val_accs = self.finetune(func_net, net_params, meta_params, train_images, train_labels, val_images, val_labels)
+        ood_val_losses, ood_val_accs = self.finetune(func_net, net_params, meta_params, self.val_inner_steps, train_images, train_labels, val_images, val_labels)
         metrics["ood_loss"].append(ood_val_losses[-1].cpu().detach().numpy().mean(axis=0))
         metrics["ood_acc"].append(ood_val_accs[-1].cpu().detach().numpy().mean(axis=0))
+
+        train_images, train_labels = next(iter(train_loader))
+        test_images, test_labels = next(iter(test_loader))
+        train_images = train_images.view(self.val_meta_batch_size // 2, self.batch_size, 28, 28)
+        train_labels = train_labels.view(self.val_meta_batch_size // 2, self.batch_size)
+        test_images = test_images.view(self.val_meta_batch_size // 2, self.batch_size, 28, 28)
+        test_labels = test_labels.view(self.val_meta_batch_size // 2, self.batch_size)
+        func_net, net_params = functorch.make_functional(copy.deepcopy(self.net))
+        test_losses, test_accs = self.finetune(func_net, net_params, meta_params, self.val_inner_steps, train_images, train_labels, test_images, test_labels)
+        metrics["test_loss"].append(test_losses[-1].cpu().detach().numpy().mean(axis=0))
+        metrics["test_acc"].append(test_accs[-1].cpu().detach().numpy().mean(axis=0))
 
         source_val_str = f"\nSource Loss: {np.mean(metrics['source_loss']):.4f} +- {np.std(metrics['source_loss']):.4f} " \
                          f"Source Acc: {100 * np.mean(metrics['source_acc']):.4f} +- {100 * np.std(metrics['source_acc']):.4f}"
@@ -232,7 +258,11 @@ class OptimizerTrainer:
             f"\nOOD Loss: {np.mean(metrics['ood_loss']):.4f} +- {np.std(metrics['ood_loss']):.4f} "
             f"OOD Acc: {100 * np.mean(metrics['ood_acc']):.4f} +- {100 * np.std(metrics['ood_acc']):.4f}"
         )
-        print(source_val_str, '|', id_val_str, '|', ood_val_str, '\n')
+        test_str = (
+            f"\nTest Loss: {np.mean(metrics['test_loss']):.4f} +- {np.std(metrics['test_loss']):.4f} "
+            f"Test Acc: {100 * np.mean(metrics['test_acc']):.4f} +- {100 * np.std(metrics['test_acc']):.4f}"
+        )
+        print(source_val_str, '|', id_val_str, '|', ood_val_str, '|', test_str, '\n')
         return metrics
 
     def validation(self, repeat):
@@ -245,7 +275,6 @@ class OptimizerTrainer:
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
         Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
         grads = []
-        objectives = []
         for _ in range(self.meta_batch_size // 2):
             net = copy.deepcopy(self.net)
             epsilon = (
@@ -263,9 +292,9 @@ class OptimizerTrainer:
                 train_images, train_labels = train_x[_:(_+1)].squeeze(0), train_y[_:(_+1)].squeeze(0)
                 test_images, test_labels = test_x[_:(_+1)].squeeze(0), test_y[_:(_+1)].squeeze(0)
 
-            losses_plus, _ = self.finetune_iter(net, mp_plus_epsilon, train_images, train_labels, test_images, test_labels, self.num_iters)
+            losses_plus, _ = self.finetune_iter(net, mp_plus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
-            losses_minus, _ = self.finetune_iter(net, mp_minus_epsilon, train_images, train_labels, test_images, test_labels, self.num_iters)
+            losses_minus, _ = self.finetune_iter(net, mp_minus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
 
             loss_diff = losses_plus - losses_minus
@@ -273,7 +302,6 @@ class OptimizerTrainer:
                     loss_diff[-1] * self.meta_loss_final_w
                     + loss_diff.mean() * self.meta_loss_avg_w
             )
-            objectives.append(objective)
             grads.append(objective * epsilon / self.noise_std / 2)
 
         grads_mean = torch.stack(grads).mean(dim=0)
@@ -282,7 +310,16 @@ class OptimizerTrainer:
         self.meta_params.grad = grads_mean
         self.meta_optimizer.step()
 
-        return self.meta_params, grads_mean, objectives
+        net = copy.deepcopy(self.net)
+        if train_x is None or train_y is None or test_x is None or test_y is None:
+            train_images, train_labels = next(iter(self.train_loader))
+            test_images, test_labels = next(iter(self.ood_val1_loader))
+        losses_current, _ = self.finetune_iter(net, self.meta_params, self.inner_steps, train_images, train_labels, test_images,
+                                               test_labels, self.num_iters)
+        meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
+        print(f"Meta-train Loss: {meta_train_loss:.4f}")
+
+        return self.meta_params, grads_mean, meta_train_loss
 
     def outer_loop_step_parallel(self, net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
@@ -309,8 +346,8 @@ class OptimizerTrainer:
 
         net_copy = copy.deepcopy(self.net)
         func_net, net_params = functorch.make_functional(net_copy)
-        losses_plus, _ = self.finetune(func_net, net_params, mp_plus_epsilon, train_images, train_labels, test_images, test_labels)
-        losses_minus, _ = self.finetune(func_net, net_params, mp_minus_epsilon, train_images, train_labels, test_images, test_labels)
+        losses_plus, _ = self.finetune(func_net, net_params, mp_plus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels)
+        losses_minus, _ = self.finetune(func_net, net_params, mp_minus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels)
         losses_plus = torch.stack(losses_plus, dim=0).transpose(0, 1)
         losses_minus = torch.stack(losses_minus, dim=0).transpose(0, 1) 
         loss_diff = losses_plus - losses_minus
@@ -322,11 +359,19 @@ class OptimizerTrainer:
         grad = objective * epsilon / self.noise_std / 2
         grads_mean = grad.mean(dim=0)
 
+        if train_x is None or train_y is None or test_x is None or test_y is None:
+            train_images, train_labels = next(iter(self.train_loader))
+            test_images, test_labels = next(iter(self.ood_val1_loader))
+        losses_current, _ = self.finetune(func_net, net_params, mp_plus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels)
+        meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
+
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
         self.meta_optimizer.step()
 
-        return self.meta_params, grads_mean, objective
+        print(f"Meta-train Loss: {meta_train_loss.mean():.4f}")
+
+        return self.meta_params, grads_mean, meta_train_loss.mean()
 
     def outer_loop_step(self):
         if self.run_parallel:
