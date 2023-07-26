@@ -4,7 +4,7 @@ import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def get_lopt_info(features, net, args):
+def get_lopt_info(features, net, use_wnb):
     if features is not None:
         num_features = len(features)
         if "pos_enc_cont" in features:
@@ -17,7 +17,7 @@ def get_lopt_info(features, net, args):
         "features": features,
         "num_features": num_features,
         "tensor_shapes": [p.data.shape for p in net.parameters()],
-        "wnb": args.wnb
+        "wnb": use_wnb
     }
     return lopt_info
 
@@ -37,8 +37,8 @@ def evaluate_net(net, loader):
         loss_sum += loss.item() * labels.size(0)
     return {"acc": correct_sum / total, "loss": loss_sum / total}
 
-def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader, optimizer_obj, lr, patience, features, l2_lambda=None):
-    lopt_info = get_lopt_info(features, model)
+def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader, optimizer_obj, lr, patience, features, l2_lambda=None, wnb=None):
+    lopt_info = get_lopt_info(features, model, wnb)
     optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -75,18 +75,18 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader,
             count += inputs.size(0)
             total_iters += 1
 
-            val_metrics = evaluate_net(model, val_loader)
-            val_loss, val_acc = val_metrics["loss"], val_metrics["acc"]
-            test_metrics = evaluate_net(model, test_loader)
-            test_loss, test_acc = test_metrics["loss"], test_metrics["acc"]
-            train_loss = train_losses_sum / count
-            train_losses_sum, count = 0.0, 0
-            metrics["train_loss"].append(train_loss)
-            metrics["val_loss"].append(val_loss)
-            metrics["val_acc"].append(val_acc)
-            metrics["test_loss"].append(test_loss)
-            metrics["test_acc"].append(test_acc)
             if total_iters % 100 == 0:
+                val_metrics = evaluate_net(model, val_loader)
+                val_loss, val_acc = val_metrics["loss"], val_metrics["acc"]
+                test_metrics = evaluate_net(model, test_loader)
+                test_loss, test_acc = test_metrics["loss"], test_metrics["acc"]
+                train_loss = train_losses_sum / count
+                train_losses_sum, count = 0.0, 0
+                metrics["train_loss"].append(train_loss)
+                metrics["val_loss"].append(val_loss)
+                metrics["val_acc"].append(val_acc)
+                metrics["test_loss"].append(test_loss)
+                metrics["test_acc"].append(test_acc)
                 print(
                     f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. "
                     f"Train Loss: {train_loss:.4f} | "

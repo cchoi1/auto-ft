@@ -130,6 +130,7 @@ def finetune_with_meta_params(meta_params, args):
         patience=args.patience,
         features=args.features,
         l2_lambda=args.l2_lambda,
+        wnb=args.wnb,
     )
 
     return ft_net, ft_metrics
