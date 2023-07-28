@@ -105,6 +105,7 @@ class OptimizerTrainer:
         self.val_meta_batch_size = args.val_meta_batch_size
         self.val_inner_steps = args.val_inner_steps
         self.inner_steps = args.inner_steps
+        self.inner_steps_range = args.inner_steps_range
         self.inner_lr = args.inner_lr
         self.batch_size = args.batch_size
 
@@ -285,12 +286,16 @@ class OptimizerTrainer:
                 train_images, train_labels = train_x[_:(_+1)].squeeze(0), train_y[_:(_+1)].squeeze(0)
                 test_images, test_labels = test_x[_:(_+1)].squeeze(0), test_y[_:(_+1)].squeeze(0)
 
-            losses_plus, _ = self.finetune_iter(net, mp_plus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
+            inner_steps = self.inner_steps
+            if self.inner_steps_range is not None:
+                inner_steps = np.random.randint(self.inner_steps, self.inner_steps + self.inner_steps_range + 1)
+            losses_plus, _ = self.finetune_iter(net, mp_plus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
-            losses_minus, _ = self.finetune_iter(net, mp_minus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
+            losses_minus, _ = self.finetune_iter(net, mp_minus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
 
             loss_diff = losses_plus - losses_minus
+
             objective = (
                     loss_diff[-1] * self.meta_loss_final_w
                     + loss_diff.mean() * self.meta_loss_avg_w

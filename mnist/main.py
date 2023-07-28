@@ -168,7 +168,7 @@ def run_method(args):
     if not args.no_wandb:
         # hack to log all stepwise metrics w/o calling wandb.log twice, so that the x-axes all start from 0,
         # considering different number of steps for meta vs ft metrics
-        N = max(len(all_metrics["meta/id_loss_post"]), len(ft_metrics["train_loss"]), len(all_metrics["meta/meta_train_loss"]))
+        N = max([len(v) for _, v in all_metrics.items()])
         for i in range(N):
             wandb.log({k: v[i] for k, v in all_metrics.items() if i < len(v)}, step=i)
     print(

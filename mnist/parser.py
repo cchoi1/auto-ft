@@ -40,6 +40,7 @@ def get_args():
     parser.add_argument("--lopt_net_dim", type=int)
     parser.add_argument("--meta_steps", type=int, default=100)
     parser.add_argument("--inner_steps", type=int, default=10)
+    parser.add_argument("--inner_steps_range", type=int, default=None)
     parser.add_argument("--meta_loss_avg_w", type=float, default=0.0)
     parser.add_argument("--meta_loss_final_w", type=float, default=1.0)
     parser.add_argument("--meta_batch_size", type=int, default=20)
