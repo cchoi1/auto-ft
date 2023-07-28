@@ -342,7 +342,7 @@ class MNISTLabelShift(data.Dataset):
         """
         img, target = self.data[index], self.labels[index]
 
-        # doing this so that it is consistent with all other datasets
+        # doing this so that it is consistent with all other data
         # to return a PIL Image
         img = Image.fromarray(img.numpy(), mode='L')
 

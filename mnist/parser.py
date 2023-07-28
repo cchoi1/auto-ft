@@ -1,34 +1,31 @@
 import argparse
-from datasets import _CORRUPTIONS
+from data.mnist_c import _CORRUPTIONS
 
 def get_args(): 
     parser = argparse.ArgumentParser()
-    dists = ["mnist", "mnistc", "mnist-label-shift", "svhn"] + _CORRUPTIONS
+    dists = ["mnist", "mnistc", "mnist-label-shift", "svhn", "svhn-grayscale", "colored_mnist", "rotated_mnist"] + _CORRUPTIONS
     parser.add_argument("--method", type=str, choices=["full", "surgical", "ours", "ours-avg", "pretrained"])
     parser.add_argument(
         "--pretrain_dist",
         type=str,
-        default="svhn",
         choices=dists,
     )
     parser.add_argument(
         "--ft_id_dist",
         type=str,
-        default="mnist",
         choices=dists,
     )
     parser.add_argument(
         "--ft_ood_dist",
         type=str,
-        default="mnistc",
         choices=dists,
     )
     parser.add_argument(
         "--test_dist",
         type=str,
-        default="mnist-label-shift",
         choices=dists,
     )
+    parser.add_argument("--output_channels", type=int)
     parser.add_argument(
         "--optimizer_name",
         type=str,
@@ -40,6 +37,7 @@ def get_args():
                         help="Choose a subset of [p, g, p_norm, g_norm, depth, wb, dist_init_param, iter, loss, "
                              "loss_ema, tensor_rank, pos_enc, pos_enc_cont].",
                         default=None)
+    parser.add_argument("--lopt_net_dim", type=int)
     parser.add_argument("--meta_steps", type=int, default=100)
     parser.add_argument("--inner_steps", type=int, default=10)
     parser.add_argument("--meta_loss_avg_w", type=float, default=0.0)

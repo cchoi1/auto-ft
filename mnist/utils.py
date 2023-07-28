@@ -1,10 +1,14 @@
+import os
+import random
 from collections import defaultdict
+
+import numpy as np
 import torch
 import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def get_lopt_info(features, net, use_wnb):
+def get_lopt_info(features, net, lopt_net_dim, use_wnb):
     if features is not None:
         num_features = len(features)
         if "pos_enc_cont" in features:
@@ -17,6 +21,7 @@ def get_lopt_info(features, net, use_wnb):
         "features": features,
         "num_features": num_features,
         "tensor_shapes": [p.data.shape for p in net.parameters()],
+        "lopt_net_dim": lopt_net_dim,
         "wnb": use_wnb
     }
     return lopt_info
@@ -37,8 +42,8 @@ def evaluate_net(net, loader):
         loss_sum += loss.item() * labels.size(0)
     return {"acc": correct_sum / total, "loss": loss_sum / total}
 
-def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader, optimizer_obj, lr, patience, features, l2_lambda=None, wnb=None):
-    lopt_info = get_lopt_info(features, model, wnb)
+def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_loader, ood_val_loader, test_loader, optimizer_obj, val, lr, patience, features, lopt_net_dim, l2_lambda=None, wnb=None):
+    lopt_info = get_lopt_info(features, model, lopt_net_dim, wnb)
     optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -76,24 +81,35 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader,
             total_iters += 1
 
             if total_iters % 100 == 0:
-                val_metrics = evaluate_net(model, val_loader)
-                val_loss, val_acc = val_metrics["loss"], val_metrics["acc"]
-                test_metrics = evaluate_net(model, test_loader)
-                test_loss, test_acc = test_metrics["loss"], test_metrics["acc"]
                 train_loss = train_losses_sum / count
                 train_losses_sum, count = 0.0, 0
+                src_val_metrics = evaluate_net(model, src_val_loader)
+                src_val_loss, src_val_acc = src_val_metrics["loss"], src_val_metrics["acc"]
+                id_val_metrics = evaluate_net(model, id_val_loader)
+                id_val_loss, id_val_acc = id_val_metrics["loss"], id_val_metrics["acc"]
+                ood_val_metrics = evaluate_net(model, ood_val_loader)
+                ood_val_loss, ood_val_acc = ood_val_metrics["loss"], ood_val_metrics["acc"]
+                test_metrics = evaluate_net(model, test_loader)
+                test_loss, test_acc = test_metrics["loss"], test_metrics["acc"]
+                metrics["src_losses"].append(src_val_loss)
+                metrics["src_accs"].append(src_val_acc)
                 metrics["train_loss"].append(train_loss)
-                metrics["val_loss"].append(val_loss)
-                metrics["val_acc"].append(val_acc)
-                metrics["test_loss"].append(test_loss)
-                metrics["test_acc"].append(test_acc)
+                metrics["id_losses"].append(id_val_loss)
+                metrics["id_accs"].append(id_val_acc)
+                metrics["ood_losses"].append(ood_val_loss)
+                metrics["ood_accs"].append(ood_val_acc)
+                metrics["test_losses"].append(test_loss)
+                metrics["test_accs"].append(test_acc)
                 print(
                     f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. "
                     f"Train Loss: {train_loss:.4f} | "
-                    f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+                    f"Src Val Loss: {src_val_loss:.4f} | Src Val Acc: {src_val_acc:.4f} | "
+                    f"ID Val Loss: {id_val_loss:.4f} | ID Val Acc: {id_val_acc:.4f} | "
+                    f"OOD Val Loss: {ood_val_loss:.4f} | OOD Val Acc: {ood_val_acc:.4f} | "
                     f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
+                val_acc = ood_val_acc if val == "ood" else id_val_acc
                 if val_acc > best_val_acc:
-                    best_val_acc = val_acc
+                    best_val_acc = ood_val_acc
                     no_improvement = 0
                 else:
                     no_improvement += 1
@@ -102,3 +118,21 @@ def train(num_epochs, model, meta_params, train_loader, val_loader, test_loader,
                     return model, metrics
 
     return model, metrics
+
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
+    fn = f"results/{exp_name}/{meta_step}.npy"
+    if type(opt_trainer.meta_params) == torch.Tensor:
+        meta_params = opt_trainer.meta_params.cpu().detach().numpy()
+        np.save(fn, np.array(meta_params))
+    else:
+        meta_params = [per_param_mp.cpu().detach().numpy() for per_param_mp in opt_trainer.meta_params]
+        np.savez(fn, *meta_params)

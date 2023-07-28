@@ -134,7 +134,7 @@ class LOptNet(Optimizer):
 
         self.lopt_info = lopt_info
         out_dim = 2 if self.lopt_info["wnb"] else 1
-        self.lopt_net = get_lopt_net(in_dim=self.lopt_info["num_features"], hid_dim=2, out_dim=out_dim).to(device)
+        self.lopt_net = get_lopt_net(in_dim=self.lopt_info["num_features"], hid_dim=self.lopt_info["lopt_net_dim"], out_dim=out_dim).to(device)
         p_shapes = [p.data.shape for p in self.lopt_net.parameters()]
         p_sizes = [torch.prod(torch.tensor(s)) for s in p_shapes]
         meta_params_split_p = meta_params.split(p_sizes)
@@ -146,7 +146,7 @@ class LOptNet(Optimizer):
     @staticmethod
     def get_init_meta_params(lopt_info):
         out_dim = 2 if lopt_info["wnb"] else 1
-        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=2, out_dim=out_dim)
+        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=lopt_info["lopt_net_dim"], out_dim=out_dim)
         dummy_params = [p for p in dummy_net.parameters()]
         init_weights = [p.data.flatten() for p in dummy_params]
         return torch.cat(init_weights)
@@ -154,7 +154,7 @@ class LOptNet(Optimizer):
     @staticmethod
     def get_noise(lopt_info):
         out_dim = 2 if lopt_info["wnb"] else 1
-        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=2, out_dim=out_dim)
+        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=lopt_info["lopt_net_dim"], out_dim=out_dim)
         p_sizes = [
             torch.prod(torch.tensor(p.data.shape)) for p in dummy_net.parameters()
         ]

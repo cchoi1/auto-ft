@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from datasets import get_dataloaders
+from data.dataloaders import get_dataloaders
 from networks import get_pretrained_net_fixed
 from utils import get_lopt_info
 
@@ -82,8 +82,8 @@ class OptimizerTrainer:
         self.test_dist = args.test_dist
         self.num_nets = args.num_nets
         self.features = args.features
-        self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name=args.pretrain_dist, train=True)
-        self.lopt_info = get_lopt_info(self.features, self.net, args)
+        self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels, train=True)
+        self.lopt_info = get_lopt_info(self.features, self.net, args.lopt_net_dim, args.wnb)
         self.num_iters = 0
 
         optimizer_module = importlib.import_module(f"optimizers.optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers.optimizers")
@@ -94,16 +94,12 @@ class OptimizerTrainer:
         else:
             self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
 
-        self.train_loader, self.id_val_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_id_dist],
-                                                                batch_size=args.batch_size,
-                                                                meta_batch_size=args.meta_batch_size // 2,
-                                                                num_workers=args.num_workers, use_meta_batch=self.run_parallel)
-        self.ood_val1_loader, self.ood_val2_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.ft_ood_dist],
-                                                                batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
-                                                                num_workers=args.num_workers, use_meta_batch=self.run_parallel)
-        _, self.test_loader = get_dataloaders(root_dir=args.data_dir, dataset_names=[args.test_dist],
-                                              batch_size=args.batch_size, meta_batch_size=args.meta_batch_size // 2,
-                                              num_workers=args.num_workers, use_meta_batch=self.run_parallel)
+        loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size,
+                             meta_batch_size=args.meta_batch_size // 2, num_workers=args.num_workers,
+                             use_meta_batch=self.run_parallel)
+        self.train_loader, self.id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
+        self.ood_val1_loader, self.ood_val2_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
+        _, self.test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
         # Inner Loop Hyperparameters
         self.val_meta_batch_size = args.val_meta_batch_size
@@ -145,11 +141,11 @@ class OptimizerTrainer:
         net = copy.deepcopy(self.net)
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
-            source_val_images, source_val_labels = next(iter(self.train_loader))
-            source_val_losses, source_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, source_val_images, source_val_labels, self.num_iters)
+            src_val_images, src_val_labels = next(iter(self.train_loader))
+            src_val_losses, src_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, src_val_images, src_val_labels, self.num_iters)
             self.num_iters += self.inner_steps
-            metrics["source_loss"].append(source_val_losses[-1])
-            metrics["source_acc"].append(source_val_accs[-1])
+            metrics["src_loss"].append(src_val_losses[-1])
+            metrics["src_acc"].append(src_val_accs[-1])
 
         net = copy.deepcopy(self.net)
         for _ in range(repeat):
@@ -178,8 +174,8 @@ class OptimizerTrainer:
             metrics["test_loss"].append(test_losses[-1])
             metrics["test_acc"].append(test_accs[-1])
 
-        source_val_str = f"Source Loss: {np.mean(metrics['source_loss']):.4f} +- {np.std(metrics['source_loss']):.4f} " \
-                         f"Source Acc: {100 * np.mean(metrics['source_acc']):.4f} +- {100 * np.std(metrics['source_acc']):.4f}"
+        src_val_str = f"Src Loss: {np.mean(metrics['src_loss']):.4f} +- {np.std(metrics['src_loss']):.4f} " \
+                         f"Src Acc: {100 * np.mean(metrics['src_acc']):.4f} +- {100 * np.std(metrics['src_acc']):.4f}"
         id_val_str = f"\nID Loss: {np.mean(metrics['id_loss']):.4f} +- {np.std(metrics['id_loss']):.4f} " \
                      f"ID Acc: {100 * np.mean(metrics['id_acc']):.4f} +- {100 * np.std(metrics['id_acc']):.4f}"
         ood_val_str = (
@@ -190,21 +186,18 @@ class OptimizerTrainer:
             f"\nTest Loss: {np.mean(metrics['test_loss']):.4f} +- {np.std(metrics['test_loss']):.4f} "
             f"Test Acc: {100 * np.mean(metrics['test_acc']):.4f} +- {100 * np.std(metrics['test_acc']):.4f}"
         )
-        print(source_val_str, '|', id_val_str, '|', ood_val_str, '|', test_str, '\n')
+        print(src_val_str, '|', id_val_str, '|', ood_val_str, '|', test_str, '\n')
         return metrics
 
     def validation_parallel(self):
         metrics = defaultdict(list)
         meta_params = torch.stack([self.meta_params for _ in range(self.val_meta_batch_size // 2)], dim=0)
 
-        train_loader, id_val_loader = get_dataloaders(root_dir=self.data_dir, dataset_names=[self.ft_id_dist],
-                                                      batch_size=self.batch_size,
-                                                      meta_batch_size=self.val_meta_batch_size // 2,
-                                                      num_workers=self.num_workers, use_meta_batch=self.run_parallel)
-        test_loader, ood_val_loader = get_dataloaders(root_dir=self.data_dir, dataset_names=[self.ft_ood_dist],
-                                                      batch_size=self.batch_size,
-                                                      meta_batch_size=self.val_meta_batch_size // 2,
-                                                      num_workers=self.num_workers, use_meta_batch=self.run_parallel)
+        loader_kwargs = dict(root_dir=self.data_dir, output_channels=self.output_channels, batch_size=self.batch_size,
+                             meta_batch_size=self.val_meta_batch_size // 2, num_workers=self.num_workers,
+                             use_meta_batch=self.run_parallel)
+        train_loader, id_val_loader = get_dataloaders(dataset_names=[self.ft_id_dist], **loader_kwargs)
+        test_loader, ood_val_loader = get_dataloaders(dataset_names=[self.ft_ood_dist], **loader_kwargs)
 
         train_images, train_labels = next(iter(train_loader))
         train_images2, train_labels2 = next(iter(train_loader))
@@ -214,8 +207,8 @@ class OptimizerTrainer:
         train_labels2 = train_labels2.view(self.val_meta_batch_size // 2, self.batch_size)
         func_net, net_params = functorch.make_functional(copy.deepcopy(self.net))
         train_losses, train_accs = self.finetune(func_net, net_params, meta_params, self.val_inner_steps, train_images, train_labels, train_images2, train_labels2)
-        metrics["source_loss"].append(train_losses[-1].cpu().detach().numpy().mean(axis=0))
-        metrics["source_acc"].append(train_accs[-1].cpu().detach().numpy().mean(axis=0))
+        metrics["src_loss"].append(train_losses[-1].cpu().detach().numpy().mean(axis=0))
+        metrics["src_acc"].append(train_accs[-1].cpu().detach().numpy().mean(axis=0))
 
         train_images, train_labels = next(iter(train_loader))
         val_images, val_labels = next(iter(id_val_loader))
@@ -250,8 +243,8 @@ class OptimizerTrainer:
         metrics["test_loss"].append(test_losses[-1].cpu().detach().numpy().mean(axis=0))
         metrics["test_acc"].append(test_accs[-1].cpu().detach().numpy().mean(axis=0))
 
-        source_val_str = f"\nSource Loss: {np.mean(metrics['source_loss']):.4f} +- {np.std(metrics['source_loss']):.4f} " \
-                         f"Source Acc: {100 * np.mean(metrics['source_acc']):.4f} +- {100 * np.std(metrics['source_acc']):.4f}"
+        src_val_str = f"\nSrc Loss: {np.mean(metrics['src_loss']):.4f} +- {np.std(metrics['src_loss']):.4f} " \
+                         f"Src Acc: {100 * np.mean(metrics['src_acc']):.4f} +- {100 * np.std(metrics['src_acc']):.4f}"
         id_val_str = f"\nID Loss: {np.mean(metrics['id_loss']):.4f} +- {np.std(metrics['id_loss']):.4f} " \
                      f"ID Acc: {100 * np.mean(metrics['id_acc']):.4f} +- {100 * np.std(metrics['id_acc']):.4f}"
         ood_val_str = (
@@ -262,7 +255,7 @@ class OptimizerTrainer:
             f"\nTest Loss: {np.mean(metrics['test_loss']):.4f} +- {np.std(metrics['test_loss']):.4f} "
             f"Test Acc: {100 * np.mean(metrics['test_acc']):.4f} +- {100 * np.std(metrics['test_acc']):.4f}"
         )
-        print(source_val_str, '|', id_val_str, '|', ood_val_str, '|', test_str, '\n')
+        print(src_val_str, '|', id_val_str, '|', ood_val_str, '|', test_str, '\n')
         return metrics
 
     def validation(self, repeat):

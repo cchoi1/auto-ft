@@ -123,7 +123,8 @@ def evaluate_ft_net(ft_net, args):
     metrics.update({f"src/{k}": v for k, v in evaluate_net(ft_net, source_val_loader).items()})
     metrics.update({f"id_val/{k}": v for k, v in evaluate_net(ft_net, id_val_loader).items()})
     metrics.update({f"ood_val/{k}": v for k, v in evaluate_net(ft_net, ood_val_loader).items()})
-    metrics.update({f"test/{k}": v for k, v in evaluate_net(ft_net, test_loader).items()})
+    test_evals = evaluate_net(ft_net, test_loader)
+    metrics.update({f"test/{k}": v for k, v in test_evals.items()})
 
     print(
         f"Source Val Acc: {100 * metrics['src/acc']:.2f} Loss: {metrics['src/loss']:.2f}\n"
