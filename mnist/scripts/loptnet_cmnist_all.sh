@@ -6,7 +6,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=8G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="layersgd-svhn-wnb" # Name the job (for easier monitoring)
+#SBATCH --job-name="loptnet-colored_mnist-wnb-all" # Name the job (for easier monitoring)
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -14,10 +14,7 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-#python3 main.py --method ours --pretrain_dist svhn-grayscale --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist mnistc \
-#--optimizer_name LayerSGD --num_nets 1 \
-#--inner_steps 5 --meta_steps 150 --patience 3 --val ood
-
-python3 main.py --method ours --pretrain_dist svhn-grayscale --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist mnistc \
---optimizer_name LayerSGD --num_nets 1 \
---inner_steps 5 --meta_steps 150 --patience 3 --val ood --seeds 0 --wnb
+python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
+--val ood --optimizer_name LOptNet --features p g g_norm_avg depth dist_init_param iter_frac loss loss_ema tensor_rank pos_enc \
+--lopt_net_dim 4 --output_channels 3 --seeds 0 \
+--meta_batch_size 60 --inner_steps 10 --inner_steps_range 30 --meta_steps 300 --wnb

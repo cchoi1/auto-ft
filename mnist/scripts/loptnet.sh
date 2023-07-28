@@ -6,7 +6,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=8G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="loptnet-mnist-loss-curves" # Name the job (for easier monitoring)
+#SBATCH --job-name="loptnet-mnist" # Name the job (for easier monitoring)
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -46,3 +46,19 @@ python3 main.py --method ours --pretrain_dist mnist --ft_id_dist brightness --ft
 --optimizer_name LOptNet --num_nets 1 \
 --inner_steps 5 --meta_steps 150 --patience 3 --val ood \
 --features 'depth'
+
+#python3 main.py --method ours --pretrain_dist mnist --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
+#--optimizer_name LOptNet --num_nets 1 \
+#--inner_steps 1 --meta_steps 300 --patience 3 --val ood \
+#--features 'depth'
+#
+#python3 main.py --method ours --pretrain_dist mnist --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
+#--optimizer_name LOptNet --num_nets 1 \
+#--inner_steps 20 --meta_steps 300 --patience 3 --val ood \
+#--features 'depth'
+
+#python3 main.py --method ours --pretrain_dist mnist --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
+#--optimizer_name LOptNet --num_nets 1 --inner_steps 10 --meta_steps 100 --patience 3 --val ood --features pos_enc_cont
+#
+#python3 main.py --method ours --pretrain_dist mnist --ft_id_dist brightness --ft_ood_dist impulse_noise --test_dist mnistc \
+#--optimizer_name LOptNet --num_nets 1 --inner_steps 10 --meta_steps 100 --patience 3 --val ood --features pos_enc
