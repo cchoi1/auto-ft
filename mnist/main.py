@@ -11,39 +11,15 @@ import torch
 import wandb
 
 from optimizers import optimizers
-from utils import evaluate_net, train
+from utils import evaluate_net, train, save_meta_params, set_seed
 from learned_optimizer import OptimizerTrainer
 from networks import get_pretrained_net_fixed, pretrain_nets
-from datasets import get_dataloaders
+from data.dataloaders import get_dataloaders
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def set_seed(seed: int = 42) -> None:
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    print(f"Random seed set as {seed}")
-
-def save_meta_params(opt_trainer, exp_name: str, meta_step: int):
-    fn = f"results/{exp_name}/{meta_step}.npy"
-    if type(opt_trainer.meta_params) == torch.Tensor:
-        meta_params = opt_trainer.meta_params.cpu().detach().numpy()
-        np.save(fn, np.array(meta_params))
-    else:
-        meta_params = [per_param_mp.cpu().detach().numpy() for per_param_mp in opt_trainer.meta_params]
-        np.savez(fn, *meta_params)
-
-
 def train_optimizer(args):
     """ Train optimizer and return meta-params. """
-    pretrain_nets(
-        ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, data_dir=args.data_dir, num_nets=args.num_nets,
-        num_epochs=args.num_epochs
-    )
     start = time.time()
     opt_trainer = OptimizerTrainer(args)
     init_meta_params = opt_trainer.meta_params.detach().cpu().numpy()
@@ -100,44 +76,44 @@ def train_optimizer(args):
 
 def finetune_with_meta_params(meta_params, args):
     """ Fine-tune pretrained net with meta-learned optimizer. """
-    loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, num_workers=args.num_workers, use_meta_batch=False)
+    loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, output_channels=args.output_channels, num_workers=args.num_workers, use_meta_batch=False)
 
     if not args.ft_id_ood:  # Fine-tune on ID data only
         train_loader, _ = get_dataloaders(
             dataset_names=[args.ft_id_dist], **loader_kwargs)
-        _, val_loader = get_dataloaders(
-            dataset_names=[args.ft_ood_dist], **loader_kwargs)
     else:  # Fine-tune on both ID and OOD data
-        train_loader, val_loader = get_dataloaders(
+        train_loader, _ = get_dataloaders(
             dataset_names=[args.ft_id_dist, args.ft_ood_dist], **loader_kwargs)
-        if args.val == "id":
-            _, val_loader = get_dataloaders(
-                dataset_names=[args.ft_id_dist], **loader_kwargs)
+
+    _, src_val_loader = get_dataloaders(dataset_names=[args.pretrain_dist], **loader_kwargs)
+    _, id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
+    _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
     _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
-    pretrained_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, train=False).to(device))
+    pretrained_net = copy.deepcopy(get_pretrained_net_fixed(
+        ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels,
+        train=False).to(device))
 
     optimizer_obj = getattr(optimizers, args.optimizer_name)
+    train_kwargs = {"val": args.val, "lr": args.inner_lr, "patience": args.patience, "features": args.features,
+                    "lopt_net_dim": args.lopt_net_dim, "l2_lambda": args.l2_lambda, "wnb": args.wnb}
     ft_net, ft_metrics = train(
         num_epochs=args.num_epochs,
         model=pretrained_net,
         meta_params=meta_params,
+        src_val_loader=src_val_loader,
         train_loader=train_loader,
-        val_loader=val_loader,
+        id_val_loader=id_val_loader,
+        ood_val_loader=ood_val_loader,
         test_loader=test_loader,
         optimizer_obj=optimizer_obj if args.method != "ours-avg" else optimizers.LayerSGD,
-        lr=args.inner_lr,
-        patience=args.patience,
-        features=args.features,
-        l2_lambda=args.l2_lambda,
-        wnb=args.wnb,
+        **train_kwargs
     )
-
     return ft_net, ft_metrics
 
 
 def evaluate_ft_net(ft_net, args):
-    loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, num_workers=args.num_workers, use_meta_batch=False)
+    loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size, num_workers=args.num_workers, use_meta_batch=False)
     _, source_val_loader = get_dataloaders(dataset_names=[args.pretrain_dist], **loader_kwargs)
     _, id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
     _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
@@ -158,53 +134,59 @@ def evaluate_ft_net(ft_net, args):
     return metrics
 
 def run_method(args):
+    pretrain_nets(
+        ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, data_dir=args.data_dir,
+        output_channels=args.output_channels, num_nets=args.num_nets, num_epochs=args.num_epochs
+    )
     print(f"\n--- Method: {args.method} ---\n")
     assert args.method in ["full", "surgical", "ours", "ours-avg", "pretrained"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
     all_metrics = defaultdict(list)
+    final_eval_metrics = defaultdict(list)
     for seed in args.seeds:
         set_seed(seed)
 
         if args.method == "pretrained":
-            ft_net = copy.deepcopy(get_pretrained_net_fixed(ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, train=False).to(device))
+            ft_net = copy.deepcopy(get_pretrained_net_fixed(
+                ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels,
+                train=False).to(device))
         else:
             meta_params, meta_l_metrics = train_optimizer(args)
             ft_net, ft_metrics = finetune_with_meta_params(meta_params, args)
             for k, v in meta_l_metrics.items():
                 all_metrics[f"meta/{k}"].append(v)
+            for k, v in ft_metrics.items():
+                all_metrics[f"ft/{k}"].append(v)
         eval_metrics = evaluate_ft_net(ft_net, args)
         for k, v in eval_metrics.items():
-            all_metrics[k].append(v)
+            final_eval_metrics[k].append(v)
     all_metrics = {k: np.array(v) for k, v in all_metrics.items()}
+    all_metrics = {k: v.mean(0) for k, v in all_metrics.items()}
+    final_eval_metrics = {k: np.array(v) for k, v in final_eval_metrics.items()}
 
     if not args.no_wandb:
-        for train_loss, val_loss, test_loss, val_acc, test_acc in zip(ft_metrics["train_loss"], ft_metrics["val_loss"], ft_metrics["test_loss"], ft_metrics["val_acc"], ft_metrics["test_acc"]):
-            # Log train and val losses of the last run (diff lengths of training due to early stopping)
-            wandb.log({"Train Loss": train_loss, "Val Loss": val_loss, "Test Loss": test_loss, "Val Acc": val_acc, "Test Acc": test_acc})
-
-        # Log average meta losses per meta-step
-        avg_meta_losses = {k: v.mean(0) for k, v in all_metrics.items() if k.startswith("meta/")}
-        N = len(meta_l_metrics["source_loss_post"])
+        # hack to log all stepwise metrics w/o calling wandb.log twice, so that the x-axes all start from 0,
+        # considering different number of steps for meta vs ft metrics
+        N = max(len(all_metrics["meta/id_loss_post"]), len(ft_metrics["train_loss"]), len(all_metrics["meta/meta_train_loss"]))
         for i in range(N):
-            wandb.log({k: v[i] for k, v in avg_meta_losses.items()})
-
+            wandb.log({k: v[i] for k, v in all_metrics.items() if i < len(v)}, step=i)
     print(
         f"\n--- Results (seeds = {args.seeds}) ---\n"
-        f"Source Val Acc: {100 * all_metrics['src/acc'].mean():.2f} +- {100 * all_metrics['src/acc'].std():.2f}\n"
-        f"ID Val Acc: {100 * all_metrics['id_val/acc'].mean():.2f} +- {100 * all_metrics['id_val/acc'].std():.2f}\n"
-        f"OOD Val Acc: {100 * all_metrics['ood_val/acc'].mean():.2f} +- {100 * all_metrics['ood_val/acc'].std():.2f}\n"
-        f"Test Acc: {100 * all_metrics['test/acc'].mean():.2f} +- {100 * all_metrics['test/acc'].std():.2f}\n"
+        f"Source Val Acc: {100 * final_eval_metrics['src/acc'].mean():.2f} +- {100 * final_eval_metrics['src/acc'].std():.2f}\n"
+        f"ID Val Acc: {100 * final_eval_metrics['id_val/acc'].mean():.2f} +- {100 * final_eval_metrics['id_val/acc'].std():.2f}\n"
+        f"OOD Val Acc: {100 * final_eval_metrics['ood_val/acc'].mean():.2f} +- {100 * final_eval_metrics['ood_val/acc'].std():.2f}\n"
+        f"Test Acc: {100 * final_eval_metrics['test/acc'].mean():.2f} +- {100 * final_eval_metrics['test/acc'].std():.2f}\n"
         f"\n----------------------------------------\n"
         )
     wandb_dict = {
-        "Source Val Accuracy (Avg)": 100 * all_metrics["src/acc"].mean(),
-        "Source Val Accuracy (Std)": 100 * all_metrics["src/acc"].std(),
-        "ID Val Accuracy (Avg)": 100 * all_metrics["id_val/acc"].mean(),
-        "ID Val Accuracy (Std)": 100 * all_metrics["id_val/acc"].std(),
-        "OOD Val Accuracy (Avg)": 100 * all_metrics["ood_val/acc"].mean(),
-        "OOD Val Accuracy (Std)": 100 * all_metrics["ood_val/acc"].std(),
-        "Test Accuracy (Avg)": 100 * all_metrics["test/acc"].mean(),
-        "Test Accuracy (Std)": 100 * all_metrics["test/acc"].std(),
+        "Source Val Accuracy (Avg)": 100 * final_eval_metrics["src/acc"].mean(),
+        "Source Val Accuracy (Std)": 100 * final_eval_metrics["src/acc"].std(),
+        "ID Val Accuracy (Avg)": 100 * final_eval_metrics["id_val/acc"].mean(),
+        "ID Val Accuracy (Std)": 100 * final_eval_metrics["id_val/acc"].std(),
+        "OOD Val Accuracy (Avg)": 100 * final_eval_metrics["ood_val/acc"].mean(),
+        "OOD Val Accuracy (Std)": 100 * final_eval_metrics["ood_val/acc"].std(),
+        "Test Accuracy (Avg)": 100 * final_eval_metrics["test/acc"].mean(),
+        "Test Accuracy (Std)": 100 * final_eval_metrics["test/acc"].std(),
     }
     if not args.no_wandb:
         wandb.log(wandb_dict)
