@@ -28,12 +28,16 @@ def fine_tune(optimizer_obj, inner_lr, inp_info, total_iters, _net, meta_params,
         preds = net(train_images)
         loss = loss_fn(preds, train_labels)
         inner_opt.zero_grad()
+        # if np.isnan(loss.item()):
+        #     print('inner ID train loss is nan', _)
         loss.backward()
         inner_opt.step(curr_loss=loss.item(), iter=iter, iter_frac=iter/total_iters)
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
         test_loss = loss_fn(output, test_labels)
+        # if np.isnan(test_loss.item()):
+        #     print('inner OOD train loss is nan', _)
         test_losses.append(test_loss.item())
         preds = output.argmax(dim=1)
         correct += (preds == test_labels).sum().item()

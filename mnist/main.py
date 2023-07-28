@@ -1,7 +1,6 @@
 import copy
 import os
 import pickle
-import random
 import time
 from collections import defaultdict
 from parser import get_args
@@ -31,15 +30,10 @@ def train_optimizer(args):
         return torch.ones(opt_trainer.lopt_info["num_features"]).float(), metrics
     elif args.method == "surgical":
         assert args.optimizer_name == "LayerSGD"
+        assert args.layer is not None
         meta_params = (-100 * torch.ones(opt_trainer.lopt_info["num_features"])).float()
-        #TODO (cchoi1) - add support for surgical fine-tuning an arbitrary network
-        if args.pretrain_dist == "mnist":
-            meta_params[0] = 100
-        elif args.pretrain_dist == "svhn":
-            meta_params[0] = 100
-            meta_params[1] = 100
-        else:
-            raise ValueError(f"Unsupported pretrain_dist {args.pretrain_dist}")
+        meta_params[2*args.layer] = 100
+        meta_params[2*args.layer + 1] = 100
         return meta_params, metrics
     assert args.method in ["ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
@@ -74,7 +68,7 @@ def train_optimizer(args):
         meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
     return meta_params, metrics
 
-def finetune_with_meta_params(meta_params, args):
+def finetune_with_meta_params(meta_params, net, args):
     """ Fine-tune pretrained net with meta-learned optimizer. """
     loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, output_channels=args.output_channels, num_workers=args.num_workers, use_meta_batch=False)
 
@@ -90,16 +84,12 @@ def finetune_with_meta_params(meta_params, args):
     _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
     _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
-    pretrained_net = copy.deepcopy(get_pretrained_net_fixed(
-        ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels,
-        train=False).to(device))
-
     optimizer_obj = getattr(optimizers, args.optimizer_name)
     train_kwargs = {"val": args.val, "lr": args.inner_lr, "patience": args.patience, "features": args.features,
                     "lopt_net_dim": args.lopt_net_dim, "l2_lambda": args.l2_lambda, "wnb": args.wnb}
     ft_net, ft_metrics = train(
         num_epochs=args.num_epochs,
-        model=pretrained_net,
+        model=net,
         meta_params=meta_params,
         src_val_loader=src_val_loader,
         train_loader=train_loader,
@@ -140,20 +130,30 @@ def run_method(args):
         output_channels=args.output_channels, num_nets=args.num_nets, num_epochs=args.num_epochs
     )
     print(f"\n--- Method: {args.method} ---\n")
-    assert args.method in ["full", "surgical", "ours", "ours-avg", "pretrained"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
     all_metrics = defaultdict(list)
     final_eval_metrics = defaultdict(list)
     for seed in args.seeds:
         set_seed(seed)
 
+        pretrained_net = copy.deepcopy(get_pretrained_net_fixed(
+            ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels,
+            train=False).to(device))
+
         if args.method == "pretrained":
-            ft_net = copy.deepcopy(get_pretrained_net_fixed(
-                ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels,
-                train=False).to(device))
+            ft_net = pretrained_net
+        elif args.method == "lp-ft":
+            args.method = "surgical"
+            args.layer = -1
+            meta_params, _ = train_optimizer(args)
+            lp_net, _ = finetune_with_meta_params(meta_params, pretrained_net, args)
+            args.method = "full"
+            meta_params, _ = train_optimizer(args)
+            args.inner_lr *= 1e-1
+            ft_net, ft_metrics = finetune_with_meta_params(meta_params, lp_net, args)
         else:
             meta_params, meta_l_metrics = train_optimizer(args)
-            ft_net, ft_metrics = finetune_with_meta_params(meta_params, args)
+            ft_net, ft_metrics = finetune_with_meta_params(meta_params, pretrained_net, args)
             for k, v in meta_l_metrics.items():
                 all_metrics[f"meta/{k}"].append(v)
             for k, v in ft_metrics.items():

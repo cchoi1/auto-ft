@@ -1,30 +1,12 @@
 import os
 import random
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 import numpy as np
 import torch
 import torch.nn as nn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-def get_lopt_info(features, net, lopt_net_dim, use_wnb):
-    if features is not None:
-        num_features = len(features)
-        if "pos_enc_cont" in features:
-            num_features += 1
-        if "pos_enc" in features:
-            num_features += 1
-    else:
-        num_features = len([p for p in net.parameters()])
-    lopt_info = {
-        "features": features,
-        "num_features": num_features,
-        "tensor_shapes": [p.data.shape for p in net.parameters()],
-        "lopt_net_dim": lopt_net_dim,
-        "wnb": use_wnb
-    }
-    return lopt_info
 
 @torch.no_grad()
 def evaluate_net(net, loader):
@@ -118,6 +100,35 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
                     return model, metrics
 
     return model, metrics
+
+
+def get_per_layer_parameters(model):
+    grouped_parameters = OrderedDict()
+    for name, param in model.named_parameters():
+        layer_name = name.split('.')[0]  # Get the layer name from the full parameter name
+        if layer_name not in grouped_parameters:
+            grouped_parameters[layer_name] = []
+        grouped_parameters[layer_name].append(param)
+    return grouped_parameters
+
+
+def get_lopt_info(features, net, lopt_net_dim, use_wnb):
+    if features is not None:
+        num_features = len(features)
+        if "pos_enc_cont" in features:
+            num_features += 1
+        if "pos_enc" in features:
+            num_features += 1
+    else:
+        num_features = len([p for p in net.parameters()])
+    lopt_info = {
+        "features": features,
+        "num_features": num_features,
+        "tensor_shapes": [p.data.shape for p in net.parameters()],
+        "lopt_net_dim": lopt_net_dim,
+        "wnb": use_wnb
+    }
+    return lopt_info
 
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)

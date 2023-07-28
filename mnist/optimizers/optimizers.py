@@ -126,6 +126,9 @@ class LOptNet(Optimizer):
         layers = list(
             [p for p in net.children() if isinstance(p, nn.Linear)]
         )  # Assumes nn.Sequential model
+        # layers = list(
+        #     [p for p in net.children() if isinstance(p, nn.Linear) or isinstance(p, nn.Conv2d)]
+        # )  # Assumes nn.Sequential model
         for depth, layer in enumerate(layers):
             depth = torch.tensor(depth).float()
             param_groups.append({"params": layer.weight, "depth": depth, "type": "w", "init_param": layer.weight})
@@ -170,13 +173,13 @@ class LOptNet(Optimizer):
         if "g" in self.lopt_info["features"]:
             features.append(g_flat)
         if "p_norm" in self.lopt_info["features"]:
-            p_norm = torch.norm(p.data) * torch.ones_like(p_flat)
+            p_norm = torch.norm(p.data.cpu()) * torch.ones_like(p_flat)
             features.append(p_norm)
         if "g_norm" in self.lopt_info["features"]:
-            g_norm = torch.norm(p.grad.data) * torch.ones_like(p_flat)
+            g_norm = torch.norm(p.grad.data.cpu()) * torch.ones_like(p_flat)
             features.append(g_norm)
         if "g_norm_avg" in self.lopt_info["features"]:
-            g_norm_avg = torch.norm(p.grad.data, dim=-1).mean(dim=0)  # grad norm avg across batch
+            g_norm_avg = torch.norm(p.grad.data.cpu(), dim=-1).mean(dim=0) * torch.ones_like(p_flat)  # grad norm avg across batch
             features.append(g_norm_avg)
         if "depth" in self.lopt_info["features"]:
             depth = group["depth"] * torch.ones_like(p_flat)
@@ -186,7 +189,7 @@ class LOptNet(Optimizer):
             wb_flat = torch.tensor(wb * torch.ones_like(p_flat), dtype=p_flat.dtype)
             features.append(wb_flat)
         if "dist_init_param" in self.lopt_info["features"]:
-            dist_init_param = torch.norm(p.data - group["init_param"]) * torch.ones_like(p_flat)
+            dist_init_param = torch.norm(p.data.cpu() - group["init_param"].cpu()) * torch.ones_like(p_flat)
             features.append(dist_init_param)
         if "iter" in self.lopt_info["features"]:
             iter_num = torch.tensor(iter, dtype=p_flat.dtype) * torch.ones_like(p_flat)

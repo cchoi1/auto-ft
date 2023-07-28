@@ -4,7 +4,8 @@ from data.mnist_c import _CORRUPTIONS
 def get_args(): 
     parser = argparse.ArgumentParser()
     dists = ["mnist", "mnistc", "mnist-label-shift", "svhn", "svhn-grayscale", "colored_mnist", "rotated_mnist"] + _CORRUPTIONS
-    parser.add_argument("--method", type=str, choices=["full", "surgical", "ours", "ours-avg", "pretrained"])
+    parser.add_argument("--method", type=str, choices=["full", "surgical", "ours", "ours-avg", "pretrained", "lp-ft"])
+    parser.add_argument("--layer", type=int)
     parser.add_argument(
         "--pretrain_dist",
         type=str,
