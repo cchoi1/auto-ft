@@ -9,6 +9,7 @@ from torchvision import datasets, transforms
 from .colored_mnist import get_colored_mnist, get_rotated_mnist
 from .mnist_c import MNISTC, _CORRUPTIONS
 from .mnist_label_shift import MNISTLabelShift
+from .utils import SampledDataset
 
 
 def meta_batch_sampler(dataset, meta_batch_size, batch_size):
@@ -56,6 +57,18 @@ def get_transform(dataset_name, output_channels):
                 transforms.Normalize((0.1307,), (0.3081,)),
                 GrayscaleToRGB()]
             )
+    elif dataset_name == "emnist":
+        if output_channels == 1:
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1733,), (0.3317,))]
+            )
+        else:
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1733,), (0.3317,)),
+                GrayscaleToRGB()]
+            )
     elif dataset_name == "colored_mnist":
         assert output_channels == 3, "num_output_channels must be 3"
         transform = transforms.Compose([
@@ -86,6 +99,7 @@ def get_dataloaders(
     dataset_names: List[str],
     output_channels: int,
     batch_size: int,
+    num_samples_per_class=-1,
     use_meta_batch=False,
     meta_batch_size=0,
     num_workers=0,
@@ -103,6 +117,13 @@ def get_dataloaders(
             )
             test_dataset = datasets.MNIST(
                 root_dir, train=False, download=True, transform=transform
+            )
+        elif dataset_name == "emnist":
+            train_dataset = datasets.EMNIST(
+                root_dir, split="digits", train=True, download=True, transform=transform
+            )
+            test_dataset = datasets.EMNIST(
+                root_dir, split="digits", train=False, download=True, transform=transform
             )
         elif dataset_name in ["mnistc"] + _CORRUPTIONS:
             data_dir = os.path.join(root_dir, "MNIST-C")
@@ -151,6 +172,8 @@ def get_dataloaders(
         elif dataset_name == "rotated_mnist":
             train_datasets = get_rotated_mnist(root_dir, transform)
             test_datasets = get_rotated_mnist(root_dir, transform)
+        if num_samples_per_class > 0:
+            train_dataset = SampledDataset(train_dataset, num_samples_per_class)
         if dataset_name != "colored_mnist" and dataset_name != "rotated_mnist":
             train_datasets.append(train_dataset)
             test_datasets.append(test_dataset)

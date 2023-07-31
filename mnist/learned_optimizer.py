@@ -84,13 +84,15 @@ class OptimizerTrainer:
         self.ft_id_dist = args.ft_id_dist
         self.ft_ood_dist = args.ft_ood_dist
         self.test_dist = args.test_dist
+        self.id_samples_per_class = args.id_samples_per_class
+        self.ood_samples_per_class = args.ood_samples_per_class
         self.num_nets = args.num_nets
         self.features = args.features
         self.net = get_pretrained_net_fixed(ckpt_path=self.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels, train=True)
-        self.lopt_info = get_lopt_info(self.features, self.net, args.lopt_net_dim, args.wnb)
+        self.lopt_info = get_lopt_info(self.net, args)
         self.num_iters = 0
 
-        optimizer_module = importlib.import_module(f"optimizers.optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers.optimizers")
+        optimizer_module = importlib.import_module(f"optimizers.optimizers_func") if self.run_parallel else importlib.import_module(f"optimizers.{args.optimizer_name.lower()}")
         self.optimizer_obj = getattr(optimizer_module, args.optimizer_name)
         self.meta_params = self.optimizer_obj.get_init_meta_params(self.lopt_info)
         if type(self.meta_params) == list:
@@ -101,8 +103,11 @@ class OptimizerTrainer:
         loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size,
                              meta_batch_size=args.meta_batch_size // 2, num_workers=args.num_workers,
                              use_meta_batch=self.run_parallel)
+        loader_kwargs["num_samples_per_class"] = args.id_samples_per_class
         self.train_loader, self.id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
+        loader_kwargs["num_samples_per_class"] = args.ood_samples_per_class
         self.ood_val1_loader, self.ood_val2_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
+        loader_kwargs["num_samples_per_class"] = -1
         _, self.test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
         # Inner Loop Hyperparameters
@@ -201,7 +206,9 @@ class OptimizerTrainer:
         loader_kwargs = dict(root_dir=self.data_dir, output_channels=self.output_channels, batch_size=self.batch_size,
                              meta_batch_size=self.val_meta_batch_size // 2, num_workers=self.num_workers,
                              use_meta_batch=self.run_parallel)
+        loader_kwargs["num_samples_per_class"] = self.id_samples_per_class
         train_loader, id_val_loader = get_dataloaders(dataset_names=[self.ft_id_dist], **loader_kwargs)
+        loader_kwargs["num_samples_per_class"] = self.ood_samples_per_class
         test_loader, ood_val_loader = get_dataloaders(dataset_names=[self.ft_ood_dist], **loader_kwargs)
 
         train_images, train_labels = next(iter(train_loader))

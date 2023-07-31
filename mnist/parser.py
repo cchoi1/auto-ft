@@ -1,31 +1,35 @@
 import argparse
 from data.mnist_c import _CORRUPTIONS
 
+DISTS = ["mnist", "mnistc", "mnist-label-shift", "emnist", "svhn", "svhn-grayscale", "colored_mnist", "rotated_mnist"] \
+        + _CORRUPTIONS
+
 def get_args(): 
     parser = argparse.ArgumentParser()
-    dists = ["mnist", "mnistc", "mnist-label-shift", "svhn", "svhn-grayscale", "colored_mnist", "rotated_mnist"] + _CORRUPTIONS
     parser.add_argument("--method", type=str, choices=["full", "surgical", "ours", "ours-avg", "pretrained", "lp-ft"])
     parser.add_argument("--layer", type=int)
     parser.add_argument(
         "--pretrain_dist",
         type=str,
-        choices=dists,
+        choices=DISTS,
     )
     parser.add_argument(
         "--ft_id_dist",
         type=str,
-        choices=dists,
+        choices=DISTS,
     )
     parser.add_argument(
         "--ft_ood_dist",
         type=str,
-        choices=dists,
+        choices=DISTS,
     )
     parser.add_argument(
         "--test_dist",
         type=str,
-        choices=dists,
+        choices=DISTS,
     )
+    parser.add_argument("--id_samples_per_class", type=int, default=-1)
+    parser.add_argument("--ood_samples_per_class", type=int, default=-1)
     parser.add_argument("--output_channels", type=int)
     parser.add_argument(
         "--optimizer_name",
@@ -33,6 +37,8 @@ def get_args():
         default="LayerSGDLinear",
     )
     parser.add_argument("--wnb", action="store_true", help="Learn both weights and biases to scale LRs")
+    parser.add_argument("--momentum", action="store_true", help="Learn momentum")
+    parser.add_argument("--output", type=str, choices=["lr_multiplier", "update"])
     parser.add_argument("--ft_id_ood", action="store_true", help="Fine-tune w/ meta-params on both ID and OOD data.")
     parser.add_argument("--features", nargs='+', type=str,
                         help="Choose a subset of [p, g, p_norm, g_norm, depth, wb, dist_init_param, iter, loss, "

@@ -1,6 +1,4 @@
-""" Definitions for meta-learned optimizers."""
-from abc import ABC, abstractstaticmethod
-
+""" Definitions for meta-learned optimizers that learn per-parameter lr multipliers, updates, etc."""
 import torch
 from torch import nn
 from torch.optim.optimizer import Optimizer, required
@@ -8,114 +6,6 @@ from torch.optim.optimizer import Optimizer, required
 from .utils import compute_positional_encoding, compute_continuous_positional_encoding, get_lopt_net
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-class LearnedOptimizer(Optimizer, ABC):
-    def __init__(self, params, defaults):
-        super().__init__(params, defaults)
-
-    @abstractstaticmethod
-    def get_init_meta_params(num_features):
-        """
-        Abstract static method to be implemented by subclasses.
-        Returns the initial meta parameters for the learned optimizer.
-        """
-        raise NotImplementedError
-
-    @abstractstaticmethod
-    def get_noise(num_features):
-        """
-        Abstract static method to be implemented by subclasses.
-        Returns noise to be applied during ES inner loop.
-        """
-        raise NotImplementedError
-
-
-class LayerSGD(Optimizer):
-    """meta-params: pre-sigmoid lr_multiplier per tensor."""
-
-    def __init__(self, meta_params, net, lopt_info=None, lr=required):
-        self.lopt_info = lopt_info
-        if lopt_info["wnb"]:
-            assert meta_params.numel() == 2 * lopt_info["num_features"]
-        else:
-            assert meta_params.numel() == lopt_info["num_features"]
-        defaults = dict(lr=lr)
-        params = net.parameters()
-        super().__init__(params, defaults)
-        self.meta_params = meta_params
-
-    @staticmethod
-    def get_init_meta_params(lopt_info):
-        if lopt_info["wnb"]:
-            return torch.zeros(2 * lopt_info["num_features"])
-        return torch.zeros(lopt_info["num_features"])
-
-    @staticmethod
-    def get_noise(lopt_info):
-        if lopt_info["wnb"]:
-            return torch.randn(2 * lopt_info["num_features"])
-        return torch.randn(lopt_info["num_features"])
-
-    def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
-        loss = None
-        if closure is not None:
-            loss = closure()
-
-        for group in self.param_groups:
-            for i, p in enumerate(group["params"]):
-                if p.grad is None:
-                    continue
-                d_p = p.grad.data
-
-                if self.lopt_info["wnb"]:
-                    # grad clipping?? b/c inner loop loss immediately shoots up to NaN on SVHN task
-                    # torch.nn.utils.clip_grad_norm_(p, 1.0)
-                    local_lr = group["lr"] * torch.sigmoid(self.meta_params[2*i]) + torch.sigmoid(self.meta_params[2*i+1])
-                else:
-                    local_lr = group["lr"] * torch.sigmoid(self.meta_params[i])
-                p.data.add_(d_p, alpha=-local_lr)
-        return loss
-
-class LayerSGDLinear(Optimizer):
-    """meta-params: weights of linear layer with depth as input."""
-
-    def __init__(self, meta_params, net, lopt_info=None, lr=required):
-        # assert meta_params.numel() == 4
-        defaults = dict(lr=lr)
-        param_groups = []
-        layers = list(
-            [p for p in net.children() if isinstance(p, nn.Linear)]
-        )  # Assumes nn.Sequential model
-        for depth, layer in enumerate(layers):
-            param_groups.append({"params": layer.weight, "depth": depth, "type": "w"})
-            param_groups.append({"params": layer.bias, "depth": depth, "type": "b"})
-        super().__init__(param_groups, defaults)
-        self.meta_params = {"w": meta_params[0:2], "b": meta_params[2:4]}
-
-    @staticmethod
-    def get_init_meta_params(lopt_info):
-        return torch.zeros(lopt_info["num_features"])
-
-    @staticmethod
-    def get_noise(lopt_info):
-        return torch.randn(lopt_info["num_features"])
-
-    def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
-        loss = None
-        if closure is not None:
-            loss = closure()
-
-        for group in self.param_groups:
-            p = group["params"][0]
-            if p.grad is None:
-                continue
-
-            depth = group["depth"]
-            meta_params = self.meta_params[group["type"]]
-            lr_multiplier = torch.sigmoid(meta_params[0] * depth + meta_params[1])
-            p.data.add_(p.grad.data, alpha=-group["lr"] * lr_multiplier)
-        return loss
-
 
 class LOptNet(Optimizer):
     """Small 1-layer network that takes in (grad, param, depth) as input."""
@@ -131,13 +21,12 @@ class LOptNet(Optimizer):
         # )  # Assumes nn.Sequential model
         for depth, layer in enumerate(layers):
             depth = torch.tensor(depth).float()
-            param_groups.append({"params": layer.weight, "depth": depth, "type": "w", "init_param": layer.weight})
-            param_groups.append({"params": layer.bias, "depth": depth, "type": "b", "init_param": layer.bias})
+            param_groups.append({"params": layer.weight, "depth": depth, "type": "w", "init_param": layer.weight.data.clone(), "momentum_buffer": None})
+            param_groups.append({"params": layer.bias, "depth": depth, "type": "b", "init_param": layer.bias.data.clone(), "momentum_buffer": None})
         super().__init__(param_groups, defaults)
 
         self.lopt_info = lopt_info
-        out_dim = 2 if self.lopt_info["wnb"] else 1
-        self.lopt_net = get_lopt_net(in_dim=self.lopt_info["num_features"], hid_dim=self.lopt_info["lopt_net_dim"], out_dim=out_dim).to(device)
+        self.lopt_net = get_lopt_net(in_dim=self.lopt_info["input_dim"], hid_dim=self.lopt_info["hidden_dim"], out_dim=lopt_info["output_dim"]).to(device)
         p_shapes = [p.data.shape for p in self.lopt_net.parameters()]
         p_sizes = [torch.prod(torch.tensor(s)) for s in p_shapes]
         meta_params_split_p = meta_params.split(p_sizes)
@@ -148,16 +37,14 @@ class LOptNet(Optimizer):
 
     @staticmethod
     def get_init_meta_params(lopt_info):
-        out_dim = 2 if lopt_info["wnb"] else 1
-        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=lopt_info["lopt_net_dim"], out_dim=out_dim)
+        dummy_net = get_lopt_net(in_dim=lopt_info["input_dim"], hid_dim=lopt_info["hidden_dim"], out_dim=lopt_info["output_dim"])
         dummy_params = [p for p in dummy_net.parameters()]
         init_weights = [p.data.flatten() for p in dummy_params]
         return torch.cat(init_weights)
 
     @staticmethod
     def get_noise(lopt_info):
-        out_dim = 2 if lopt_info["wnb"] else 1
-        dummy_net = get_lopt_net(in_dim=lopt_info["num_features"], hid_dim=lopt_info["lopt_net_dim"], out_dim=out_dim)
+        dummy_net = get_lopt_net(in_dim=lopt_info["input_dim"], hid_dim=lopt_info["hidden_dim"], out_dim=lopt_info["output_dim"])
         p_sizes = [
             torch.prod(torch.tensor(p.data.shape)) for p in dummy_net.parameters()
         ]
@@ -215,6 +102,20 @@ class LOptNet(Optimizer):
 
         return torch.cat(features, dim=-1).to(device)
 
+    def unpack_lopt_outputs(self, lopt_outputs, p):
+        lr_multiplier = torch.sigmoid(lopt_outputs[:, 0]).reshape(p.data.shape).to(device)
+        lr_bias, mom_multiplier = None, None
+        if self.lopt_info["output_dim"] == 3:
+            lr_bias = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
+            mom_multiplier = torch.sigmoid(lopt_outputs[:, 2]).reshape(p.data.shape).to(device)
+        elif self.lopt_info["output_dim"] == 2:
+            if self.lopt_info["wnb"]:
+                lr_bias = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
+            elif self.lopt_info["momentum"]:
+                mom_multiplier = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
+
+        return lr_multiplier, lr_bias, mom_multiplier
+
     def step(self, curr_loss, iter, iter_frac, closure=None):
         loss = None
         if closure is not None:
@@ -224,23 +125,60 @@ class LOptNet(Optimizer):
             p = group["params"][0]
             if p.grad is None:
                 continue
+            d_p = p.grad.data
 
             self.loss_ema = self.decay * self.loss_ema + (1 - self.decay) * curr_loss
-
             lopt_inputs = self.get_lopt_inputs(p, p.grad, group, curr_loss, iter, iter_frac).to(device)
             with torch.no_grad():
                 self.lopt_net = self.lopt_net.to(device)
                 lopt_outputs = self.lopt_net(lopt_inputs).detach()
-            if self.lopt_info["wnb"]:
-                w = torch.sigmoid(lopt_outputs[:, 0]).reshape(p.data.shape).to(device)
-                b = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
-                update = -p.grad.data * group["lr"] * w + b
+
+            lr_multiplier, lr_bias, mom_multiplier = self.unpack_lopt_outputs(lopt_outputs, p)
+            local_lr = group["lr"] * lr_multiplier
+
+            if lr_bias is not None:
+                local_lr += lr_bias
+            if mom_multiplier is not None:
+                if group["momentum_buffer"] is None:
+                    group["momentum_buffer"] = torch.clone(d_p).detach()
+                else:
+                    group["momentum_buffer"].mul_(mom_multiplier).add_((1 - mom_multiplier) * d_p)
+                momentum_updated_d_p = group["momentum_buffer"]
             else:
-                lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape).to(device)
-                update = -p.grad.data * lr_multiplier
+                momentum_updated_d_p = d_p
+            update = -local_lr * momentum_updated_d_p
+
             p.data.add_(update)
 
         return loss
+
+    # def step(self, curr_loss, iter, iter_frac, closure=None):
+    #     loss = None
+    #     if closure is not None:
+    #         loss = closure()
+    #
+    #     for i, group in enumerate(self.param_groups):
+    #         p = group["params"][0]
+    #         if p.grad is None:
+    #             continue
+    #
+    #         self.loss_ema = self.decay * self.loss_ema + (1 - self.decay) * curr_loss
+    #         lopt_inputs = self.get_lopt_inputs(p, p.grad, group, curr_loss, iter, iter_frac).to(device)
+    #         with torch.no_grad():
+    #             self.lopt_net = self.lopt_net.to(device)
+    #             lopt_outputs = self.lopt_net(lopt_inputs).detach()
+    #         if self.lopt_info["wnb"]:
+    #             w = torch.sigmoid(lopt_outputs[:, 0]).reshape(p.data.shape).to(device)
+    #             b = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
+    #             update = -p.grad.data * group["lr"] * w + b
+    #         elif self.lopt_info["update"]:
+    #             update = torch.sigmoid(lopt_outputs).reshape(p.data.shape).to(device)
+    #         else:
+    #             lr_multiplier = torch.sigmoid(lopt_outputs).reshape(p.data.shape).to(device)
+    #             update = -p.grad.data * group["lr"] * lr_multiplier
+    #         p.data.add_(update)
+    #
+    #     return loss
 
 
 class GlobalLOptNetMLP(nn.Module):

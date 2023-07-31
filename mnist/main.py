@@ -1,19 +1,20 @@
 import copy
+import importlib
 import os
 import pickle
 import time
 from collections import defaultdict
-from parser import get_args
 
 import numpy as np
 import torch
 import wandb
 
-from optimizers import optimizers
-from utils import evaluate_net, train, save_meta_params, set_seed
+import optimizers
+from data.dataloaders import get_dataloaders
 from learned_optimizer import OptimizerTrainer
 from networks import get_pretrained_net_fixed, pretrain_nets
-from data.dataloaders import get_dataloaders
+from parser import get_args
+from utils import evaluate_net, train, save_meta_params, set_seed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -70,7 +71,8 @@ def train_optimizer(args):
 
 def finetune_with_meta_params(meta_params, net, args):
     """ Fine-tune pretrained net with meta-learned optimizer. """
-    loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, output_channels=args.output_channels, num_workers=args.num_workers, use_meta_batch=False)
+    loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, output_channels=args.output_channels,
+                         num_workers=args.num_workers, use_meta_batch=False)
 
     if not args.ft_id_ood:  # Fine-tune on ID data only
         train_loader, _ = get_dataloaders(
@@ -80,13 +82,15 @@ def finetune_with_meta_params(meta_params, net, args):
             dataset_names=[args.ft_id_dist, args.ft_ood_dist], **loader_kwargs)
 
     _, src_val_loader = get_dataloaders(dataset_names=[args.pretrain_dist], **loader_kwargs)
+    loader_kwargs["num_samples_per_class"] = args.id_samples_per_class
     _, id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
+    loader_kwargs["num_samples_per_class"] = args.ood_samples_per_class
     _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
+    loader_kwargs["num_samples_per_class"] = -1
     _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
-    optimizer_obj = getattr(optimizers, args.optimizer_name)
-    train_kwargs = {"val": args.val, "lr": args.inner_lr, "patience": args.patience, "features": args.features,
-                    "lopt_net_dim": args.lopt_net_dim, "l2_lambda": args.l2_lambda, "wnb": args.wnb}
+    optimizer_module = importlib.import_module(f"optimizers.{args.optimizer_name.lower()}")
+    optimizer_obj = getattr(optimizer_module, args.optimizer_name)
     ft_net, ft_metrics = train(
         num_epochs=args.num_epochs,
         model=net,
@@ -97,16 +101,21 @@ def finetune_with_meta_params(meta_params, net, args):
         ood_val_loader=ood_val_loader,
         test_loader=test_loader,
         optimizer_obj=optimizer_obj if args.method != "ours-avg" else optimizers.LayerSGD,
-        **train_kwargs
+        lr=args.inner_lr,
+        args=args
     )
     return ft_net, ft_metrics
 
 
 def evaluate_ft_net(ft_net, args):
-    loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size, num_workers=args.num_workers, use_meta_batch=False)
+    loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size,
+                         num_workers=args.num_workers, use_meta_batch=False)
     _, source_val_loader = get_dataloaders(dataset_names=[args.pretrain_dist], **loader_kwargs)
+    loader_kwargs["num_samples_per_class"] = args.id_samples_per_class
     _, id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
+    loader_kwargs["num_samples_per_class"] = args.ood_samples_per_class
     _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
+    loader_kwargs["num_samples_per_class"] = -1
     _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
 
     metrics = {}

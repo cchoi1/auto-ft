@@ -24,8 +24,8 @@ def evaluate_net(net, loader):
         loss_sum += loss.item() * labels.size(0)
     return {"acc": correct_sum / total, "loss": loss_sum / total}
 
-def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_loader, ood_val_loader, test_loader, optimizer_obj, val, lr, patience, features, lopt_net_dim, l2_lambda=None, wnb=None):
-    lopt_info = get_lopt_info(features, model, lopt_net_dim, wnb)
+def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_loader, ood_val_loader, test_loader, optimizer_obj, lr, args):
+    lopt_info = get_lopt_info(model, args)
     optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -47,11 +47,11 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
 
             # L2 regularization towards initial model params
             l2_reg = torch.tensor(0.0, device=device)
-            if l2_lambda is not None:
+            if args.l2_lambda is not None:
                 curr_params = [p.clone().detach() for p in model.parameters()]
                 for init_p, curr_p in zip(init_params, curr_params):
                     l2_reg += torch.norm((curr_p - init_p), p=2)  # L2 norm
-                loss += l2_lambda * l2_reg
+                loss += args.l2_lambda * l2_reg
 
             # Backward pass and optimization
             optimizer.zero_grad()  # Clear gradients
@@ -89,13 +89,13 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
                     f"ID Val Loss: {id_val_loss:.4f} | ID Val Acc: {id_val_acc:.4f} | "
                     f"OOD Val Loss: {ood_val_loss:.4f} | OOD Val Acc: {ood_val_acc:.4f} | "
                     f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
-                val_acc = ood_val_acc if val == "ood" else id_val_acc
+                val_acc = ood_val_acc if args.val == "ood" else id_val_acc
                 if val_acc > best_val_acc:
                     best_val_acc = ood_val_acc
                     no_improvement = 0
                 else:
                     no_improvement += 1
-                if no_improvement >= patience:
+                if no_improvement >= args.patience:
                     print(f"Early stopping!")
                     return model, metrics
 
@@ -112,21 +112,31 @@ def get_per_layer_parameters(model):
     return grouped_parameters
 
 
-def get_lopt_info(features, net, lopt_net_dim, use_wnb):
-    if features is not None:
-        num_features = len(features)
-        if "pos_enc_cont" in features:
-            num_features += 1
-        if "pos_enc" in features:
-            num_features += 1
+def get_lopt_info(net, args):
+    if args.features is not None:
+        input_dim = len(args.features)
+        if "pos_enc_cont" in args.features:
+            input_dim += 1
+        if "pos_enc" in args.features:
+            input_dim += 1
     else:
-        num_features = len([p for p in net.parameters()])
+        input_dim = len([p for p in net.parameters()])
+
+    output_dim = 1
+    if args.wnb:
+        output_dim += 1
+    if args.momentum:
+        output_dim += 1
+
     lopt_info = {
-        "features": features,
-        "num_features": num_features,
+        "features": args.features,
+        "input_dim": input_dim,
+        "hidden_dim": args.lopt_net_dim,
+        "output_dim": output_dim,
         "tensor_shapes": [p.data.shape for p in net.parameters()],
-        "lopt_net_dim": lopt_net_dim,
-        "wnb": use_wnb
+        "wnb": args.wnb,
+        "momentum": args.momentum,
+        "output": args.output
     }
     return lopt_info
 
