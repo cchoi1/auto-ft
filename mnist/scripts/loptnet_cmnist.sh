@@ -30,9 +30,9 @@ python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_d
 #--val ood --optimizer_name LOptNet --features depth --lopt_net_dim 4 --output_channels 3 --seeds 0 \
 #--meta_batch_size 60 --inner_steps 10 --meta_steps 300 --wnb
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
---val ood --optimizer_name LOptNet --features depth --lopt_net_dim 4 --output_channels 3 --seeds 0 \
---meta_batch_size 60 --inner_steps 30 --meta_steps 300 --wnb
+#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
+#--val ood --optimizer_name LOptNet --features depth --lopt_net_dim 4 --output_channels 3 --seeds 0 \
+#--meta_batch_size 60 --inner_steps 30 --meta_steps 300 --wnb
 
 #python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
 #--val ood --optimizer_name LOptNet --features depth --lopt_net_dim 4 --output_channels 3 --seeds 0 \
