@@ -6,16 +6,16 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=8G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="loptnet-colored_mnist-wnb-basic" # Name the job (for easier monitoring)
+#SBATCH --job-name="loptnet-colored_mnist" # Name the job (for easier monitoring)
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
 # Now your Python or general experiment/job runner code
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
-cd ../
+cd ../..
 
 python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
---val ood --optimizer_name LOptNet --features depth --lopt_net_dim 4 --output_channels 3 --seeds 0 \
+--val ood --optimizer_name LOptNet --features g depth --lopt_net_dim 4 --output_channels 3 --seeds 0 \
 --meta_batch_size 60 --inner_steps 10 --inner_steps_range 20 --meta_steps 300
 
 #python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \

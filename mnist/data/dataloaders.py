@@ -174,6 +174,7 @@ def get_dataloaders(
             test_datasets = get_rotated_mnist(root_dir, transform)
         if num_samples_per_class > 0:
             train_dataset = SampledDataset(train_dataset, num_samples_per_class)
+            test_dataset = SampledDataset(test_dataset, num_samples_per_class)
         if dataset_name != "colored_mnist" and dataset_name != "rotated_mnist":
             train_datasets.append(train_dataset)
             test_datasets.append(test_dataset)

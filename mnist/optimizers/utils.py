@@ -8,6 +8,13 @@ def get_lopt_net(in_dim, hid_dim=2, out_dim=1):
         nn.Linear(hid_dim, out_dim)
     )
 
+def clip_gradient(params, max_norm):
+    norm = torch.norm(params.grad.data)
+    if norm > max_norm:
+        params.grad.data.mul_(max_norm / norm)
+    return params
+
+
 def compute_positional_encoding(tensor_shape):
     if len(tensor_shape) == 1:
         pos_enc = torch.arange(tensor_shape[0]).view(-1, 1)

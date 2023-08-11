@@ -28,11 +28,11 @@ def train_optimizer(args):
     metrics = defaultdict(list)
     if args.method == "full":
         assert args.optimizer_name == "LayerSGD"
-        return torch.ones(opt_trainer.lopt_info["num_features"]).float(), metrics
+        return torch.ones(opt_trainer.lopt_info["input_dim"]).float(), metrics
     elif args.method == "surgical":
         assert args.optimizer_name == "LayerSGD"
         assert args.layer is not None
-        meta_params = (-100 * torch.ones(opt_trainer.lopt_info["num_features"])).float()
+        meta_params = (-100 * torch.ones(opt_trainer.lopt_info["input_dim"])).float()
         meta_params[2*args.layer] = 100
         meta_params[2*args.layer + 1] = 100
         return meta_params, metrics

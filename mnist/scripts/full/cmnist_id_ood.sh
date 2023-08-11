@@ -6,13 +6,15 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=8G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="lp-ft" # Name the job (for easier monitoring)
+#SBATCH --job-name="full-ft-id-ood-svhn" # Name the job (for easier monitoring)
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
 # Now your Python or general experiment/job runner code
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
-cd ../
+cd ../..
 
-python3 main.py --method lp-ft --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
---val ood --optimizer_name LayerSGD --output_channels 3
+python3 main.py --method full --ft_id_ood \
+--pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist mnistc \
+--id_samples_per_class 50 --ood_samples_per_class 50 --output_channels 3 \
+--val ood --optimizer_name LayerSGD --seeds 0

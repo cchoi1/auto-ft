@@ -12,6 +12,7 @@ from torch import nn
 from data.dataloaders import get_dataloaders
 from networks import get_pretrained_net_fixed
 from utils import get_lopt_info
+from optimizers.utils import clip_gradient
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -28,16 +29,18 @@ def fine_tune(optimizer_obj, inner_lr, inp_info, total_iters, _net, meta_params,
         preds = net(train_images)
         loss = loss_fn(preds, train_labels)
         inner_opt.zero_grad()
-        # if np.isnan(loss.item()):
-        #     print('inner ID train loss is nan', _)
+        if np.isnan(loss.item()):
+            print('inner ID train loss is nan', _)
+            breakpoint()
         loss.backward()
         inner_opt.step(curr_loss=loss.item(), iter=iter, iter_frac=iter/total_iters)
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
         test_loss = loss_fn(output, test_labels)
-        # if np.isnan(test_loss.item()):
-        #     print('inner OOD train loss is nan', _)
+        if np.isnan(test_loss.item()):
+            print('inner OOD test loss is nan', _)
+            breakpoint()
         test_losses.append(test_loss.item())
         preds = output.argmax(dim=1)
         correct += (preds == test_labels).sum().item()
@@ -317,6 +320,8 @@ class OptimizerTrainer:
 
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
+        # Add gradient clipping
+        self.meta_params = clip_gradient(self.meta_params, max_norm=1.0)
         self.meta_optimizer.step()
 
         net = copy.deepcopy(self.net)
@@ -326,6 +331,8 @@ class OptimizerTrainer:
         losses_current, _ = self.finetune_iter(net, self.meta_params, self.inner_steps, train_images, train_labels, test_images,
                                                test_labels, self.num_iters)
         meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
+        if np.isnan(meta_train_loss):
+            print('meta params', self.meta_params)
         print(f"Meta-train Loss: {meta_train_loss:.4f}")
 
         return self.meta_params, grads_mean, meta_train_loss
@@ -376,6 +383,8 @@ class OptimizerTrainer:
 
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
+        # Add gradient clipping
+        torch.nn.utils.clip_grad_norm_(self.meta_params.parameters(), max_norm=1.0)
         self.meta_optimizer.step()
 
         print(f"Meta-train Loss: {meta_train_loss.mean():.4f}")

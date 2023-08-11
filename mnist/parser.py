@@ -28,8 +28,8 @@ def get_args():
         type=str,
         choices=DISTS,
     )
-    parser.add_argument("--id_samples_per_class", type=int, default=-1)
-    parser.add_argument("--ood_samples_per_class", type=int, default=-1)
+    parser.add_argument("--id_samples_per_class", type=int, default=-1, help="Number of ID samples per class, -1 for all.")
+    parser.add_argument("--ood_samples_per_class", type=int, default=-1, help="Number of OOD samples per class, -1 for all.")
     parser.add_argument("--output_channels", type=int)
     parser.add_argument(
         "--optimizer_name",
@@ -62,7 +62,7 @@ def get_args():
     parser.add_argument("--num_epochs", type=int, default=40)
     parser.add_argument("--patience", type=int, default=3)
     parser.add_argument("--l2_lambda", type=float, default=None)
-    parser.add_argument("--val", type=str, choices=["id", "ood"])
+    parser.add_argument("--val", type=str, choices=["id", "ood"], default="ood")
     parser.add_argument("--no_wandb", action="store_true")
     parser.add_argument("--seeds", nargs='+', type=int, default=[0, 1, 2])
 
