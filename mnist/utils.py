@@ -24,7 +24,38 @@ def evaluate_net(net, loader):
         loss_sum += loss.item() * labels.size(0)
     return {"acc": correct_sum / total, "loss": loss_sum / total}
 
-def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_loader, ood_val_loader, test_loader, optimizer_obj, lr, args):
+def compute_l2_regularization(init_params, model, l2_lambda):
+    l2_reg = torch.tensor(0.0, device=device)
+    curr_params = [p.clone().detach() for p in model.parameters()]
+    for init_p, curr_p in zip(init_params, curr_params):
+        l2_reg += torch.norm((curr_p - init_p), p=2)  # L2 norm
+    return l2_lambda * l2_reg
+
+
+def update_wise_ft_parameters(model, param_avg, alpha):
+    for name, param in model.named_parameters():
+        param_avg[name] = alpha * param_avg[name] + (1.0 - alpha) * param.detach()
+
+
+def evaluate_model(method, model, param_avg, alpha, loaders):
+    if method == "wise-ft":
+        original_params = [p.clone().detach() for p in model.parameters()]
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                param.copy_(alpha * param + (1.0 - alpha) * param_avg[name])
+
+    metrics = {}
+    for key, loader in loaders.items():
+        metrics[key] = evaluate_net(model, loader)
+    return metrics, original_params if method == "wise-ft" else None
+
+
+def restore_original_parameters(model, original_params):
+    for orig_param, curr_param in zip(original_params, model.parameters()):
+        curr_param.data.copy_(orig_param)
+
+
+def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_loader, ood_val_loader, test_loader, optimizer_obj, lr, val, alpha, args):
     lopt_info = get_lopt_info(model, args)
     optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
     loss_fn = nn.CrossEntropyLoss()
@@ -35,69 +66,72 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
     no_improvement = 0
     init_params = [p.clone().detach() for p in model.parameters()]
     total_iters = 0
+
+    param_avg = None
+    if args.method == "wise-ft":
+        param_avg = {name: param.clone().detach() for name, param in model.named_parameters()}
+
     for epoch in range(num_epochs):
         model.train()  # Set the model in training mode
         train_loss = 0.0
 
-        # Iterate over the training dataset
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             loss = loss_fn(outputs, labels)
 
-            # L2 regularization towards initial model params
-            l2_reg = torch.tensor(0.0, device=device)
             if args.l2_lambda is not None:
-                curr_params = [p.clone().detach() for p in model.parameters()]
-                for init_p, curr_p in zip(init_params, curr_params):
-                    l2_reg += torch.norm((curr_p - init_p), p=2)  # L2 norm
-                loss += args.l2_lambda * l2_reg
+                loss += compute_l2_regularization(init_params, model, args.l2_lambda)
 
-            # Backward pass and optimization
             optimizer.zero_grad()  # Clear gradients
             loss.backward()
             optimizer.step(curr_loss=loss.item(), iter=total_iters, iter_frac=total_iters / (num_epochs * len(train_loader)))
 
+            if args.method == "wise-ft":
+                update_wise_ft_parameters(model, param_avg, alpha)
+
             train_losses_sum += loss.item() * inputs.size(0)
             count += inputs.size(0)
-            total_iters += 1
 
             if total_iters % 100 == 0:
                 train_loss = train_losses_sum / count
                 train_losses_sum, count = 0.0, 0
-                src_val_metrics = evaluate_net(model, src_val_loader)
-                src_val_loss, src_val_acc = src_val_metrics["loss"], src_val_metrics["acc"]
-                id_val_metrics = evaluate_net(model, id_val_loader)
-                id_val_loss, id_val_acc = id_val_metrics["loss"], id_val_metrics["acc"]
-                ood_val_metrics = evaluate_net(model, ood_val_loader)
-                ood_val_loss, ood_val_acc = ood_val_metrics["loss"], ood_val_metrics["acc"]
-                test_metrics = evaluate_net(model, test_loader)
-                test_loss, test_acc = test_metrics["loss"], test_metrics["acc"]
-                metrics["src_losses"].append(src_val_loss)
-                metrics["src_accs"].append(src_val_acc)
-                metrics["train_loss"].append(train_loss)
-                metrics["id_losses"].append(id_val_loss)
-                metrics["id_accs"].append(id_val_acc)
-                metrics["ood_losses"].append(ood_val_loss)
-                metrics["ood_accs"].append(ood_val_acc)
-                metrics["test_losses"].append(test_loss)
-                metrics["test_accs"].append(test_acc)
+
+                metrics_data, original_params = evaluate_model(args.method, model, param_avg, alpha, {
+                    'src_val': src_val_loader,
+                    'id_val': id_val_loader,
+                    'ood_val': ood_val_loader,
+                    'test': test_loader
+                })
+
+                for key, metric in metrics_data.items():
+                    metrics[f"{key}_losses"].append(metric["loss"])
+                    metrics[f"{key}_accs"].append(metric["acc"])
+
                 print(
                     f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. "
                     f"Train Loss: {train_loss:.4f} | "
-                    f"Src Val Loss: {src_val_loss:.4f} | Src Val Acc: {src_val_acc:.4f} | "
-                    f"ID Val Loss: {id_val_loss:.4f} | ID Val Acc: {id_val_acc:.4f} | "
-                    f"OOD Val Loss: {ood_val_loss:.4f} | OOD Val Acc: {ood_val_acc:.4f} | "
-                    f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
-                val_acc = ood_val_acc if args.val == "ood" else id_val_acc
+                    f"Src Val Loss: {metrics_data['src_val']['loss']:.4f} | Src Val Acc: {metrics_data['src_val']['acc']:.4f} | "
+                    f"ID Val Loss: {metrics_data['id_val']['loss']:.4f} | ID Val Acc: {metrics_data['id_val']['acc']:.4f} | "
+                    f"OOD Val Loss: {metrics_data['ood_val']['loss']:.4f} | OOD Val Acc: {metrics_data['ood_val']['acc']:.4f} | "
+                    f"Test Loss: {metrics_data['test']['loss']:.4f} | Test Acc: {metrics_data['test']['acc']:.4f}")
+
+                # Early stopping based on validation accuracy
+                val_acc = metrics_data['ood_val']['acc'] if val == "ood" else metrics_data['id_val']['acc']
                 if val_acc > best_val_acc:
-                    best_val_acc = ood_val_acc
+                    best_val_acc = val_acc
                     no_improvement = 0
                 else:
                     no_improvement += 1
+
                 if no_improvement >= args.patience:
                     print(f"Early stopping!")
                     return model, metrics
+
+                if args.method == "wise-ft":
+                    restore_original_parameters(model, original_params)
+
+            total_iters += 1
 
     return model, metrics
 

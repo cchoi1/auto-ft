@@ -99,7 +99,7 @@ def get_dataloaders(
     dataset_names: List[str],
     output_channels: int,
     batch_size: int,
-    num_samples_per_class=-1,
+    num_samples_per_class: List[int],
     use_meta_batch=False,
     meta_batch_size=0,
     num_workers=0,
@@ -109,7 +109,7 @@ def get_dataloaders(
     test_datasets = []
     collate_fn = None
 
-    for dataset_name in dataset_names:
+    for i, dataset_name in enumerate(dataset_names):
         transform = get_transform(dataset_name=dataset_name, output_channels=output_channels)
         if dataset_name == "mnist":
             train_dataset = datasets.MNIST(
@@ -172,9 +172,9 @@ def get_dataloaders(
         elif dataset_name == "rotated_mnist":
             train_datasets = get_rotated_mnist(root_dir, transform)
             test_datasets = get_rotated_mnist(root_dir, transform)
-        if num_samples_per_class > 0:
-            train_dataset = SampledDataset(train_dataset, num_samples_per_class)
-            test_dataset = SampledDataset(test_dataset, num_samples_per_class)
+        if num_samples_per_class[i] > 0:
+            train_dataset = SampledDataset(train_dataset, num_samples_per_class[i])
+            test_dataset = SampledDataset(test_dataset, num_samples_per_class[i])
         if dataset_name != "colored_mnist" and dataset_name != "rotated_mnist":
             train_datasets.append(train_dataset)
             test_datasets.append(test_dataset)

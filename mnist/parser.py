@@ -1,4 +1,5 @@
 import argparse
+from typing import List
 from data.mnist_c import _CORRUPTIONS
 
 DISTS = ["mnist", "mnistc", "mnist-label-shift", "emnist", "svhn", "svhn-grayscale", "colored_mnist", "rotated_mnist"] \
@@ -6,28 +7,30 @@ DISTS = ["mnist", "mnistc", "mnist-label-shift", "emnist", "svhn", "svhn-graysca
 
 def get_args(): 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", type=str, choices=["full", "surgical", "ours", "ours-avg", "pretrained", "lp-ft"])
+    parser.add_argument("--method", nargs='+', type=str,
+                        help="Choose a subset (maximum size=2) of [full, surgical, ours, ours-avg, pretrained, lp-ft].")
     parser.add_argument("--layer", type=int)
     parser.add_argument(
-        "--pretrain_dist",
+        "--pretrain",
         type=str,
         choices=DISTS,
     )
     parser.add_argument(
-        "--ft_id_dist",
+        "--id",
         type=str,
         choices=DISTS,
     )
     parser.add_argument(
-        "--ft_ood_dist",
+        "--ood",
         type=str,
         choices=DISTS,
     )
     parser.add_argument(
-        "--test_dist",
+        "--test",
         type=str,
         choices=DISTS,
     )
+    parser.add_argument("--src_samples_per_class", type=int, default=-1, help="Number of SRC samples per class, -1 for all.")
     parser.add_argument("--id_samples_per_class", type=int, default=-1, help="Number of ID samples per class, -1 for all.")
     parser.add_argument("--ood_samples_per_class", type=int, default=-1, help="Number of OOD samples per class, -1 for all.")
     parser.add_argument("--output_channels", type=int)
@@ -39,7 +42,7 @@ def get_args():
     parser.add_argument("--wnb", action="store_true", help="Learn both weights and biases to scale LRs")
     parser.add_argument("--momentum", action="store_true", help="Learn momentum")
     parser.add_argument("--output", type=str, choices=["lr_multiplier", "update"])
-    parser.add_argument("--ft_id_ood", action="store_true", help="Fine-tune w/ meta-params on both ID and OOD data.")
+    parser.add_argument("--ft_dists", nargs='+', type=str, choices=["id", "ood", "id+ood", "src+id", "src+ood", "src+id+ood"], default=None)
     parser.add_argument("--features", nargs='+', type=str,
                         help="Choose a subset of [p, g, p_norm, g_norm, depth, wb, dist_init_param, iter, loss, "
                              "loss_ema, tensor_rank, pos_enc, pos_enc_cont].",
@@ -62,8 +65,10 @@ def get_args():
     parser.add_argument("--num_epochs", type=int, default=40)
     parser.add_argument("--patience", type=int, default=3)
     parser.add_argument("--l2_lambda", type=float, default=None)
-    parser.add_argument("--val", type=str, choices=["id", "ood"], default="ood")
+    parser.add_argument("--val", nargs='+', type=str, choices=["id", "ood"])
+    parser.add_argument("--alpha", type=float, default=0.99, help="Decay factor for the moving average for WiSE-FT.")
     parser.add_argument("--no_wandb", action="store_true")
+    parser.add_argument("--wandb_entity", type=str, default="cchoi")
     parser.add_argument("--seeds", nargs='+', type=int, default=[0, 1, 2])
 
     # Dataset & Dataloader

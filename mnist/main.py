@@ -18,7 +18,7 @@ from utils import evaluate_net, train, save_meta_params, set_seed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def train_optimizer(args):
+def train_optimizer(args, method):
     """ Train optimizer and return meta-params. """
     start = time.time()
     opt_trainer = OptimizerTrainer(args)
@@ -26,20 +26,19 @@ def train_optimizer(args):
     print(f"Initial meta-params: {init_meta_params}")
 
     metrics = defaultdict(list)
-    if args.method == "full":
+    if method == "full":
         assert args.optimizer_name == "LayerSGD"
         return torch.ones(opt_trainer.lopt_info["input_dim"]).float(), metrics
-    elif args.method == "surgical":
+    elif method == "surgical":
         assert args.optimizer_name == "LayerSGD"
         assert args.layer is not None
         meta_params = (-100 * torch.ones(opt_trainer.lopt_info["input_dim"])).float()
         meta_params[2*args.layer] = 100
         meta_params[2*args.layer + 1] = 100
         return meta_params, metrics
-    assert args.method in ["ours", "ours-avg"], "Method must be 'full', 'surgical', 'ours', or 'ours-avg'."
 
     meta_learning_info = [
-        f"Pre={args.pretrain_dist}, ID={args.ft_id_dist}, OOD={args.ft_ood_dist}, Test={args.test_dist}",
+        f"Pre={args.pretrain}, ID={args.id}, OOD={args.ood}, Test={args.test}",
         f"Num meta params: {opt_trainer.meta_params.numel()}",
         f"Outer loop info:",
         f"\tsteps={args.meta_steps}, bs={args.meta_batch_size}, lr={args.meta_lr}, noise_std={args.noise_std}",
@@ -65,29 +64,37 @@ def train_optimizer(args):
     save_meta_params(opt_trainer, args.exp_name, args.meta_steps)
 
     meta_params = opt_trainer.meta_params.detach().cpu()
-    if args.method == "ours-avg":
+    if method == "ours-avg":
         meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
     return meta_params, metrics
 
-def finetune_with_meta_params(meta_params, net, args):
+def finetune_with_meta_params(meta_params, net, args, ft_dist, val):
     """ Fine-tune pretrained net with meta-learned optimizer. """
     loader_kwargs = dict(root_dir=args.data_dir, batch_size=args.batch_size, output_channels=args.output_channels,
                          num_workers=args.num_workers, use_meta_batch=False)
+    loader_kwargs["num_samples_per_class"] = [-1]
 
-    if not args.ft_id_ood:  # Fine-tune on ID data only
-        train_loader, _ = get_dataloaders(
-            dataset_names=[args.ft_id_dist], **loader_kwargs)
-    else:  # Fine-tune on both ID and OOD data
-        train_loader, _ = get_dataloaders(
-            dataset_names=[args.ft_id_dist, args.ft_ood_dist], **loader_kwargs)
+    if ft_dist == "id":  # Fine-tune on ID data only
+        train_loader, _ = get_dataloaders(dataset_names=[args.id], **loader_kwargs)
+    elif ft_dist == "ood":  # Fine-tune on OOD data only
+        train_loader, _ = get_dataloaders(dataset_names=[args.ood], **loader_kwargs)
+    elif ft_dist == "id+ood":
+        loader_kwargs["num_samples_per_class"] = [-1, -1]
+        train_loader, _ = get_dataloaders(dataset_names=[args.id, args.ood], **loader_kwargs)
+    elif ft_dist == "src+id":
+        loader_kwargs["num_samples_per_class"] = [-1, -1]
+        train_loader, _ = get_dataloaders(dataset_names=[args.pretrain, args.id], **loader_kwargs)
+    elif ft_dist == "src+ood":
+        loader_kwargs["num_samples_per_class"] = [-1, -1]
+        train_loader, _ = get_dataloaders(dataset_names=[args.pretrain, args.ood], **loader_kwargs)
+    elif ft_dist == "src+id+ood":
+        loader_kwargs["num_samples_per_class"] = [-1, -1, -1]
+        train_loader, _ = get_dataloaders(dataset_names=[args.pretrain, args.id, args.ood], **loader_kwargs)
 
-    _, src_val_loader = get_dataloaders(dataset_names=[args.pretrain_dist], **loader_kwargs)
-    loader_kwargs["num_samples_per_class"] = args.id_samples_per_class
-    _, id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
-    loader_kwargs["num_samples_per_class"] = args.ood_samples_per_class
-    _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
-    loader_kwargs["num_samples_per_class"] = -1
-    _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
+    _, src_val_loader = get_dataloaders(dataset_names=[args.pretrain], **loader_kwargs)
+    _, id_val_loader = get_dataloaders(dataset_names=[args.id], **loader_kwargs)
+    _, ood_val_loader = get_dataloaders(dataset_names=[args.ood], **loader_kwargs)
+    _, test_loader = get_dataloaders(dataset_names=[args.test], **loader_kwargs)
 
     optimizer_module = importlib.import_module(f"optimizers.{args.optimizer_name.lower()}")
     optimizer_obj = getattr(optimizer_module, args.optimizer_name)
@@ -102,6 +109,8 @@ def finetune_with_meta_params(meta_params, net, args):
         test_loader=test_loader,
         optimizer_obj=optimizer_obj if args.method != "ours-avg" else optimizers.LayerSGD,
         lr=args.inner_lr,
+        val=val,
+        alpha=args.alpha,
         args=args
     )
     return ft_net, ft_metrics
@@ -110,13 +119,11 @@ def finetune_with_meta_params(meta_params, net, args):
 def evaluate_ft_net(ft_net, args):
     loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size,
                          num_workers=args.num_workers, use_meta_batch=False)
-    _, source_val_loader = get_dataloaders(dataset_names=[args.pretrain_dist], **loader_kwargs)
-    loader_kwargs["num_samples_per_class"] = args.id_samples_per_class
-    _, id_val_loader = get_dataloaders(dataset_names=[args.ft_id_dist], **loader_kwargs)
-    loader_kwargs["num_samples_per_class"] = args.ood_samples_per_class
-    _, ood_val_loader = get_dataloaders(dataset_names=[args.ft_ood_dist], **loader_kwargs)
-    loader_kwargs["num_samples_per_class"] = -1
-    _, test_loader = get_dataloaders(dataset_names=[args.test_dist], **loader_kwargs)
+    loader_kwargs["num_samples_per_class"] = [-1]
+    _, source_val_loader = get_dataloaders(dataset_names=[args.pretrain], **loader_kwargs)
+    _, id_val_loader = get_dataloaders(dataset_names=[args.id], **loader_kwargs)
+    _, ood_val_loader = get_dataloaders(dataset_names=[args.ood], **loader_kwargs)
+    _, test_loader = get_dataloaders(dataset_names=[args.test], **loader_kwargs)
 
     metrics = {}
     metrics.update({f"src/{k}": v for k, v in evaluate_net(ft_net, source_val_loader).items()})
@@ -133,9 +140,11 @@ def evaluate_ft_net(ft_net, args):
     )
     return metrics
 
+
 def run_method(args):
+    assert len(args.method) <= 2, "Must specify at most 2 methods to run sequentially -- on ID, then OOD."
     pretrain_nets(
-        ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, data_dir=args.data_dir,
+        ckpt_path=args.ckpt_path, dataset_name=args.pretrain, data_dir=args.data_dir,
         output_channels=args.output_channels, num_nets=args.num_nets, num_epochs=args.num_epochs
     )
     print(f"\n--- Method: {args.method} ---\n")
@@ -146,27 +155,35 @@ def run_method(args):
         set_seed(seed)
 
         pretrained_net = copy.deepcopy(get_pretrained_net_fixed(
-            ckpt_path=args.ckpt_path, dataset_name=args.pretrain_dist, output_channels=args.output_channels,
+            ckpt_path=args.ckpt_path, dataset_name=args.pretrain, output_channels=args.output_channels,
             train=False).to(device))
 
-        if args.method == "pretrained":
-            ft_net = pretrained_net
-        elif args.method == "lp-ft":
-            args.method = "surgical"
-            args.layer = -1
-            meta_params, _ = train_optimizer(args)
-            lp_net, _ = finetune_with_meta_params(meta_params, pretrained_net, args)
-            args.method = "full"
-            meta_params, _ = train_optimizer(args)
-            args.inner_lr *= 1e-1
-            ft_net, ft_metrics = finetune_with_meta_params(meta_params, lp_net, args)
-        else:
-            meta_params, meta_l_metrics = train_optimizer(args)
-            ft_net, ft_metrics = finetune_with_meta_params(meta_params, pretrained_net, args)
-            for k, v in meta_l_metrics.items():
-                all_metrics[f"meta/{k}"].append(v)
-            for k, v in ft_metrics.items():
-                all_metrics[f"ft/{k}"].append(v)
+        print("ARGS METHOD", args.method)
+        for i, method in enumerate(args.method):
+            print(method)
+            if args.method == "pretrained":
+                ft_net = pretrained_net
+            elif args.method == "lp-ft":
+                args.method = "surgical"
+                args.layer = -1
+                meta_params, _ = train_optimizer(args)
+                lp_net, _ = finetune_with_meta_params(meta_params, pretrained_net, args)
+                args.method = "full"
+                meta_params, meta_l_metrics = train_optimizer(args)
+                args.inner_lr *= 1e-1
+                ft_net, ft_metrics = finetune_with_meta_params(meta_params, lp_net, args)
+                for k, v in meta_l_metrics.items():
+                    all_metrics[f"meta/{k}"].append(v)
+                for k, v in ft_metrics.items():
+                    all_metrics[f"ft/{k}"].append(v)
+            else:
+                meta_params, meta_l_metrics = train_optimizer(args, method)
+                ft_net, ft_metrics = finetune_with_meta_params(meta_params, pretrained_net, args, ft_dist=args.ft_dists[i], val=args.val[i])
+                for k, v in meta_l_metrics.items():
+                    all_metrics[f"meta/{k}"].append(v)
+                for k, v in ft_metrics.items():
+                    all_metrics[f"ft/{k}"].append(v)
+
         eval_metrics = evaluate_ft_net(ft_net, args)
         for k, v in eval_metrics.items():
             final_eval_metrics[k].append(v)
@@ -213,7 +230,7 @@ if __name__ == "__main__":
         ignore_keys = ["ckpt_path", "num_workers", "run_parallel"]
         for key in ignore_keys:
             del config[key]
-        wandb.init(project="robust-ft-meta", config=config, name=args.exp_name)
+        wandb.init(project="robust-ft-meta", entity=args.wandb_entity, config=config, name=args.exp_name)
 
     # Run method
     run_method(args)
