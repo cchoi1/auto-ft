@@ -49,23 +49,27 @@ class LayerSGD(Optimizer):
                     continue
                 d_p = p.grad.data
 
-                lr_multiplier, lr_bias, mom_multiplier = self.unpack_meta_params(i)
-                local_lr = group["lr"] * lr_multiplier
-                if lr_bias is not None:
-                    local_lr += lr_bias
-                if mom_multiplier is not None:
-                    state = self.state.get(i)
-                    if state is None:
-                        state = {}
-                        self.state[i] = state
-                    buf = state.get('momentum_buffer')
-                    if buf is None:
-                        buf = torch.clone(d_p).detach()
-                        state['momentum_buffer'] = buf
-                    else:
-                        buf.mul_(mom_multiplier).add_((1 - mom_multiplier) * d_p)
-                    d_p = buf
-                update = -local_lr * d_p
+                if self.lopt_info["output"] == "lr_multiplier":
+                    lr_multiplier, lr_bias, mom_multiplier = self.unpack_meta_params(i)
+                    local_lr = group["lr"] * lr_multiplier
+                    if lr_bias is not None:
+                        local_lr += lr_bias
+                    if mom_multiplier is not None:
+                        state = self.state.get(i)
+                        if state is None:
+                            state = {}
+                            self.state[i] = state
+                        buf = state.get('momentum_buffer')
+                        if buf is None:
+                            buf = torch.clone(d_p).detach()
+                            state['momentum_buffer'] = buf
+                        else:
+                            buf.mul_(mom_multiplier).add_((1 - mom_multiplier) * d_p)
+                        d_p = buf
+                    update = -local_lr * d_p
+                elif self.lopt_info["output"] == "update":
+                    o1, o2, _ = self.unpack_meta_params(i)
+                    update = -1 * (torch.exp(o1 * 1e-3) * o2 * 1e-3).reshape(p.data.shape).to(device)
 
                 p.data.add_(update)
 

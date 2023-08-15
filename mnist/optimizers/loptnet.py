@@ -1,5 +1,6 @@
 """ Definitions for meta-learned optimizers that learn per-parameter lr multipliers, updates, etc."""
 from collections import defaultdict
+import numpy as np
 import torch
 from torch import nn
 from torch.optim.optimizer import Optimizer, required
@@ -105,9 +106,13 @@ class LOptNet(Optimizer):
 
         features = []
         if "p" in self.lopt_info["features"]:
-            features.append(p_flat)
+            p_normalized_flat = (p.data / (torch.std(p.data, dim=0, keepdim=True) + 1e-8)).view(-1, 1).cpu()
+            features.append(p_normalized_flat)
+            # features.append(p_flat)
         if "g" in self.lopt_info["features"]:
-            features.append(g_flat)
+            g_normalized_flat = (g.data / (torch.std(g.data, dim=0, keepdim=True) + 1e-8)).view(-1, 1).cpu()
+            features.append(g_normalized_flat)
+            # features.append(g_flat)
         if "p_norm" in self.lopt_info["features"]:
             p_norm = torch.norm(p.data.cpu()) * torch.ones_like(p_flat)
             features.append(p_norm)
@@ -128,8 +133,13 @@ class LOptNet(Optimizer):
             dist_init_param = torch.norm(p.data.cpu() - group["init_param"].cpu()) * torch.ones_like(p_flat)
             features.append(dist_init_param)
         if "iter" in self.lopt_info["features"]:
-            iter_num = torch.tensor(iter, dtype=p_flat.dtype) * torch.ones_like(p_flat)
-            features.append(iter_num)
+            timescales = torch.exp(torch.linspace(np.log(3), np.log(300000), 9))
+            iterations_transformed = [torch.tanh(iter / eta - 1).unsqueeze(0) for eta in timescales]
+            iterations_transformed = torch.stack(iterations_transformed, dim=-1)
+            iterations_transformed = iterations_transformed.repeat(p_flat.size(0), 1)
+            features.append(iterations_transformed)
+            # iter_num = torch.tensor(iter, dtype=p_flat.dtype) * torch.ones_like(p_flat)
+            # features.append(iter_num)
         if "iter_frac" in self.lopt_info["features"]:
             iter_frac_t = torch.tensor(iter_frac, dtype=p_flat.dtype) * torch.ones_like(p_flat)
             features.append(iter_frac_t)
@@ -148,20 +158,24 @@ class LOptNet(Optimizer):
         if "pos_enc_cont" in self.lopt_info["features"]:
             param_pos_cont = compute_continuous_positional_encoding(p.shape, d_model=2).float()
             features.append(param_pos_cont)
+        if "momentum" in self.lopt_info["features"]:
+            momentums = [0.5, 0.9, 0.99, 0.999, 0.9999]
+            for m in momentums:
+                features.append(m * g_flat.data.cpu())
 
         return torch.cat(features, dim=-1).to(device)
 
     def unpack_lopt_outputs(self, lopt_outputs, p):
-        lr_multiplier = torch.sigmoid(lopt_outputs[:, 0]).reshape(p.data.shape).to(device)
+        lr_multiplier = lopt_outputs[:, 0].reshape(p.data.shape).to(device)
         lr_bias, mom_multiplier = None, None
         if self.lopt_info["output_dim"] == 3:
-            lr_bias = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
-            mom_multiplier = torch.sigmoid(lopt_outputs[:, 2]).reshape(p.data.shape).to(device)
+            lr_bias = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
+            mom_multiplier = lopt_outputs[:, 2].reshape(p.data.shape).to(device)
         elif self.lopt_info["output_dim"] == 2:
             if self.lopt_info["wnb"]:
-                lr_bias = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
+                lr_bias = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
             elif self.lopt_info["momentum"]:
-                mom_multiplier = torch.sigmoid(lopt_outputs[:, 1]).reshape(p.data.shape).to(device)
+                mom_multiplier = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
 
         return lr_multiplier, lr_bias, mom_multiplier
 
@@ -184,20 +198,25 @@ class LOptNet(Optimizer):
                 lopt_net = self.lopt_net[group['layer_type']][group['type']].to(device)
                 lopt_outputs = lopt_net(lopt_inputs).detach()
 
-            lr_multiplier, lr_bias, mom_multiplier = self.unpack_lopt_outputs(lopt_outputs, p)
-            local_lr = group["lr"] * lr_multiplier
+            if self.lopt_info["output"] == "lr_multiplier":
+                lr_multiplier, lr_bias, mom_multiplier = self.unpack_lopt_outputs(lopt_outputs, p)
+                local_lr = torch.sigmoid(group["lr"] * lr_multiplier)
 
-            if lr_bias is not None:
-                local_lr += lr_bias
-            if mom_multiplier is not None:
-                if group["momentum_buffer"] is None:
-                    group["momentum_buffer"] = torch.clone(d_p).detach()
+                if lr_bias is not None:
+                    local_lr = torch.sigmoid(lr_bias + group["lr"] * lr_multiplier)
+                if mom_multiplier is not None:
+                    mom_multiplier = torch.sigmoid(mom_multiplier)
+                    if group["momentum_buffer"] is None:
+                        group["momentum_buffer"] = torch.clone(d_p).detach()
+                    else:
+                        group["momentum_buffer"].mul_(mom_multiplier).add_((1 - mom_multiplier) * d_p)
+                    momentum_updated_d_p = group["momentum_buffer"]
                 else:
-                    group["momentum_buffer"].mul_(mom_multiplier).add_((1 - mom_multiplier) * d_p)
-                momentum_updated_d_p = group["momentum_buffer"]
-            else:
-                momentum_updated_d_p = d_p
-            update = -local_lr * momentum_updated_d_p
+                    momentum_updated_d_p = d_p
+                update = -local_lr * momentum_updated_d_p
+            elif self.lopt_info["output"] == "update":
+                o1, o2 = lopt_outputs[:, 0], lopt_outputs[:, 1]
+                update = -1 * (torch.exp(o1 * 1e-3) * o2 * 1e-3).reshape(p.data.shape).to(device)
 
             p.data.add_(update)
 

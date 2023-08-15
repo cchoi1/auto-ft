@@ -8,7 +8,7 @@ DISTS = ["mnist", "mnistc", "mnist-label-shift", "emnist", "svhn", "svhn-graysca
 def get_args(): 
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", nargs='+', type=str,
-                        help="Choose a subset (maximum size=2) of [full, surgical, ours, ours-avg, pretrained, lp-ft].")
+                        help="Choose a subset (maximum size=2) of [full, surgical, ours, ours-avg, pretrained, lp-ft, wise-ft].")
     parser.add_argument("--layer", type=int)
     parser.add_argument(
         "--pretrain",
@@ -41,8 +41,8 @@ def get_args():
     )
     parser.add_argument("--wnb", action="store_true", help="Learn both weights and biases to scale LRs")
     parser.add_argument("--momentum", action="store_true", help="Learn momentum")
-    parser.add_argument("--output", type=str, choices=["lr_multiplier", "update"])
-    parser.add_argument("--ft_dists", nargs='+', type=str, choices=["id", "ood", "id+ood", "src+id", "src+ood", "src+id+ood"], default=None)
+    parser.add_argument("--output", type=str, choices=["lr_multiplier", "update"], default="lr_multiplier")
+    parser.add_argument("--ft_dists", nargs='+', type=str, choices=["id", "ood", "id+ood", "src+id", "src+ood", "src+id+ood"])
     parser.add_argument("--features", nargs='+', type=str,
                         help="Choose a subset of [p, g, p_norm, g_norm, depth, wb, dist_init_param, iter, loss, "
                              "loss_ema, tensor_rank, pos_enc, pos_enc_cont].",

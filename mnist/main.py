@@ -26,7 +26,7 @@ def train_optimizer(args, method):
     print(f"Initial meta-params: {init_meta_params}")
 
     metrics = defaultdict(list)
-    if method == "full":
+    if method in ["full", "wise-ft"]:
         assert args.optimizer_name == "LayerSGD"
         return torch.ones(opt_trainer.lopt_info["input_dim"]).float(), metrics
     elif method == "surgical":
@@ -50,7 +50,7 @@ def train_optimizer(args, method):
     print("\n".join(meta_learning_info), "\n")
 
     for meta_step in range(args.meta_steps + 1):
-        if meta_step % args.val_freq == 0:
+        if meta_step % args.val_freq == 1:
             val_metrics = opt_trainer.validation(args.val_meta_batch_size)
             for k, v in val_metrics.items():
                 metrics[f"{k}_post"].append(np.array(v).mean())
@@ -67,6 +67,7 @@ def train_optimizer(args, method):
     if method == "ours-avg":
         meta_params = torch.sigmoid(meta_params.mean()).repeat(4)
     return meta_params, metrics
+
 
 def finetune_with_meta_params(meta_params, net, args, ft_dist, val):
     """ Fine-tune pretrained net with meta-learned optimizer. """
@@ -161,17 +162,15 @@ def run_method(args):
         print("ARGS METHOD", args.method)
         for i, method in enumerate(args.method):
             print(method)
-            if args.method == "pretrained":
+            if method == "pretrained":
                 ft_net = pretrained_net
-            elif args.method == "lp-ft":
-                args.method = "surgical"
+            elif method == "lp-ft":
                 args.layer = -1
-                meta_params, _ = train_optimizer(args)
-                lp_net, _ = finetune_with_meta_params(meta_params, pretrained_net, args)
-                args.method = "full"
-                meta_params, meta_l_metrics = train_optimizer(args)
+                meta_params, _ = train_optimizer(args, "surgical")
+                lp_net, _ = finetune_with_meta_params(meta_params, pretrained_net, args, ft_dist=args.ft_dists[i], val=args.val[i])
+                meta_params, meta_l_metrics = train_optimizer(args, "full")
                 args.inner_lr *= 1e-1
-                ft_net, ft_metrics = finetune_with_meta_params(meta_params, lp_net, args)
+                ft_net, ft_metrics = finetune_with_meta_params(meta_params, lp_net, args, ft_dist=args.ft_dists[i], val=args.val[i])
                 for k, v in meta_l_metrics.items():
                     all_metrics[f"meta/{k}"].append(v)
                 for k, v in ft_metrics.items():

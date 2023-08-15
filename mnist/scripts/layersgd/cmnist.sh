@@ -14,18 +14,22 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist --output_channels 3 \
---optimizer_name LayerSGD \
---inner_steps 5 --meta_steps 150 --val ood
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
+--id_samples_per_class 50 --ood_samples_per_class 50 \
+--optimizer_name LayerSGD --ft_dists id --val ood \
+--inner_steps 5 --meta_steps 150 --seeds 0
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist --output_channels 3 \
---optimizer_name LayerSGD --momentum \
---inner_steps 5 --meta_steps 150 --val ood
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
+--id_samples_per_class 50 --ood_samples_per_class 50 \
+--optimizer_name LayerSGD --momentum --ft_dists id --val ood \
+--inner_steps 5 --meta_steps 150 --seeds 0
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist --output_channels 3 \
---optimizer_name LayerSGD --wnb \
---inner_steps 5 --meta_steps 150 --val ood
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
+--id_samples_per_class 50 --ood_samples_per_class 50 \
+--optimizer_name LayerSGD --wnb --ft_dists id --val ood \
+--inner_steps 5 --meta_steps 150 --seeds 0
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist --output_channels 3 \
---optimizer_name LayerSGD --wnb --momentum \
---inner_steps 5 --meta_steps 150 --val ood
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
+--id_samples_per_class 50 --ood_samples_per_class 50 \
+--optimizer_name LayerSGD --wnb --momentum --ft_dists id --val ood \
+--inner_steps 5 --meta_steps 150 --seeds 0

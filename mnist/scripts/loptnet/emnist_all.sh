@@ -18,13 +18,13 @@ cd ../..
 #for param in 'p' 'g' 'g_norm_avg' 'depth' 'wb' 'dist_init_param' 'iter_frac' 'loss_ema' 'tensor_rank' 'pos_enc' 'pos_enc_cont'
 #do
 #  echo "PARAM $param"
-#  python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#  python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #  --id_samples_per_class 50 --ood_samples_per_class 50 \
 #  --optimizer_name LOptNet --output lr_multiplier --features $param --lopt_net_dim 4 \
-#  --inner_steps 5 --meta_steps 150 --val ood --seeds 0
+#  --inner_steps 5 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #done
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist \
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist \
 --output_channels 3 --id_samples_per_class 50 --ood_samples_per_class 50 \
 --optimizer_name LOptNet --output lr_multiplier --momentum --features g depth wb dist_init_param iter_frac loss_ema tensor_rank --lopt_net_dim 4 \
---inner_steps 5 --meta_steps 150 --val ood --seeds 0
+--inner_steps 5 --meta_steps 150 --ft_dists id --val ood --seeds 0

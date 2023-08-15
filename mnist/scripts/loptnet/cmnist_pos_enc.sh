@@ -14,10 +14,10 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
---val ood --optimizer_name LOptNet --features pos_enc --lopt_net_dim 4 --no_wandb --output_channels 3 --seeds 0 \
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
+--ft_dists id --val ood --optimizer_name LOptNet --features pos_enc --lopt_net_dim 4 --no_wandb --output_channels 3 --seeds 0 \
 --meta_batch_size 60 --inner_steps 10 --inner_steps_range 20 --meta_steps 300 --wnb
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist colored_mnist \
---val ood --optimizer_name LOptNet --features pos_enc --lopt_net_dim 4 --no_wandb --output_channels 3 --seeds 0 \
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
+--ft_dists id --val ood --optimizer_name LOptNet --features pos_enc --lopt_net_dim 4 --no_wandb --output_channels 3 --seeds 0 \
 --meta_batch_size 60 --inner_steps 10 --inner_steps_range 20 --meta_steps 300 --wnb

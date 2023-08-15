@@ -19,6 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def fine_tune(optimizer_obj, inner_lr, inp_info, total_iters, _net, meta_params, inner_steps, train_images, train_labels, test_images, test_labels, iter):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     net = copy.deepcopy(_net)
+    net.train()
     inner_opt = optimizer_obj(meta_params, net, inp_info, lr=inner_lr)
     loss_fn = nn.CrossEntropyLoss()
     test_losses = []
@@ -30,22 +31,27 @@ def fine_tune(optimizer_obj, inner_lr, inp_info, total_iters, _net, meta_params,
         loss = loss_fn(preds, train_labels)
         inner_opt.zero_grad()
         if np.isnan(loss.item()):
-            print('inner ID train loss is nan', _)
+            print('inner ID train loss is nan', _, iter)
             breakpoint()
+        # print(loss.item())
         loss.backward()
         inner_opt.step(curr_loss=loss.item(), iter=iter, iter_frac=iter/total_iters)
 
+        net.eval()
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
         test_loss = loss_fn(output, test_labels)
         if np.isnan(test_loss.item()):
-            print('inner OOD test loss is nan', _)
+            print('inner OOD test loss is nan', _, iter)
             breakpoint()
         test_losses.append(test_loss.item())
+        # print(iter, _, 'inner OOD test loss', test_loss.item())
         preds = output.argmax(dim=1)
         correct += (preds == test_labels).sum().item()
         total += test_labels.shape[0]
         test_accs.append(correct / total)
+
+        net.train()
 
     return np.array(test_losses), np.array(test_accs)
 
@@ -100,8 +106,11 @@ class OptimizerTrainer:
         self.meta_params = self.optimizer_obj.get_init_meta_params(self.lopt_info)
         if type(self.meta_params) == list:
             self.meta_optimizer = torch.optim.SGD(self.meta_params, lr=args.meta_lr)
+            # self.meta_optimizer = torch.optim.Adam(self.meta_params, lr=args.meta_lr, betas=(0.5, 0.999))
+            # beta1 = 0.5 following literature on non-stationary optimization by Arjovsky et al., 2017
         else:
             self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
+            # self.meta_optimizer = torch.optim.Adam([self.meta_params], lr=args.meta_lr, betas=(0.5, 0.999))
 
         loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size,
                              meta_batch_size=args.meta_batch_size // 2, num_workers=args.num_workers,
@@ -156,7 +165,6 @@ class OptimizerTrainer:
             train_images, train_labels = next(iter(self.train_loader))
             src_val_images, src_val_labels = next(iter(self.train_loader))
             src_val_losses, src_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, src_val_images, src_val_labels, self.num_iters)
-            self.num_iters += self.inner_steps
             metrics["src_loss"].append(src_val_losses[-1])
             metrics["src_acc"].append(src_val_accs[-1])
 
@@ -165,7 +173,6 @@ class OptimizerTrainer:
             train_images, train_labels = next(iter(self.train_loader))
             id_val_images, id_val_labels = next(iter(self.id_val_loader))
             id_val_losses, id_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, id_val_images, id_val_labels, self.num_iters)
-            self.num_iters += self.inner_steps
             metrics["id_loss"].append(id_val_losses[-1])
             metrics["id_acc"].append(id_val_accs[-1])
 
@@ -174,7 +181,6 @@ class OptimizerTrainer:
             train_images, train_labels = next(iter(self.train_loader))
             ood_val_images, ood_val_labels = next(iter(self.ood_val2_loader))
             ood_val_losses, ood_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, ood_val_images, ood_val_labels, self.num_iters)
-            self.num_iters += self.inner_steps
             metrics["ood_loss"].append(ood_val_losses[-1])
             metrics["ood_acc"].append(ood_val_accs[-1])
 
@@ -183,7 +189,6 @@ class OptimizerTrainer:
             train_images, train_labels = next(iter(self.train_loader))
             test_images, test_labels = next(iter(self.test_loader))
             test_losses, test_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
-            self.num_iters += self.inner_steps
             metrics["test_loss"].append(test_losses[-1])
             metrics["test_acc"].append(test_accs[-1])
 
@@ -279,6 +284,7 @@ class OptimizerTrainer:
         else:
             return self.validation_iter(repeat)
 
+
     def outer_loop_step_iter(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
         Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
@@ -303,6 +309,7 @@ class OptimizerTrainer:
             inner_steps = self.inner_steps
             if self.inner_steps_range is not None:
                 inner_steps = np.random.randint(self.inner_steps, self.inner_steps + self.inner_steps_range + 1)
+            # print(f"meta batch {_}", self.num_iters)
             losses_plus, _ = self.finetune_iter(net, mp_plus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
             losses_minus, _ = self.finetune_iter(net, mp_minus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
@@ -336,6 +343,7 @@ class OptimizerTrainer:
         print(f"Meta-train Loss: {meta_train_loss:.4f}")
 
         return self.meta_params, grads_mean, meta_train_loss
+
 
     def outer_loop_step_parallel(self, net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
@@ -396,4 +404,3 @@ class OptimizerTrainer:
             return self.outer_loop_step_parallel()
         else:
             return self.outer_loop_step_iter()
-    

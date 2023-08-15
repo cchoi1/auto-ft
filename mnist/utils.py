@@ -25,7 +25,7 @@ def evaluate_net(net, loader):
     return {"acc": correct_sum / total, "loss": loss_sum / total}
 
 def compute_l2_regularization(init_params, model, l2_lambda):
-    l2_reg = torch.tensor(0.0, device=device)
+    l2_reg = torch.tensor(l2_lambda, device=device)
     curr_params = [p.clone().detach() for p in model.parameters()]
     for init_p, curr_p in zip(init_params, curr_params):
         l2_reg += torch.norm((curr_p - init_p), p=2)  # L2 norm
@@ -37,7 +37,7 @@ def update_wise_ft_parameters(model, param_avg, alpha):
         param_avg[name] = alpha * param_avg[name] + (1.0 - alpha) * param.detach()
 
 
-def evaluate_model(method, model, param_avg, alpha, loaders):
+def get_val_metrics(method, model, param_avg, alpha, loaders):
     if method == "wise-ft":
         original_params = [p.clone().detach() for p in model.parameters()]
         with torch.no_grad():
@@ -97,27 +97,27 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
                 train_loss = train_losses_sum / count
                 train_losses_sum, count = 0.0, 0
 
-                metrics_data, original_params = evaluate_model(args.method, model, param_avg, alpha, {
+                val_metrics, original_params = get_val_metrics(args.method, model, param_avg, alpha, {
                     'src_val': src_val_loader,
                     'id_val': id_val_loader,
                     'ood_val': ood_val_loader,
                     'test': test_loader
                 })
 
-                for key, metric in metrics_data.items():
+                for key, metric in val_metrics.items():
                     metrics[f"{key}_losses"].append(metric["loss"])
                     metrics[f"{key}_accs"].append(metric["acc"])
 
                 print(
                     f"Epoch {epoch + 1}/{num_epochs}. {total_iters} iters. "
                     f"Train Loss: {train_loss:.4f} | "
-                    f"Src Val Loss: {metrics_data['src_val']['loss']:.4f} | Src Val Acc: {metrics_data['src_val']['acc']:.4f} | "
-                    f"ID Val Loss: {metrics_data['id_val']['loss']:.4f} | ID Val Acc: {metrics_data['id_val']['acc']:.4f} | "
-                    f"OOD Val Loss: {metrics_data['ood_val']['loss']:.4f} | OOD Val Acc: {metrics_data['ood_val']['acc']:.4f} | "
-                    f"Test Loss: {metrics_data['test']['loss']:.4f} | Test Acc: {metrics_data['test']['acc']:.4f}")
+                    f"Src Val Loss: {val_metrics['src_val']['loss']:.4f} | Src Val Acc: {val_metrics['src_val']['acc']:.4f} | "
+                    f"ID Val Loss: {val_metrics['id_val']['loss']:.4f} | ID Val Acc: {val_metrics['id_val']['acc']:.4f} | "
+                    f"OOD Val Loss: {val_metrics['ood_val']['loss']:.4f} | OOD Val Acc: {val_metrics['ood_val']['acc']:.4f} | "
+                    f"Test Loss: {val_metrics['test']['loss']:.4f} | Test Acc: {val_metrics['test']['acc']:.4f}")
 
                 # Early stopping based on validation accuracy
-                val_acc = metrics_data['ood_val']['acc'] if val == "ood" else metrics_data['id_val']['acc']
+                val_acc = val_metrics['ood_val']['acc'] if val == "ood" else val_metrics['id_val']['acc']
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                     no_improvement = 0
@@ -134,7 +134,6 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
             total_iters += 1
 
     return model, metrics
-
 
 def get_per_layer_parameters(model):
     grouped_parameters = OrderedDict()
@@ -153,14 +152,21 @@ def get_lopt_info(net, args):
             input_dim += 1
         if "pos_enc" in args.features:
             input_dim += 1
+        if "iter" in args.features:
+            input_dim += 8
+        if "momentum" in args.features:
+            input_dim += 4
     else:
         input_dim = len([p for p in net.parameters()])
 
-    output_dim = 1
-    if args.wnb:
-        output_dim += 1
-    if args.momentum:
-        output_dim += 1
+    if args.output == "update":
+        output_dim = 2
+    else:
+        output_dim = 1
+        if args.wnb:
+            output_dim += 1
+        if args.momentum:
+            output_dim += 1
 
     lopt_info = {
         "features": args.features,

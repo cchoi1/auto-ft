@@ -15,22 +15,22 @@ source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../..
 
 
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LOptNet --output lr_multiplier --features depth --lopt_net_dim 4 \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LOptNet --output lr_multiplier --wnb --features depth --lopt_net_dim 4 \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 --id_samples_per_class 50 --ood_samples_per_class 50 \
 --optimizer_name LOptNet --output lr_multiplier --momentum --features g depth --lopt_net_dim 4 \
---inner_steps 5 --meta_steps 150 --val ood --seeds 0
+--inner_steps 5 --meta_steps 150 --ft_dists id --val ood --seeds 0
 
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LOptNet --output lr_multiplier --wnb --momentum --features depth --lopt_net_dim 4 \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0

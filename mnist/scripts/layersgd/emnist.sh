@@ -14,62 +14,62 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../..
 
-python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 --id_samples_per_class 50 --ood_samples_per_class 50 \
 --optimizer_name LayerSGD --output lr_multiplier --momentum \
---inner_steps 5 --meta_steps 300 --val ood --seeds 0
+--inner_steps 5 --meta_steps 300 --ft_dists id --val ood --seeds 0
 
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --output lr_multiplier \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --output lr_multiplier --momentum \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --output lr_multiplier --momentum \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --output lr_multiplier --momentum \
-#--inner_steps 20 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 20 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --output lr_multiplier --momentum \
-#--inner_steps 30 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 30 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist brightness --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood brightness --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --output lr_multiplier --momentum \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood impulse_noise --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --output lr_multiplier --momentum \
-#--inner_steps 10 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 10 --meta_steps 150 --ft_dists id --val ood --seeds 0
 
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --wnb \
-#--inner_steps 5 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 5 --meta_steps 150 --ft_dists id --val ood --seeds 0
 
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist mnistc --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --wnb --momentum \
-#--inner_steps 5 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 5 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist brightness --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood brightness --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --wnb --momentum \
-#--inner_steps 5 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 5 --meta_steps 150 --ft_dists id --val ood --seeds 0
 #
-#python3 main.py --method ours --pretrain_dist svhn --ft_id_dist mnist --ft_ood_dist impulse_noise --test_dist emnist --output_channels 3 \
+#python3 main.py --method ours --pretrain svhn --id mnist --ood impulse_noise --test emnist --output_channels 3 \
 #--id_samples_per_class 50 --ood_samples_per_class 50 \
 #--optimizer_name LayerSGD --wnb --momentum \
-#--inner_steps 5 --meta_steps 150 --val ood --seeds 0
+#--inner_steps 5 --meta_steps 150 --ft_dists id --val ood --seeds 0
