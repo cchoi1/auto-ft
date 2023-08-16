@@ -18,7 +18,7 @@ class LayerLoss(nn.Module):
     @staticmethod
     def get_init_meta_params(lloss_info):
         num_meta_params = lloss_info['meta_params']['end'] - lloss_info['meta_params']['start'] + 1
-        return torch.ones(num_meta_params) / 9
+        return torch.ones(num_meta_params) / 1000
 
     @staticmethod
     def get_noise(lloss_info):

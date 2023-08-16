@@ -378,7 +378,7 @@ class OptimizerTrainer:
         print(f"Meta-train Loss: {meta_train_loss:.4f}")
 
         for i in range(self.meta_params.shape[0]):
-            print(f"Tensor {i}: {self.meta_params[i*9: (i+1)*9]:.4f}")
+            print(f"Tensor {i}:", self.meta_params[i*9: (i+1)*9])
 
         return self.meta_params, grads_mean, meta_train_loss
 

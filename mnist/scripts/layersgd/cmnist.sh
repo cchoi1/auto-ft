@@ -12,12 +12,12 @@
 
 # Now your Python or general experiment/job runner code
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
-cd ../
+cd ../..
 
-python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
---id_samples_per_class 50 --ood_samples_per_class 50 \
---optimizer_name LayerSGD --ft_dists id --val ood \
---inner_steps 5 --meta_steps 150 --seeds 0
+#python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
+#--id_samples_per_class 50 --ood_samples_per_class 50 \
+#--optimizer_name LayerSGD --ft_dists id --val ood \
+#--inner_steps 5 --meta_steps 150 --seeds 0
 
 python3 main.py --method ours --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
 --id_samples_per_class 50 --ood_samples_per_class 50 \
