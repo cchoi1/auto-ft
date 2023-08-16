@@ -50,7 +50,7 @@ def train_optimizer(args, method):
     print("\n".join(meta_learning_info), "\n")
 
     for meta_step in range(args.meta_steps + 1):
-        if meta_step % args.val_freq == 1:
+        if meta_step % args.val_freq == 0:
             val_metrics = opt_trainer.validation(args.val_meta_batch_size)
             for k, v in val_metrics.items():
                 metrics[f"{k}_post"].append(np.array(v).mean())
@@ -159,9 +159,7 @@ def run_method(args):
             ckpt_path=args.ckpt_path, dataset_name=args.pretrain, output_channels=args.output_channels,
             train=False).to(device))
 
-        print("ARGS METHOD", args.method)
         for i, method in enumerate(args.method):
-            print(method)
             if method == "pretrained":
                 ft_net = pretrained_net
             elif method == "lp-ft":

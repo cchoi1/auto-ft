@@ -9,12 +9,14 @@ class LayerSGD(Optimizer):
 
     def __init__(self, meta_params, net, lopt_info=None, lr=required):
         self.lopt_info = lopt_info
-        assert meta_params.numel() == lopt_info["output_dim"] * lopt_info["input_dim"]
+        assert meta_params[lopt_info["meta_params"]["start"]:-1].numel() == lopt_info["output_dim"] * lopt_info["input_dim"]
         defaults = dict(lr=lr)
         params = net.parameters()
         super().__init__(params, defaults)
-        self.meta_params = meta_params
         self.initial_weights = [p.data.clone() for p in net.parameters()]
+
+        # Correct slicing of meta_params for the optimizer
+        self.meta_params = meta_params[lopt_info['meta_params']['start']: -1] # This slices the correct meta parameters
 
     @staticmethod
     def get_init_meta_params(lopt_info):
@@ -74,45 +76,3 @@ class LayerSGD(Optimizer):
                 p.data.add_(update)
 
         return loss
-
-# class LayerSGDLinear(Optimizer):
-#     """meta-params: weights of linear layer with depth as input."""
-#
-#     def __init__(self, meta_params, net, lopt_info=None, lr=required):
-#         # assert meta_params.numel() == 4
-#         defaults = dict(lr=lr)
-#         param_groups = []
-#         layers = list(
-#             [p for p in net.children() if isinstance(p, nn.Linear)]
-#         )  # Assumes nn.Sequential model
-#         for depth, layer in enumerate(layers):
-#             param_groups.append({"params": layer.weight, "depth": depth, "type": "w"})
-#             param_groups.append({"params": layer.bias, "depth": depth, "type": "b"})
-#         super().__init__(param_groups, defaults)
-#         self.meta_params = {"w": meta_params[0:2], "b": meta_params[2:4]}
-#
-#     @staticmethod
-#     def get_init_meta_params(lopt_info):
-#         return torch.zeros(lopt_info["input_dim"])
-#
-#     @staticmethod
-#     def get_noise(lopt_info):
-#         return torch.randn(lopt_info["input_dim"])
-#
-#     def step(self, curr_loss=None, iter=None, iter_frac=None, closure=None):
-#         loss = None
-#         if closure is not None:
-#             loss = closure()
-#
-#         for group in self.param_groups:
-#             p = group["params"][0]
-#             if p.grad is None:
-#                 continue
-#
-#             depth = group["depth"]
-#             meta_params = self.meta_params[group["type"]]
-#             lr_multiplier = torch.sigmoid(meta_params[0] * depth + meta_params[1])
-#             p.data.add_(p.grad.data, alpha=-group["lr"] * lr_multiplier)
-#         return loss
-#
-#

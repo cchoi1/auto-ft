@@ -93,7 +93,7 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
             train_losses_sum += loss.item() * inputs.size(0)
             count += inputs.size(0)
 
-            if total_iters % 100 == 0:
+            if total_iters % args.ft_val_freq == 0:
                 train_loss = train_losses_sum / count
                 train_losses_sum, count = 0.0, 0
 
@@ -116,17 +116,18 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
                     f"OOD Val Loss: {val_metrics['ood_val']['loss']:.4f} | OOD Val Acc: {val_metrics['ood_val']['acc']:.4f} | "
                     f"Test Loss: {val_metrics['test']['loss']:.4f} | Test Acc: {val_metrics['test']['acc']:.4f}")
 
-                # Early stopping based on validation accuracy
-                val_acc = val_metrics['ood_val']['acc'] if val == "ood" else val_metrics['id_val']['acc']
-                if val_acc > best_val_acc:
-                    best_val_acc = val_acc
-                    no_improvement = 0
-                else:
-                    no_improvement += 1
+                if total_iters % 100 == 0:
+                    # Early stopping based on validation accuracy
+                    val_acc = val_metrics['ood_val']['acc'] if val == "ood" else val_metrics['id_val']['acc']
+                    if val_acc > best_val_acc:
+                        best_val_acc = val_acc
+                        no_improvement = 0
+                    else:
+                        no_improvement += 1
 
-                if no_improvement >= args.patience:
-                    print(f"Early stopping!")
-                    return model, metrics
+                    if no_improvement >= args.patience:
+                        print(f"Early stopping!")
+                        return model, metrics
 
                 if args.method == "wise-ft":
                     restore_original_parameters(model, original_params)
@@ -176,9 +177,14 @@ def get_lopt_info(net, args):
         "tensor_shapes": [p.data.shape for p in net.parameters()],
         "wnb": args.wnb,
         "momentum": args.momentum,
-        "output": args.output
+        "output": args.output,
     }
     return lopt_info
+
+def get_lloss_info(net, args):
+    lloss_info = {}
+    return lloss_info
+
 
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)

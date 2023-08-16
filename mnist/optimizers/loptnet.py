@@ -101,18 +101,14 @@ class LOptNet(Optimizer):
         return torch.randn(sum(p_sizes))
 
     def get_lopt_inputs(self, p, g, group, curr_loss, iter, iter_frac):
-        p_flat = p.data.view(-1, 1).cpu()
-        g_flat = g.data.view(-1, 1).cpu()
+        p_flat = p.data.view(-1, 1).clone().cpu()
+        g_flat = g.data.view(-1, 1).clone().cpu()
 
         features = []
         if "p" in self.lopt_info["features"]:
-            p_normalized_flat = (p.data / (torch.std(p.data, dim=0, keepdim=True) + 1e-8)).view(-1, 1).cpu()
-            features.append(p_normalized_flat)
-            # features.append(p_flat)
+            features.append(p_flat)
         if "g" in self.lopt_info["features"]:
-            g_normalized_flat = (g.data / (torch.std(g.data, dim=0, keepdim=True) + 1e-8)).view(-1, 1).cpu()
-            features.append(g_normalized_flat)
-            # features.append(g_flat)
+            features.append(g_flat)
         if "p_norm" in self.lopt_info["features"]:
             p_norm = torch.norm(p.data.cpu()) * torch.ones_like(p_flat)
             features.append(p_norm)
@@ -130,7 +126,7 @@ class LOptNet(Optimizer):
             wb_flat = torch.tensor(wb * torch.ones_like(p_flat), dtype=p_flat.dtype)
             features.append(wb_flat)
         if "dist_init_param" in self.lopt_info["features"]:
-            dist_init_param = torch.norm(p.data.cpu() - group["init_param"].cpu()) * torch.ones_like(p_flat)
+            dist_init_param = torch.norm(p.data.clone().cpu() - group["init_param"].clone().cpu(), keepdim=True) * torch.ones_like(p_flat)
             features.append(dist_init_param)
         if "iter" in self.lopt_info["features"]:
             timescales = torch.exp(torch.linspace(np.log(3), np.log(300000), 9))
@@ -144,10 +140,10 @@ class LOptNet(Optimizer):
             iter_frac_t = torch.tensor(iter_frac, dtype=p_flat.dtype) * torch.ones_like(p_flat)
             features.append(iter_frac_t)
         if "loss" in self.lopt_info["features"]:
-            loss = torch.tensor(curr_loss) * torch.ones_like(p_flat)
+            loss = torch.tensor(curr_loss.clone()) * torch.ones_like(p_flat)
             features.append(loss)
         if "loss_ema" in self.lopt_info["features"]:
-            loss_ema = torch.tensor(self.loss_ema) * torch.ones_like(p_flat)
+            loss_ema = torch.tensor(self.loss_ema.clone()) * torch.ones_like(p_flat)
             features.append(loss_ema)
         if "tensor_rank" in self.lopt_info["features"]:
             tensor_rank = torch.argmin(torch.tensor(p.shape)) * torch.ones_like(p_flat)
@@ -159,25 +155,31 @@ class LOptNet(Optimizer):
             param_pos_cont = compute_continuous_positional_encoding(p.shape, d_model=2).float()
             features.append(param_pos_cont)
         if "momentum" in self.lopt_info["features"]:
-            momentums = [0.5, 0.9, 0.99, 0.999, 0.9999]
-            for m in momentums:
-                features.append(m * g_flat.data.cpu())
+            betas = [0.5, 0.9, 0.99, 0.999, 0.9999]
+            if group["momentum_buffer"] is None:
+                group["momentum_buffer"] = {}
+                for beta in betas:
+                    group["momentum_buffer"][beta] = torch.zeros_like(p.data)
+            for beta in betas:
+                group["momentum_buffer"][beta].mul_(beta).add_((1 - beta) * g.clone().data)
+                m_flat = group["momentum_buffer"][beta].clone().cpu().view(-1, 1)
+                features.append(m_flat)
 
         return torch.cat(features, dim=-1).to(device)
 
     def unpack_lopt_outputs(self, lopt_outputs, p):
-        lr_multiplier = lopt_outputs[:, 0].reshape(p.data.shape).to(device)
-        lr_bias, mom_multiplier = None, None
+        o1 = lopt_outputs[:, 0].reshape(p.data.shape).to(device)
+        o2, momentum_multiplier = None, None
         if self.lopt_info["output_dim"] == 3:
-            lr_bias = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
-            mom_multiplier = lopt_outputs[:, 2].reshape(p.data.shape).to(device)
+            o2 = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
+            momentum_multiplier = lopt_outputs[:, 2].reshape(p.data.shape).to(device)
         elif self.lopt_info["output_dim"] == 2:
             if self.lopt_info["wnb"]:
-                lr_bias = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
+                o2 = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
             elif self.lopt_info["momentum"]:
-                mom_multiplier = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
+                momentum_multiplier = lopt_outputs[:, 1].reshape(p.data.shape).to(device)
 
-        return lr_multiplier, lr_bias, mom_multiplier
+        return o1, o2, momentum_multiplier
 
     def step(self, curr_loss, iter, iter_frac, closure=None):
         loss = None
@@ -198,12 +200,12 @@ class LOptNet(Optimizer):
                 lopt_net = self.lopt_net[group['layer_type']][group['type']].to(device)
                 lopt_outputs = lopt_net(lopt_inputs).detach()
 
+            o1, o2, mom_multiplier = self.unpack_lopt_outputs(lopt_outputs, p)
             if self.lopt_info["output"] == "lr_multiplier":
-                lr_multiplier, lr_bias, mom_multiplier = self.unpack_lopt_outputs(lopt_outputs, p)
-                local_lr = torch.sigmoid(group["lr"] * lr_multiplier)
-
-                if lr_bias is not None:
-                    local_lr = torch.sigmoid(lr_bias + group["lr"] * lr_multiplier)
+                if o2 is not None:
+                    local_lr = torch.sigmoid(o1 * group["lr"] + o2)
+                else:
+                    local_lr = torch.sigmoid(o1) * group["lr"]
                 if mom_multiplier is not None:
                     mom_multiplier = torch.sigmoid(mom_multiplier)
                     if group["momentum_buffer"] is None:
@@ -216,7 +218,7 @@ class LOptNet(Optimizer):
                 update = -local_lr * momentum_updated_d_p
             elif self.lopt_info["output"] == "update":
                 o1, o2 = lopt_outputs[:, 0], lopt_outputs[:, 1]
-                update = -1 * (torch.exp(o1 * 1e-3) * o2 * 1e-3).reshape(p.data.shape).to(device)
+                update = (torch.exp(o1 * 1e-3) * o2 * 1e-3).reshape(p.data.shape).to(device)
 
             p.data.add_(update)
 
