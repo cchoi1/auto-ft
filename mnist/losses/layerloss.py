@@ -18,12 +18,12 @@ class LayerLoss(nn.Module):
     @staticmethod
     def get_init_meta_params(lloss_info):
         num_meta_params = lloss_info['meta_params']['end'] - lloss_info['meta_params']['start'] + 1
-        return torch.ones(num_meta_params) / 100
+        return torch.zeros(num_meta_params)
 
     @staticmethod
     def get_noise(lloss_info):
         num_meta_params = lloss_info['meta_params']['end'] - lloss_info['meta_params']['start'] + 1
-        return torch.randn(num_meta_params) / 100
+        return torch.randn(num_meta_params)
 
     def forward(self, outputs, targets, net, pretrained_net=None):
         total_loss = 0
@@ -61,6 +61,6 @@ class LayerLoss(nn.Module):
             # Combine losses with learned weights
             combined_loss = torch.stack([ce_loss, hinge_loss, kl_loss, entropy, energy,
                                          l1_zero, l2_zero, l1_pretrained, l2_pretrained])
-            total_loss += torch.dot(self.loss_weights[i], combined_loss)
+            total_loss += torch.dot(torch.sigmoid(self.loss_weights[i]), combined_loss)
 
-        return total_loss
+        return total_loss / (len(list(net.parameters())) * 9)
