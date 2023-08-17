@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data iterators for image datasets."""
+"""Data iterators for image data."""
 
 from typing import Tuple
 import gin

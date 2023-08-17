@@ -42,6 +42,7 @@ def get_args():
     parser.add_argument("--noise_std", type=float, default=1.0)
     parser.add_argument("--meta_lr", type=float, default=3e-3)
     parser.add_argument("--inner_lr", type=float, default=1e-1)
+    parser.add_argument("--ft_lr", type=float)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--num_nets", type=int, default=1)
     parser.add_argument("--num_epochs", type=int, default=40)

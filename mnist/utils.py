@@ -1,3 +1,4 @@
+import copy
 import os
 import random
 from collections import defaultdict, OrderedDict
@@ -5,6 +6,8 @@ from collections import defaultdict, OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
+
+from losses.layerloss import LayerLoss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -55,15 +58,19 @@ def restore_original_parameters(model, original_params):
         curr_param.data.copy_(orig_param)
 
 
-def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_loader, ood_val_loader, test_loader, optimizer_obj, lr, val, alpha, args):
+def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_loader, ood_val_loader, test_loader, loss_fn, optimizer_obj, lr, val, alpha, args):
     lopt_info = get_lopt_info(model, args)
-    optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
-    loss_fn = nn.CrossEntropyLoss()
+    pretrained_model = copy.deepcopy(model)
+    if optimizer_obj is None:
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    else:
+        optimizer = optimizer_obj(meta_params, model, lopt_info, lr=lr)
 
     metrics = defaultdict(list)
     best_val_acc = 0.0
     train_losses_sum, count = 0.0, 0
     no_improvement = 0
+    pretrained_net = copy.deepcopy(model)
     init_params = [p.clone().detach() for p in model.parameters()]
     total_iters = 0
 
@@ -78,14 +85,21 @@ def train(num_epochs, model, meta_params, src_val_loader, train_loader, id_val_l
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
-            loss = loss_fn(outputs, labels)
+            if isinstance(loss_fn, LayerLoss):
+                meta_params = meta_params.to(device)
+                loss = loss_fn(outputs, labels, model, pretrained_net)
+            else:
+                loss = loss_fn(outputs, labels)
 
             if args.l2_lambda is not None:
                 loss += compute_l2_regularization(init_params, model, args.l2_lambda)
 
             optimizer.zero_grad()  # Clear gradients
             loss.backward()
-            optimizer.step(curr_loss=loss.item(), iter=total_iters, iter_frac=total_iters / (num_epochs * len(train_loader)))
+            if optimizer_obj is None:
+                optimizer.step()
+            else:
+                optimizer.step(curr_loss=loss.item(), iter=total_iters, iter_frac=total_iters / (num_epochs * len(train_loader)))
 
             if args.method == "wise-ft":
                 update_wise_ft_parameters(model, param_avg, alpha)
@@ -185,6 +199,11 @@ def get_lloss_info(net, args):
     lloss_info = {}
     return lloss_info
 
+# Function to compute the learning rate with warmup
+def get_lr(step, warmup_steps, base_lr):
+    if step < warmup_steps:
+        return base_lr * (step + 1) / warmup_steps
+    return base_lr
 
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)

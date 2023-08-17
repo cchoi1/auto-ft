@@ -96,7 +96,7 @@ def train_epoch(state, train_ds, batch_size, rng):
 
 
 def get_datasets():
-    """Load MNIST train and test datasets into memory."""
+    """Load MNIST train and test data into memory."""
     # ds_builder = tfds.builder('mnist')
     # ds_builder.download_and_prepare()
     # train_ds = tfds.as_numpy(ds_builder.as_dataset(split='train', batch_size=-1))

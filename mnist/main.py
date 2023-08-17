@@ -14,7 +14,7 @@ from data.dataloaders import get_dataloaders
 from learned_optimizer import OptimizerTrainer
 from networks import get_pretrained_net_fixed, pretrain_nets
 from parser import get_args
-from utils import evaluate_net, train, save_meta_params, set_seed
+from utils import evaluate_net, train, save_meta_params, set_seed, get_lloss_info
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -27,8 +27,8 @@ def train_optimizer(args, method):
 
     metrics = defaultdict(list)
     if method in ["full", "wise-ft"]:
-        assert args.optimizer_name == "LayerSGD"
-        return torch.ones(opt_trainer.lopt_info["input_dim"]).float(), metrics
+        # assert args.optimizer_name == "LayerSGD"
+        return 100 * torch.ones(opt_trainer.lopt_info["input_dim"]).float(), metrics
     elif method == "surgical":
         assert args.optimizer_name == "LayerSGD"
         assert args.layer is not None
@@ -50,7 +50,7 @@ def train_optimizer(args, method):
     print("\n".join(meta_learning_info), "\n")
 
     for meta_step in range(args.meta_steps + 1):
-        if meta_step % args.val_freq == 0:
+        if meta_step % args.val_freq == 1:
             val_metrics = opt_trainer.validation(args.val_meta_batch_size)
             for k, v in val_metrics.items():
                 metrics[f"{k}_post"].append(np.array(v).mean())
@@ -97,8 +97,18 @@ def finetune_with_meta_params(meta_params, net, args, ft_dist, val):
     _, ood_val_loader = get_dataloaders(dataset_names=[args.ood], **loader_kwargs)
     _, test_loader = get_dataloaders(dataset_names=[args.test], **loader_kwargs)
 
-    optimizer_module = importlib.import_module(f"optimizers.{args.optimizer_name.lower()}")
-    optimizer_obj = getattr(optimizer_module, args.optimizer_name)
+    if args.loss_name is not None:
+        loss_module = importlib.import_module(f"losses.{args.loss_name.lower()}")
+        lloss_info = get_lloss_info(net, args)
+        lloss_info['meta_params'] = {'start': 0, 'end': 71}
+        loss_fn = getattr(loss_module, args.loss_name)(meta_params, net, lloss_info)
+    else:
+        loss_fn = torch.nn.CrossEntropyLoss()
+    optimizer_obj = None
+    if args.optimizer_name is not None:
+        optimizer_module = importlib.import_module(f"optimizers.{args.optimizer_name.lower()}")
+        optimizer_obj = getattr(optimizer_module, args.optimizer_name)
+    ft_lr = args.inner_lr if args.ft_lr is None else args.ft_lr
     ft_net, ft_metrics = train(
         num_epochs=args.num_epochs,
         model=net,
@@ -108,6 +118,7 @@ def finetune_with_meta_params(meta_params, net, args, ft_dist, val):
         id_val_loader=id_val_loader,
         ood_val_loader=ood_val_loader,
         test_loader=test_loader,
+        loss_fn=loss_fn,
         optimizer_obj=optimizer_obj if args.method != "ours-avg" else optimizers.LayerSGD,
         lr=args.inner_lr,
         val=val,

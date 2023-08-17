@@ -11,16 +11,19 @@ from torch import nn
 
 from data.dataloaders import get_dataloaders
 from networks import get_pretrained_net_fixed
-from utils import get_lopt_info, get_lloss_info
+from utils import get_lopt_info, get_lloss_info, get_lr
 from losses.layerloss import LayerLoss
 from optimizers.utils import clip_gradient
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_iters, _net, meta_params, inner_steps, train_images, train_labels, test_images, test_labels, iter):
+
+def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_iters, _net, meta_params, inner_steps,
+              train_images, train_labels, test_images, test_labels, iter, warmup_steps=5):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     pretrained_net = copy.deepcopy(_net)
     net = copy.deepcopy(_net)
+
     if optimizer_obj is not None:
         inner_opt = optimizer_obj(meta_params, net, lopt_info, lr=inner_lr)
     else:
@@ -32,8 +35,14 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
 
     test_losses = []
     test_accs = []
-    correct = 0.0; total = 0.0
-    for _ in range(inner_steps):
+    correct = 0.0
+    total = 0.0
+    for step in range(inner_steps):
+        # Adjust the learning rate with warmup
+        for param_group in inner_opt.param_groups:
+            cumulative_step = iter * inner_steps + step
+            param_group['lr'] = get_lr(step, warmup_steps, inner_lr)
+
         train_images, train_labels = train_images.to(device), train_labels.to(device)
         output = net(train_images)
         if isinstance(loss_fn, LayerLoss):
@@ -42,23 +51,20 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
             loss = loss_fn(output, train_labels)
         inner_opt.zero_grad()
         if np.isnan(loss.item()):
-            print('inner ID train loss is nan', _, iter)
+            print('inner ID train loss is nan', step, iter)
             breakpoint()
         loss.backward()
 
         if isinstance(inner_opt, torch.optim.SGD):
             inner_opt.step()
         else:
-            inner_opt.step(curr_loss=loss.item(), iter=iter, iter_frac=iter/total_iters)
+            inner_opt.step(curr_loss=loss.item(), iter=iter, iter_frac=iter / total_iters)
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
-        if isinstance(loss_fn, LayerLoss):
-            test_loss = loss_fn(output, test_labels, net, pretrained_net)
-        else:
-            test_loss = loss_fn(output, test_labels)
+        test_loss = F.cross_entropy(output, test_labels)
         if np.isnan(test_loss.item()):
-            print('inner OOD test loss is nan', _, iter)
+            print('inner OOD test loss is nan', step, iter)
             breakpoint()
         test_losses.append(test_loss.item())
         preds = output.argmax(dim=1)
@@ -167,6 +173,7 @@ class OptimizerTrainer:
         self.noise_std = args.noise_std
         self.meta_loss_avg_w = args.meta_loss_avg_w
         self.meta_loss_final_w = args.meta_loss_final_w
+        self.curr_meta_step = 0
         self.meta_steps = args.meta_steps
         self.total_iters = self.meta_steps * self.inner_steps
 
@@ -320,6 +327,7 @@ class OptimizerTrainer:
     def outer_loop_step_iter(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
         Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
+        old_meta_params = copy.deepcopy(self.meta_params)
         grads = []
         for _ in range(self.meta_batch_size // 2):
             net = copy.deepcopy(self.net)
@@ -344,7 +352,6 @@ class OptimizerTrainer:
             inner_steps = self.inner_steps
             if self.inner_steps_range is not None:
                 inner_steps = np.random.randint(self.inner_steps, self.inner_steps + self.inner_steps_range + 1)
-            # print(f"meta batch {_}", self.num_iters)
             losses_plus, _ = self.finetune_iter(net, mp_plus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
             losses_minus, _ = self.finetune_iter(net, mp_minus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
@@ -359,11 +366,14 @@ class OptimizerTrainer:
             grads.append(objective * epsilon / self.noise_std / 2)
 
         grads_mean = torch.stack(grads).mean(dim=0)
+        self.curr_meta_step += 1
 
+        # Adjust the meta learning rate with warmup
+        for param_group in self.meta_optimizer.param_groups:
+            param_group['lr'] = get_lr(self.curr_meta_step, 5, param_group['lr'])
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
-        # Add gradient clipping
-        # self.meta_params = clip_gradient(self.meta_params, max_norm=1.0)
+        self.meta_params = clip_gradient(self.meta_params, max_norm=1.0)
         self.meta_optimizer.step()
 
         net = copy.deepcopy(self.net)
@@ -376,9 +386,6 @@ class OptimizerTrainer:
         if np.isnan(meta_train_loss):
             print('meta params', self.meta_params)
         print(f"Meta-train Loss: {meta_train_loss:.4f}")
-
-        for i in range(self.meta_params.shape[0]):
-            print(f"Tensor {i}:", self.meta_params[i*9: (i+1)*9])
 
         return self.meta_params, grads_mean, meta_train_loss
 
