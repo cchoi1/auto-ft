@@ -59,8 +59,10 @@ class LayerLoss(nn.Module):
                 l1_pretrained = l2_pretrained = 0
 
             # Combine losses with learned weights
-            combined_loss = torch.stack([ce_loss, hinge_loss, kl_loss, entropy, energy,
+            stacked_losses = torch.stack([ce_loss, hinge_loss * 0.1, kl_loss * 0.1, entropy, energy * 0.0,
                                          l1_zero, l2_zero, l1_pretrained, l2_pretrained])
-            total_loss += torch.dot(torch.sigmoid(self.loss_weights[i]), combined_loss)
+            # loss_multiplier = F.softplus(self.loss_weights[i] * 10).detach()
+            loss_multiplier = torch.sigmoid(self.loss_weights[i] * 100).detach()
+            total_loss += torch.dot(loss_multiplier, stacked_losses)
 
         return total_loss / (len(list(net.parameters())) * 9)
