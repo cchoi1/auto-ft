@@ -40,7 +40,6 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
     for step in range(inner_steps):
         # Adjust the learning rate with warmup
         for param_group in inner_opt.param_groups:
-            cumulative_step = iter * inner_steps + step
             param_group['lr'] = get_lr(step, warmup_steps, inner_lr)
 
         train_images, train_labels = train_images.to(device), train_labels.to(device)
@@ -200,35 +199,31 @@ class OptimizerTrainer:
     def validation_iter(self, repeat):
         metrics = defaultdict(list)
 
-        net = copy.deepcopy(self.net)
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             src_val_images, src_val_labels = next(iter(self.train_loader))
-            src_val_losses, src_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, src_val_images, src_val_labels, self.num_iters)
+            src_val_losses, src_val_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, src_val_images, src_val_labels, self.num_iters)
             metrics["src_loss"].append(src_val_losses[-1])
             metrics["src_acc"].append(src_val_accs[-1])
 
-        net = copy.deepcopy(self.net)
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             id_val_images, id_val_labels = next(iter(self.id_val_loader))
-            id_val_losses, id_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, id_val_images, id_val_labels, self.num_iters)
+            id_val_losses, id_val_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, id_val_images, id_val_labels, self.num_iters)
             metrics["id_loss"].append(id_val_losses[-1])
             metrics["id_acc"].append(id_val_accs[-1])
 
-        net = copy.deepcopy(self.net)
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             ood_val_images, ood_val_labels = next(iter(self.ood_val2_loader))
-            ood_val_losses, ood_val_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, ood_val_images, ood_val_labels, self.num_iters)
+            ood_val_losses, ood_val_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, ood_val_images, ood_val_labels, self.num_iters)
             metrics["ood_loss"].append(ood_val_losses[-1])
             metrics["ood_acc"].append(ood_val_accs[-1])
 
-        net = copy.deepcopy(self.net)
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             test_images, test_labels = next(iter(self.test_loader))
-            test_losses, test_accs = self.finetune_iter(net, self.meta_params, self.val_inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
+            test_losses, test_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             metrics["test_loss"].append(test_losses[-1])
             metrics["test_acc"].append(test_accs[-1])
 
@@ -330,7 +325,6 @@ class OptimizerTrainer:
         old_meta_params = copy.deepcopy(self.meta_params)
         grads = []
         for _ in range(self.meta_batch_size // 2):
-            net = copy.deepcopy(self.net)
             epsilons = []
             if self.optimizer_obj is not None:
                 optimizer_epsilon = self.optimizer_obj.get_noise(self.lopt_info) * self.noise_std
@@ -352,9 +346,9 @@ class OptimizerTrainer:
             inner_steps = self.inner_steps
             if self.inner_steps_range is not None:
                 inner_steps = np.random.randint(self.inner_steps, self.inner_steps + self.inner_steps_range + 1)
-            losses_plus, _ = self.finetune_iter(net, mp_plus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
+            losses_plus, _ = self.finetune_iter(self.net, mp_plus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
-            losses_minus, _ = self.finetune_iter(net, mp_minus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
+            losses_minus, _ = self.finetune_iter(self.net, mp_minus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
             self.num_iters += self.inner_steps
 
             loss_diff = losses_plus - losses_minus
@@ -376,11 +370,10 @@ class OptimizerTrainer:
         self.meta_params = clip_gradient(self.meta_params, max_norm=1.0)
         self.meta_optimizer.step()
 
-        net = copy.deepcopy(self.net)
         if train_x is None or train_y is None or test_x is None or test_y is None:
             train_images, train_labels = next(iter(self.train_loader))
             test_images, test_labels = next(iter(self.ood_val1_loader))
-        losses_current, _ = self.finetune_iter(net, self.meta_params, self.inner_steps, train_images, train_labels, test_images,
+        losses_current, _ = self.finetune_iter(self.net, self.meta_params, self.inner_steps, train_images, train_labels, test_images,
                                                test_labels, self.num_iters)
         meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
         if np.isnan(meta_train_loss):
@@ -427,19 +420,17 @@ class OptimizerTrainer:
         )
         grad = objective * epsilon / self.noise_std / 2
         grads_mean = grad.mean(dim=0)
-
-        if train_x is None or train_y is None or test_x is None or test_y is None:
-            train_images, train_labels = next(iter(self.train_loader))
-            test_images, test_labels = next(iter(self.ood_val1_loader))
-        losses_current, _ = self.finetune(func_net, net_params, mp_plus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels)
-        meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
-
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
         # Add gradient clipping
         torch.nn.utils.clip_grad_norm_(self.meta_params.parameters(), max_norm=1.0)
         self.meta_optimizer.step()
 
+        if train_x is None or train_y is None or test_x is None or test_y is None:
+            train_images, train_labels = next(iter(self.train_loader))
+            test_images, test_labels = next(iter(self.ood_val1_loader))
+        losses_current, _ = self.finetune(func_net, net_params, mp_plus_epsilon, self.inner_steps, train_images, train_labels, test_images, test_labels)
+        meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
         print(f"Meta-train Loss: {meta_train_loss.mean():.4f}")
 
         return self.meta_params, grads_mean, meta_train_loss.mean()
