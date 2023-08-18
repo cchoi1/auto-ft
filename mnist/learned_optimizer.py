@@ -62,10 +62,7 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
-        if isinstance(loss_fn, LayerLoss):
-            test_loss = loss_fn(output, test_labels, net, pretrained_net)
-        else:
-            test_loss = F.cross_entropy(output, test_labels)
+        test_loss = F.cross_entropy(output, test_labels)
         if np.isnan(test_loss.item()):
             print('inner OOD test loss is nan', step, iter)
             breakpoint()
@@ -388,6 +385,7 @@ class OptimizerTrainer:
         meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
         if np.isnan(meta_train_loss):
             print('meta params', self.meta_params)
+        # print('meta params', self.meta_params)
         print(f"Meta-train Loss: {meta_train_loss:.4f}")
 
         return self.meta_params, grads_mean, meta_train_loss
