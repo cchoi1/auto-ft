@@ -32,6 +32,7 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
         loss_fn = loss_fn(meta_params, net, lloss_info)
     else:
         loss_fn = nn.CrossEntropyLoss()
+    test_loss_fn = nn.CrossEntropyLoss()
 
     test_losses = []
     test_accs = []
@@ -39,9 +40,9 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
     total = 0.0
     for step in range(inner_steps):
         # Adjust the learning rate with warmup
-        for param_group in inner_opt.param_groups:
-            cumulative_step = iter * inner_steps + step
-            param_group['lr'] = get_lr(step, warmup_steps, inner_lr)
+        # for param_group in inner_opt.param_groups:
+        #     cumulative_step = iter * inner_steps + step
+        #     param_group['lr'] = get_lr(step, warmup_steps, inner_lr)
 
         train_images, train_labels = train_images.to(device), train_labels.to(device)
         output = net(train_images)
@@ -62,10 +63,7 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
 
         test_images, test_labels = test_images.to(device), test_labels.to(device)
         output = net(test_images)
-        if isinstance(loss_fn, LayerLoss):
-            test_loss = loss_fn(output, test_labels, net, pretrained_net)
-        else:
-            test_loss = F.cross_entropy(output, test_labels)
+        test_loss = test_loss_fn(output, test_labels)
         if np.isnan(test_loss.item()):
             print('inner OOD test loss is nan', step, iter)
             breakpoint()
