@@ -49,7 +49,8 @@ def train_optimizer(args, method):
         meta_learning_info.append(f"LOptNet features: {args.features}")
     print("\n".join(meta_learning_info), "\n")
 
-    for meta_step in range(args.meta_steps + 1):
+    num_meta_steps = 1 if args.use_hyperopt else args.meta_steps
+    for meta_step in range(num_meta_steps):
         if meta_step % args.val_freq == 1:
             val_metrics = opt_trainer.validation(args.val_meta_batch_size)
             for k, v in val_metrics.items():

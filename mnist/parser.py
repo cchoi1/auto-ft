@@ -30,6 +30,7 @@ def get_args():
                         default=None)
     parser.add_argument("--lopt_net_dim", type=int)
     parser.add_argument("--use_hyperopt", action="store_true")
+    parser.add_argument("--max_evals", type=int, default=100)
     parser.add_argument("--meta_steps", type=int, default=100)
     parser.add_argument("--inner_steps", type=int, default=10)
     parser.add_argument("--inner_steps_range", type=int, default=None)

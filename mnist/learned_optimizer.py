@@ -159,7 +159,6 @@ class OptimizerTrainer:
             self.meta_optimizer = torch.optim.SGD(self.meta_params, lr=args.meta_lr)
         else:
             self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
-        self.meta_scheduler = CosineAnnealingLR(self.meta_optimizer, T_max=args.meta_steps, eta_min=1e-6)
 
         loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size,
                              meta_batch_size=args.meta_batch_size // 2, num_workers=args.num_workers,
@@ -181,12 +180,12 @@ class OptimizerTrainer:
 
         # Outer Loop Hyperparameters
         self.use_hyperopt = args.use_hyperopt
+        self.max_evals = args.max_evals
         self.meta_lr = args.meta_lr
         self.meta_batch_size = args.meta_batch_size
         self.noise_std = args.noise_std
         self.meta_loss_avg_w = args.meta_loss_avg_w
         self.meta_loss_final_w = args.meta_loss_final_w
-        self.curr_meta_step = 0
         self.meta_steps = args.meta_steps
         self.total_iters = self.meta_steps * self.inner_steps
 
@@ -325,16 +324,22 @@ class OptimizerTrainer:
 
     def objective(self, config):
         """Objective function for hyperopt"""
+        batch_meta_train_losses = []
         tensor_config = torch.tensor([config[f'meta_param_{i}'] for i in range(self.num_loss_meta_params)], device=device)
-        losses, _ = self.finetune_iter(self.net, tensor_config, self.inner_steps, self.train_images, self.train_labels, self.test_images, self.test_labels, self.num_iters)
-        meta_train_loss = losses[-1] * self.meta_loss_final_w + losses.mean() * self.meta_loss_avg_w
-        return meta_train_loss
+        for _ in range(self.meta_batch_size):
+            train_images, train_labels = next(iter(self.train_loader))
+            test_images, test_labels = next(iter(self.ood_val1_loader))
+            losses, _ = self.finetune_iter(self.net, tensor_config, self.inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
+            meta_train_loss = losses[-1] * self.meta_loss_final_w + losses.mean() * self.meta_loss_avg_w
+            batch_meta_train_losses.append(meta_train_loss.item())
+        return np.mean(batch_meta_train_losses)
 
     def outer_loop_step_hyperopt(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
-        space = {f'meta_param_{i}': hp.uniform(f'meta_param_{i}', np.log(0.001), np.log(10)) for i in range(self.num_loss_meta_params)}
-        self.train_images, self.train_labels = next(iter(self.train_loader))
-        self.test_images, self.test_labels = next(iter(self.ood_val1_loader))
-        best_meta_params = fmin(fn=self.objective, space=space, algo=tpe.suggest, max_evals=100)
+        # space = {f'meta_param_{i}': hp.loguniform(f'meta_param_{i}', -10, 3) for i in
+        #          range(self.num_loss_meta_params)}
+        space = {f'meta_param_{i}': hp.qloguniform(f'meta_param_{i}', -10, 3, 9) for i in
+                 range(self.num_loss_meta_params)}
+        best_meta_params = fmin(fn=self.objective, space=space, algo=tpe.suggest, max_evals=self.max_evals)
         for i in range(self.num_loss_meta_params):
             self.meta_params[i] = best_meta_params[f'meta_param_{i}']
 
@@ -359,10 +364,10 @@ class OptimizerTrainer:
             if self.optimizer_obj is not None:
                 optimizer_epsilon = self.optimizer_obj.get_noise(self.lopt_info) * self.noise_std
                 epsilons.append(optimizer_epsilon)
-            if self.loss_fn is not None:
+            if self.loss_fn is not None and not self.use_hyperopt:
                 loss_epsilon = self.loss_fn.get_noise(self.lloss_info) * self.noise_std
                 epsilons.append(loss_epsilon)
-            epsilon = torch.cat(epsilons).to(device)# Antithetic sampling
+            epsilon = torch.cat(epsilons).to(device) # Antithetic sampling
             mp_plus_epsilon = self.meta_params + epsilon
             mp_minus_epsilon = self.meta_params - epsilon
 
@@ -373,16 +378,14 @@ class OptimizerTrainer:
                 train_images, train_labels = train_x[_:(_+1)].squeeze(0), train_y[_:(_+1)].squeeze(0)
                 test_images, test_labels = test_x[_:(_+1)].squeeze(0), test_y[_:(_+1)].squeeze(0)
 
-            inner_steps = self.inner_steps
-            if self.inner_steps_range is not None:
-                inner_steps = np.random.randint(self.inner_steps, self.inner_steps + self.inner_steps_range + 1)
+            inner_steps = self.inner_steps if self.inner_steps_range is None else \
+                np.random.randint(self.inner_steps, self.inner_steps + self.inner_steps_range + 1)
             losses_plus, _ = self.finetune_iter(self.net, mp_plus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
-            self.num_iters += self.inner_steps
+            self.num_iters += inner_steps
             losses_minus, _ = self.finetune_iter(self.net, mp_minus_epsilon, inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
-            self.num_iters += self.inner_steps
+            self.num_iters += inner_steps
 
             loss_diff = losses_plus - losses_minus
-
             objective = (
                     loss_diff[-1] * self.meta_loss_final_w
                     + loss_diff.mean() * self.meta_loss_avg_w
@@ -390,7 +393,6 @@ class OptimizerTrainer:
             grads.append(objective * epsilon / self.noise_std / 2)
 
         grads_mean = torch.stack(grads).mean(dim=0)
-        self.curr_meta_step += 1
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
         self.meta_optimizer.step()
@@ -447,7 +449,6 @@ class OptimizerTrainer:
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
         self.meta_optimizer.step()
-        self.meta_scheduler.step()
 
         if train_x is None or train_y is None or test_x is None or test_y is None:
             train_images, train_labels = next(iter(self.train_loader))
@@ -461,7 +462,9 @@ class OptimizerTrainer:
     def outer_loop_step(self):
         if self.run_parallel:
             return self.outer_loop_step_parallel()
-        if self.use_hyperopt:
-            return self.outer_loop_step_hyperopt()
-        else:
-            return self.outer_loop_step_iter()
+        if self.loss_fn is not None and self.use_hyperopt:
+            self.outer_loop_step_hyperopt()
+            if self.optimzier_obj is not None:
+                return self.outer_loop_step_es()
+        if (self.loss_fn is not None and not self.use_hyperopt) or self.optimizer_obj is not None:
+            return self.outer_loop_step_es()
