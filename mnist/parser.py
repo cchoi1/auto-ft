@@ -29,6 +29,7 @@ def get_args():
                              "loss_ema, tensor_rank, pos_enc, pos_enc_cont, momentum, layer_type].",
                         default=None)
     parser.add_argument("--lopt_net_dim", type=int)
+    parser.add_argument("--use_hyperopt", action="store_true")
     parser.add_argument("--meta_steps", type=int, default=100)
     parser.add_argument("--inner_steps", type=int, default=10)
     parser.add_argument("--inner_steps_range", type=int, default=None)
@@ -37,7 +38,7 @@ def get_args():
     parser.add_argument("--meta_batch_size", type=int, default=20)
     parser.add_argument("--val_freq", type=int, default=10)
     parser.add_argument("--ft_val_freq", type=int, default=100)
-    parser.add_argument("--val_meta_batch_size", type=int, default=100)
+    parser.add_argument("--val_meta_batch_size", type=int, default=20)
     parser.add_argument("--val_inner_steps", type=int, default=20)
     parser.add_argument("--noise_std", type=float, default=1.0)
     parser.add_argument("--meta_lr", type=float, default=3e-3)

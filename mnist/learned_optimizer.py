@@ -4,22 +4,41 @@ from collections import defaultdict
 from functools import partial
 
 import functorch
+from hyperopt import fmin, tpe, hp
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from data.dataloaders import get_dataloaders
-from networks import get_pretrained_net_fixed
-from utils import get_lopt_info, get_lloss_info, get_lr
 from losses.layerloss import LayerLoss
-from optimizers.utils import clip_gradient
+from networks import get_pretrained_net_fixed
+from utils import get_lopt_info, get_lloss_info
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def evaluate_net(net, test_images, test_labels):
+    test_losses, test_accs = [], []
+    correct, total = 0.0, 0.0
+
+    test_images, test_labels = test_images.to(device), test_labels.to(device)
+    output = net(test_images)
+    test_loss = F.cross_entropy(output, test_labels)
+    if np.isnan(test_loss.item()):
+        print('inner OOD test loss is nan')
+        breakpoint()
+    test_losses.append(test_loss.item())
+    preds = output.argmax(dim=1)
+    correct += (preds == test_labels).sum().item()
+    total += test_labels.shape[0]
+    test_accs.append(correct / total)
+
+    return np.array(test_losses), np.array(test_accs)
 
 def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_iters, _net, meta_params, inner_steps,
-              train_images, train_labels, test_images, test_labels, iter, warmup_steps=5):
+              train_images, train_labels, test_images, test_labels, iter, warmup_steps=5, src_val_images=None, src_val_labels=None,
+              id_val_images=None, id_val_labels=None, ood_val_images=None, ood_val_labels=None):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     pretrained_net = copy.deepcopy(_net)
     net = copy.deepcopy(_net)
@@ -33,14 +52,11 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
     else:
         loss_fn = nn.CrossEntropyLoss()
 
-    test_losses = []
-    test_accs = []
-    correct = 0.0
-    total = 0.0
+    test_losses, test_accs = [], []
     for step in range(inner_steps):
         # Adjust the learning rate with warmup
-        for param_group in inner_opt.param_groups:
-            param_group['lr'] = get_lr(step, warmup_steps, inner_lr)
+        # for param_group in inner_opt.param_groups:
+        #     param_group['lr'] = get_lr(step, warmup_steps, inner_lr)
 
         train_images, train_labels = train_images.to(device), train_labels.to(device)
         output = net(train_images)
@@ -59,19 +75,15 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
         else:
             inner_opt.step(curr_loss=loss.item(), iter=iter, iter_frac=iter / total_iters)
 
-        test_images, test_labels = test_images.to(device), test_labels.to(device)
-        output = net(test_images)
-        test_loss = F.cross_entropy(output, test_labels)
-        if np.isnan(test_loss.item()):
-            print('inner OOD test loss is nan', step, iter)
-            breakpoint()
-        test_losses.append(test_loss.item())
-        preds = output.argmax(dim=1)
-        correct += (preds == test_labels).sum().item()
-        total += test_labels.shape[0]
-        test_accs.append(correct / total)
+        if type(test_images) == list:
+            for image_set, label_set in zip(test_images, test_labels):
+                set_losses, set_accs = evaluate_net(net, image_set, label_set)
+                test_losses.append(set_losses)
+                test_accs.append(set_accs)
+        else:
+            test_losses, test_accs = evaluate_net(net, test_images, test_labels)
 
-    return np.array(test_losses), np.array(test_accs)
+    return test_losses,test_accs
 
 def fine_tune_func_single(optimizer_obj, inner_lr, func_net, net_params, meta_params, inner_steps, train_images, train_labels, test_images, test_labels):
     """Fine-tune the functional model func_net on (train_images, train_labels), and return test losses.
@@ -120,23 +132,23 @@ class OptimizerTrainer:
         self.lopt_info = get_lopt_info(self.net, args)
         self.num_iters = 0
 
-        loss_module = importlib.import_module(f"losses.{args.loss_name.lower()}")
         meta_params = []
         if args.loss_name is not None:
+            loss_module = importlib.import_module(f"losses.{args.loss_name.lower()}")
             self.loss_fn = getattr(loss_module, args.loss_name)
             # TODO change this to be more general later
-            num_tensors = len(list(self.net.parameters()))
-            num_loss_weights = 9
-            self.lloss_info['meta_params'] = {'start': 0, 'end': num_tensors * num_loss_weights - 1}
+            self.num_loss_meta_params = len(list(self.net.parameters())) * 9
+            self.lloss_info['meta_params'] = {'start': 0, 'end': self.num_loss_meta_params - 1}
             loss_meta_params = self.loss_fn.get_init_meta_params(self.lloss_info)
             meta_params.append(loss_meta_params)
         else:
             self.loss_fn = nn.CrossEntropyLoss()
+            self.num_loss_meta_params = 0
         if args.optimizer_name is not None:
             optimizer_module = importlib.import_module(
                 f"optimizers.optimizers_func") if self.run_parallel else importlib.import_module(
                 f"optimizers.{args.optimizer_name.lower()}")
-            self.lopt_info['meta_params'] = {'start': len(loss_meta_params) - 1}
+            self.lopt_info['meta_params'] = {'start': self.num_loss_meta_params}
             self.optimizer_obj = getattr(optimizer_module, args.optimizer_name)
             optimizer_meta_params = self.optimizer_obj.get_init_meta_params(self.lopt_info)
             meta_params.append(optimizer_meta_params)
@@ -147,6 +159,7 @@ class OptimizerTrainer:
             self.meta_optimizer = torch.optim.SGD(self.meta_params, lr=args.meta_lr)
         else:
             self.meta_optimizer = torch.optim.SGD([self.meta_params], lr=args.meta_lr)
+        self.meta_scheduler = CosineAnnealingLR(self.meta_optimizer, T_max=args.meta_steps, eta_min=1e-6)
 
         loader_kwargs = dict(root_dir=args.data_dir, output_channels=args.output_channels, batch_size=args.batch_size,
                              meta_batch_size=args.meta_batch_size // 2, num_workers=args.num_workers,
@@ -167,6 +180,7 @@ class OptimizerTrainer:
         self.batch_size = args.batch_size
 
         # Outer Loop Hyperparameters
+        self.use_hyperopt = args.use_hyperopt
         self.meta_lr = args.meta_lr
         self.meta_batch_size = args.meta_batch_size
         self.noise_std = args.noise_std
@@ -202,30 +216,20 @@ class OptimizerTrainer:
         for _ in range(repeat):
             train_images, train_labels = next(iter(self.train_loader))
             src_val_images, src_val_labels = next(iter(self.train_loader))
-            src_val_losses, src_val_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, src_val_images, src_val_labels, self.num_iters)
-            metrics["src_loss"].append(src_val_losses[-1])
-            metrics["src_acc"].append(src_val_accs[-1])
-
-        for _ in range(repeat):
-            train_images, train_labels = next(iter(self.train_loader))
             id_val_images, id_val_labels = next(iter(self.id_val_loader))
-            id_val_losses, id_val_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, id_val_images, id_val_labels, self.num_iters)
-            metrics["id_loss"].append(id_val_losses[-1])
-            metrics["id_acc"].append(id_val_accs[-1])
-
-        for _ in range(repeat):
-            train_images, train_labels = next(iter(self.train_loader))
             ood_val_images, ood_val_labels = next(iter(self.ood_val2_loader))
-            ood_val_losses, ood_val_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, ood_val_images, ood_val_labels, self.num_iters)
-            metrics["ood_loss"].append(ood_val_losses[-1])
-            metrics["ood_acc"].append(ood_val_accs[-1])
-
-        for _ in range(repeat):
-            train_images, train_labels = next(iter(self.train_loader))
             test_images, test_labels = next(iter(self.test_loader))
-            test_losses, test_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, test_images, test_labels, self.num_iters)
-            metrics["test_loss"].append(test_losses[-1])
-            metrics["test_acc"].append(test_accs[-1])
+            val_test_images = [src_val_images, id_val_images, ood_val_images, test_images]
+            val_test_labels = [src_val_labels, id_val_labels, ood_val_labels, test_labels]
+            val_test_losses, val_test_accs = self.finetune_iter(self.net, self.meta_params, self.val_inner_steps, train_images, train_labels, val_test_images, val_test_labels, self.num_iters)
+            metrics["src_loss"].append(val_test_losses[0][-1])
+            metrics["src_acc"].append(val_test_accs[0][-1])
+            metrics["id_loss"].append(val_test_losses[1][-1])
+            metrics["id_acc"].append(val_test_accs[1][-1])
+            metrics["ood_loss"].append(val_test_losses[2][-1])
+            metrics["ood_acc"].append(val_test_accs[2][-1])
+            metrics["test_loss"].append(val_test_losses[3][-1])
+            metrics["test_acc"].append(val_test_accs[3][-1])
 
         src_val_str = f"Src Loss: {np.mean(metrics['src_loss']):.4f} +- {np.std(metrics['src_loss']):.4f} " \
                          f"Src Acc: {100 * np.mean(metrics['src_acc']):.4f} +- {100 * np.std(metrics['src_acc']):.4f}"
@@ -319,10 +323,36 @@ class OptimizerTrainer:
         else:
             return self.validation_iter(repeat)
 
-    def outer_loop_step_iter(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
+    def objective(self, config):
+        """Objective function for hyperopt"""
+        tensor_config = torch.tensor([config[f'meta_param_{i}'] for i in range(self.num_loss_meta_params)], device=device)
+        losses, _ = self.finetune_iter(self.net, tensor_config, self.inner_steps, self.train_images, self.train_labels, self.test_images, self.test_labels, self.num_iters)
+        meta_train_loss = losses[-1] * self.meta_loss_final_w + losses.mean() * self.meta_loss_avg_w
+        return meta_train_loss
+
+    def outer_loop_step_hyperopt(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
+        space = {f'meta_param_{i}': hp.uniform(f'meta_param_{i}', np.log(0.001), np.log(10)) for i in range(self.num_loss_meta_params)}
+        self.train_images, self.train_labels = next(iter(self.train_loader))
+        self.test_images, self.test_labels = next(iter(self.ood_val1_loader))
+        best_meta_params = fmin(fn=self.objective, space=space, algo=tpe.suggest, max_evals=100)
+        for i in range(self.num_loss_meta_params):
+            self.meta_params[i] = best_meta_params[f'meta_param_{i}']
+
+        if train_x is None or train_y is None or test_x is None or test_y is None:
+            train_images, train_labels = next(iter(self.train_loader))
+            test_images, test_labels = next(iter(self.ood_val1_loader))
+        losses_current, _ = self.finetune_iter(self.net, self.meta_params, self.inner_steps, train_images, train_labels, test_images,
+                                               test_labels, self.num_iters)
+        meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
+        if np.isnan(meta_train_loss):
+            print('meta params', self.meta_params)
+        print(f"Meta-train Loss: {meta_train_loss:.4f}")
+
+        return self.meta_params, None, meta_train_loss
+
+    def outer_loop_step_es(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
         """Perform one outer loop step. meta_batch_size tasks with antithetic sampling.
         Only pass in params _net, epsilon, train_x, train_y, test_x, test_y when unit-testing."""
-        old_meta_params = copy.deepcopy(self.meta_params)
         grads = []
         for _ in range(self.meta_batch_size // 2):
             epsilons = []
@@ -361,13 +391,8 @@ class OptimizerTrainer:
 
         grads_mean = torch.stack(grads).mean(dim=0)
         self.curr_meta_step += 1
-
-        # Adjust the meta learning rate with warmup
-        for param_group in self.meta_optimizer.param_groups:
-            param_group['lr'] = get_lr(self.curr_meta_step, 5, param_group['lr'])
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
-        self.meta_params = clip_gradient(self.meta_params, max_norm=1.0)
         self.meta_optimizer.step()
 
         if train_x is None or train_y is None or test_x is None or test_y is None:
@@ -378,7 +403,6 @@ class OptimizerTrainer:
         meta_train_loss = losses_current[-1] * self.meta_loss_final_w + losses_current.mean() * self.meta_loss_avg_w
         if np.isnan(meta_train_loss):
             print('meta params', self.meta_params)
-        # print('meta params', self.meta_params)
         print(f"Meta-train Loss: {meta_train_loss:.4f}")
 
         return self.meta_params, grads_mean, meta_train_loss
@@ -422,9 +446,8 @@ class OptimizerTrainer:
         grads_mean = grad.mean(dim=0)
         self.meta_optimizer.zero_grad()
         self.meta_params.grad = grads_mean
-        # Add gradient clipping
-        torch.nn.utils.clip_grad_norm_(self.meta_params.parameters(), max_norm=1.0)
         self.meta_optimizer.step()
+        self.meta_scheduler.step()
 
         if train_x is None or train_y is None or test_x is None or test_y is None:
             train_images, train_labels = next(iter(self.train_loader))
@@ -438,5 +461,7 @@ class OptimizerTrainer:
     def outer_loop_step(self):
         if self.run_parallel:
             return self.outer_loop_step_parallel()
+        if self.use_hyperopt:
+            return self.outer_loop_step_hyperopt()
         else:
             return self.outer_loop_step_iter()
