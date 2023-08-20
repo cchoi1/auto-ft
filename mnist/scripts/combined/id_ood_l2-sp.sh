@@ -17,7 +17,8 @@ cd ../..
 for l2_lambda in 0.001 0.01 0.1 1.0 2.0 5.0
 do
   echo "l2_lambda: $l2_lambda"
-  python3 main.py --method full --ft_dists id+ood \
-  --pretrain svhn --id mnist --ood mnistc --test colored_mnist --output_channels 3 \
-  --val ood ood --optimizer_name LayerSGD --l2_lambda $l2_lambda --seeds 0
+  python3 main.py --method full --ft_dists id+ood --ft_lr 5e-2 \
+  --pretrain svhn --id mnist --ood mnistc --test colored_mnist --ood_samples_per_class 50 \
+  --output_channels 3 \
+  --val ood ood --optimizer_name LayerSGD --l2_lambda $l2_lambda --seeds 0 --no_wandb
 done

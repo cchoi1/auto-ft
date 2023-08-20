@@ -9,14 +9,12 @@ class LayerSGD(Optimizer):
 
     def __init__(self, meta_params, net, lopt_info=None, lr=required):
         self.lopt_info = lopt_info
-        assert meta_params[lopt_info["meta_params"]["start"]:-1].numel() == lopt_info["output_dim"] * lopt_info["input_dim"]
+        assert meta_params[lopt_info["meta_params"]["start"]:len(meta_params)].numel() == len(list(net.parameters()))
         defaults = dict(lr=lr)
         params = net.parameters()
         super().__init__(params, defaults)
         self.initial_weights = [p.data.clone() for p in net.parameters()]
-
-        # Correct slicing of meta_params for the optimizer
-        self.meta_params = meta_params[lopt_info['meta_params']['start']: -1] # This slices the correct meta parameters
+        self.meta_params = meta_params[lopt_info['meta_params']['start']: len(meta_params)]
 
     @staticmethod
     def get_init_meta_params(lopt_info):

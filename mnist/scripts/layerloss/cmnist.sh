@@ -14,8 +14,18 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../..
 
-python3 main.py --method ours --ft_dists id \
---pretrain svhn --id mnist --ood mnistc --test colored_mnist \
---loss_name LayerLoss --output_channels 3 --val ood \
---inner_lr 1e-3 --inner_steps 10 --meta_steps 100 --meta_lr 1e-4 \
+python3 main.py --method ours --ft_dists id --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
+--ood_samples_per_class 50 --output_channels 3 --val ood \
+--loss_name LayerLoss \
+--inner_lr 1e-1 --inner_steps 2 \
+--meta_steps 500 --meta_lr 1e-1 --meta_batch_size 20 \
+--val_inner_steps 50 --val_meta_batch_size 1 \
+--seeds 0 --no_wandb
+
+python3 main.py --method ours --ft_dists id --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
+--id_samples_per_class 50 --ood_samples_per_class 50 --output_channels 3 --val ood \
+--loss_name LayerLoss \
+--inner_lr 1e-1 --inner_steps 100 \
+--meta_steps 300 --meta_lr 1e-1 --meta_batch_size 20 \
+--val_inner_steps 50 --val_meta_batch_size 1 \
 --seeds 0 --no_wandb

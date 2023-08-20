@@ -6,14 +6,16 @@ from .utils import compute_hinge_loss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+NUM_LOSS_WEIGHTS = 9
+
 class LayerLoss(nn.Module):
-    def __init__(self, meta_params, net, lloss_info):
+    def __init__(self, meta_params, net):
         super(LayerLoss, self).__init__()
         self.loss_weights = {}
         num_tensors = len(list(net.parameters()))
-        self.num_loss_weights = 9
-        start, end = lloss_info['meta_params']['start'], lloss_info['meta_params']['end']
-        self.loss_weights = meta_params[start:end+1].view(num_tensors, self.num_loss_weights).to(device)
+        self.num_loss_weights = NUM_LOSS_WEIGHTS
+        self.num_meta_params = num_tensors * NUM_LOSS_WEIGHTS
+        self.loss_weights = meta_params[:self.num_meta_params].view(num_tensors, self.num_loss_weights).to(device)
 
     @staticmethod
     def get_init_meta_params(lloss_info):
@@ -24,6 +26,11 @@ class LayerLoss(nn.Module):
     def get_noise(lloss_info):
         num_meta_params = lloss_info['meta_params']['end'] - lloss_info['meta_params']['start'] + 1
         return torch.randn(num_meta_params)
+
+    @staticmethod
+    def get_num_meta_params(net):
+        num_tensors = len(list(net.parameters()))
+        return num_tensors * NUM_LOSS_WEIGHTS
 
     def forward(self, outputs, targets, net, pretrained_net=None):
         total_loss = 0

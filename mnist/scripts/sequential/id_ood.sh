@@ -14,7 +14,7 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../..
 
-python3 main.py --method full full --ft_dists id ood \
+python3 main.py --method full full --ft_dists id ood --ft_lr 5e-2 \
 --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
 --output_channels 3 \
 --ood_samples_per_class 50 \

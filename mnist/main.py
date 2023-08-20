@@ -14,7 +14,8 @@ from data.dataloaders import get_dataloaders
 from learned_optimizer import OptimizerTrainer
 from networks import get_pretrained_net_fixed, pretrain_nets
 from parser import get_args
-from utils import evaluate_net, train, save_meta_params, set_seed, get_lloss_info
+from finetune import evaluate_net, train
+from utils import save_meta_params, set_seed, get_lopt_info, get_lloss_info
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -23,20 +24,23 @@ def train_optimizer(args, method):
     start = time.time()
     opt_trainer = OptimizerTrainer(args)
     init_meta_params = opt_trainer.meta_params.detach().cpu().numpy()
-    print(f"Initial meta-params: {init_meta_params}")
 
     metrics = defaultdict(list)
     if method in ["full", "wise-ft"]:
-        # assert args.optimizer_name == "LayerSGD"
-        return 100 * torch.ones(opt_trainer.lopt_info["input_dim"]).float(), metrics
+        assert args.optimizer_name == "LayerSGD"
+        meta_params = 100 * torch.ones(opt_trainer.lopt_info["input_dim"]).float(), metrics
+        print(f"Initial meta-params: {meta_params}")
+        return meta_params
     elif method == "surgical":
         assert args.optimizer_name == "LayerSGD"
         assert args.layer is not None
         meta_params = (-100 * torch.ones(opt_trainer.lopt_info["input_dim"])).float()
         meta_params[2*args.layer] = 100
         meta_params[2*args.layer + 1] = 100
+        print(f"Initial meta-params: {meta_params}")
         return meta_params, metrics
 
+    print(f"Initial meta-params: {init_meta_params}")
     meta_learning_info = [
         f"Pre={args.pretrain}, ID={args.id}, OOD={args.ood}, Test={args.test}",
         f"Num meta params: {opt_trainer.meta_params.numel()}",
@@ -81,16 +85,16 @@ def finetune_with_meta_params(meta_params, net, args, ft_dist, val):
     elif ft_dist == "ood":  # Fine-tune on OOD data only
         train_loader, _ = get_dataloaders(dataset_names=[args.ood], **loader_kwargs)
     elif ft_dist == "id+ood":
-        loader_kwargs["num_samples_per_class"] = [-1, -1]
+        loader_kwargs["num_samples_per_class"] = [-1, args.ood_samples_per_class]
         train_loader, _ = get_dataloaders(dataset_names=[args.id, args.ood], **loader_kwargs)
     elif ft_dist == "src+id":
         loader_kwargs["num_samples_per_class"] = [-1, -1]
         train_loader, _ = get_dataloaders(dataset_names=[args.pretrain, args.id], **loader_kwargs)
     elif ft_dist == "src+ood":
-        loader_kwargs["num_samples_per_class"] = [-1, -1]
+        loader_kwargs["num_samples_per_class"] = [-1, args.ood_samples_per_class]
         train_loader, _ = get_dataloaders(dataset_names=[args.pretrain, args.ood], **loader_kwargs)
     elif ft_dist == "src+id+ood":
-        loader_kwargs["num_samples_per_class"] = [-1, -1, -1]
+        loader_kwargs["num_samples_per_class"] = [-1, -1, args.ood_samples_per_class]
         train_loader, _ = get_dataloaders(dataset_names=[args.pretrain, args.id, args.ood], **loader_kwargs)
 
     _, src_val_loader = get_dataloaders(dataset_names=[args.pretrain], **loader_kwargs)
@@ -109,6 +113,7 @@ def finetune_with_meta_params(meta_params, net, args, ft_dist, val):
     if args.optimizer_name is not None:
         optimizer_module = importlib.import_module(f"optimizers.{args.optimizer_name.lower()}")
         optimizer_obj = getattr(optimizer_module, args.optimizer_name)
+
     ft_lr = args.inner_lr if args.ft_lr is None else args.ft_lr
     ft_net, ft_metrics = train(
         num_epochs=args.num_epochs,
@@ -121,7 +126,7 @@ def finetune_with_meta_params(meta_params, net, args, ft_dist, val):
         test_loader=test_loader,
         loss_fn=loss_fn,
         optimizer_obj=optimizer_obj if args.method != "ours-avg" else optimizers.LayerSGD,
-        lr=args.inner_lr,
+        lr=ft_lr,
         val=val,
         alpha=args.alpha,
         args=args
