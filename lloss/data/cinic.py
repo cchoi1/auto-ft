@@ -1,16 +1,16 @@
 import os
 
 from PIL import Image
-from torchvision import transforms
 from torchvision.datasets import VisionDataset
 
 
 class CINIC10(VisionDataset):
-    def __init__(self, root, split='train', transform=None, target_transform=None):
+    def __init__(self, root, split='train', transform=None, target_transform=None, template=None):
         super(CINIC10, self).__init__(root, transform=transform, target_transform=target_transform)
 
         assert split in ['train', 'valid', 'test']
         self.root = os.path.join(root, split)
+        self.template = template
 
         self.data = []
         self.targets = []
@@ -32,4 +32,11 @@ class CINIC10(VisionDataset):
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, self.targets[index]
+        if self.template is None:
+            return img, self.targets[index]
+
+        class_name = self.targets[index]
+        caption_template = index % len(self.template)
+        caption = self.template[caption_template](class_name)
+
+        return img, caption, class_name
