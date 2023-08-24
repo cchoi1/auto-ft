@@ -45,4 +45,4 @@ class LayerLoss(nn.Module):
         stacked_losses = torch.stack(losses)
         loss = torch.dot(stacked_losses, self.hyperparams.detach())
 
-        return loss
+        return loss, stacked_losses.detach()

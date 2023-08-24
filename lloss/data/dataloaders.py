@@ -111,7 +111,6 @@ def get_datasets(
     """Get the train and test dataloaders for various datasets."""
     train_datasets = []
     test_datasets = []
-    collate_fn = None
 
     for i, dataset_name in enumerate(dataset_names):
         if transform is None:
