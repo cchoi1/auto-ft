@@ -37,8 +37,7 @@ def evaluate_net(net, test_images, test_labels):
     return np.array(test_losses), np.array(test_accs)
 
 def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_iters, _net, meta_params, inner_steps,
-              train_images, train_labels, test_images, test_labels, iter, warmup_steps=5, src_val_images=None, src_val_labels=None,
-              id_val_images=None, id_val_labels=None, ood_val_images=None, ood_val_labels=None):
+              train_images, train_labels, test_images, test_labels, iter):
     """Fine-tune net on (train_images, train_labels), and return test losses."""
     pretrained_net = copy.deepcopy(_net)
     net = copy.deepcopy(_net)
@@ -54,10 +53,6 @@ def fine_tune(optimizer_obj, loss_fn, inner_lr, lopt_info, lloss_info, total_ite
 
     test_losses, test_accs = [], []
     for step in range(inner_steps):
-        # Adjust the learning rate with warmup
-        # for param_group in inner_opt.param_groups:
-        #     param_group['lr'] = get_lr(step, warmup_steps, inner_lr)
-
         train_images, train_labels = train_images.to(device), train_labels.to(device)
         output = net(train_images)
         if isinstance(loss_fn, LayerLoss):
@@ -335,10 +330,12 @@ class OptimizerTrainer:
         return np.mean(batch_meta_train_losses)
 
     def outer_loop_step_hyperopt(self, _net=None, epsilon=None, train_x=None, train_y=None, test_x=None, test_y=None):
-        # space = {f'meta_param_{i}': hp.loguniform(f'meta_param_{i}', -10, 3) for i in
+        # space = {f'meta_param_{i}': hp.uniform(f'meta_param_{i}', np.log(0.001), np.log(10)) for i in
         #          range(self.num_loss_meta_params)}
-        space = {f'meta_param_{i}': hp.qloguniform(f'meta_param_{i}', -10, 3, 9) for i in
+        space = {f'meta_param_{i}': hp.loguniform(f'meta_param_{i}', -10, 3) for i in
                  range(self.num_loss_meta_params)}
+        # space = {f'meta_param_{i}': hp.qloguniform(f'meta_param_{i}', -10, 3, 9) for i in
+        #          range(self.num_loss_meta_params)}
         best_meta_params = fmin(fn=self.objective, space=space, algo=tpe.suggest, max_evals=self.max_evals)
         for i in range(self.num_loss_meta_params):
             self.meta_params[i] = best_meta_params[f'meta_param_{i}']
@@ -464,7 +461,7 @@ class OptimizerTrainer:
             return self.outer_loop_step_parallel()
         if self.loss_fn is not None and self.use_hyperopt:
             self.outer_loop_step_hyperopt()
-            if self.optimzier_obj is not None:
+            if self.optimizer_obj is not None:
                 return self.outer_loop_step_es()
         if (self.loss_fn is not None and not self.use_hyperopt) or self.optimizer_obj is not None:
             return self.outer_loop_step_es()

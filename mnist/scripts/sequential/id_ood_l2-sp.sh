@@ -17,7 +17,7 @@ cd ../..
 for l2_lambda in 0.01 0.1 0.5 1.0 2.0 5.0 10.0
 do
   echo "val id"
-  python3 main.py --method full full --ft_dists id ood \
+  python3 main.py --method full full --ft_dists id ood --ft_lr 5e-2 \
   --pretrain svhn --id mnist --ood mnistc --test colored_mnist --ood_samples_per_class 50 \
   --output_channels 3 \
   --val id ood --optimizer_name LayerSGD --l2_lambda $l2_lambda \

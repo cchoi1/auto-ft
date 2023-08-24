@@ -15,7 +15,7 @@ source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../..
 
 echo "val ood"
-python3 main.py --method full --ft_dists src+id+ood \
+python3 main.py --method full --ft_dists src+id+ood --ft_lr 5e-2 \
 --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
 --output_channels 3 \
 --ood_samples_per_class 50 \

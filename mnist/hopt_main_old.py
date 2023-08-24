@@ -37,11 +37,13 @@ net = get_pretrained_net_fixed(
 )
 pretrained_net = copy.deepcopy(net)
 
+
 def get_subset(dataset, num_datapoints):
     set_seed()
     rand_idxs = torch.randperm(len(dataset))[:num_datapoints]
     subset = torch.utils.data.Subset(dataset, rand_idxs)
     return subset
+
 
 root = "/iris/u/cchoi1/Data"
 all_datasets = dict()
@@ -70,11 +72,12 @@ all_datasets["id_val"] = get_subset(mnist_test, 10000)
 
 ood_transform = get_transform("mnistc", 3)
 root_c = os.path.join(root, "MNIST-C")
-ood_corruptions = ["brightness", "dotted_line", "fog", "glass_blur", "rotate", "scale", "shear", "shot_noise", "spatter", "stripe", "translate", "zigzag"]
+ood_corruptions = ["brightness", "dotted_line", "fog", "glass_blur", "rotate", "scale", "shear", "shot_noise",
+                   "spatter", "stripe", "translate", "zigzag"]
 ood_data = MNISTC(
     root_c, corruptions=ood_corruptions, train=True, transform=ood_transform
-) 
-all_datasets["ood_subset_for_hp"] = get_subset(ood_data, 100) # this is what the meta-learner sees
+)
+all_datasets["ood_subset_for_hp"] = get_subset(ood_data, 100)  # this is what the meta-learner sees
 all_datasets["ood"] = get_subset(ood_data, 10000)
 
 test1_data = MNISTC(
@@ -96,6 +99,7 @@ all_datasets["test4"] = get_subset(test4_data, 10000)
 color_mnist_transform = get_transform("colored_mnist", 3)
 _, test5_data = get_colored_mnist(root, color_mnist_transform)
 all_datasets["test5"] = get_subset(test5_data, 10000)
+
 
 class LayerLoss(nn.Module):
     def __init__(self, hyperparams):
@@ -199,16 +203,17 @@ def evaluate_hparams(net, hyperparams, datasets, repeats=3, num_steps=300, full_
             val_results[f"{name}_loss"] = loss
             val_results[f"{name}_accuracy"] = accuracy
         all_val_results.append(val_results)
-    
+
     if full_eval:
         for name in eval_datasets:
             losses = [r[f"{name}_loss"] for r in all_val_results]
             accs = [r[f"{name}_accuracy"] for r in all_val_results]
-            print(f"{name:10s} loss: {np.mean(losses):.3f} +- {np.std(losses):.3f}  acc: {np.mean(accs):.2f} +- {np.std(accs):.2f}")
+            print(
+                f"{name:10s} loss: {np.mean(losses):.3f} +- {np.std(losses):.3f}  acc: {np.mean(accs):.2f} +- {np.std(accs):.2f}")
         print()
     return all_val_results
 
-    
+
 def hp_objective_fn(hparams):
     _net = copy.deepcopy(net)
     val_results = evaluate_hparams(_net, hparams, all_datasets, repeats=3, num_steps=INNER_LOOP_STEPS)

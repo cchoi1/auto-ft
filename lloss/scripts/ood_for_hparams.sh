@@ -4,18 +4,18 @@
 #SBATCH --exclude=iris4,iris7
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Only use one node (machine)
-#SBATCH --mem=8G # Request 16GB of memory
+#SBATCH --mem=16G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="ft-id-then-ood" # Name the job (for easier monitoring)
+#SBATCH --job-name="plot" # Name the job (for easier monitoring)
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
 # Now your Python or general experiment/job runner code
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
-cd ../..
+cd ..
 
-python3 main.py --method full full --ft_dists id ood --ft_lr 5e-2 \
---pretrain svhn --id mnist --ood mnistc --test colored_mnist \
---output_channels 3 \
---ood_samples_per_class 50 \
---val id ood --optimizer_name LayerSGD --seeds 0
+python main.py \
+--ood mnistc-brightness mnistc-dotted_line mnistc-fog mnistc-glass_blur mnistc-rotate mnistc-scale mnistc-shear mnistc-shot_noise mnistc-spatter mnistc-stripe mnistc-translate mnistc-zigzag \
+--test mnistc-motion_blur mnistc-impulse_noise mnistc-canny_edges rotated_mnist colored_mnist \
+--max_iters 500 \
+--plot

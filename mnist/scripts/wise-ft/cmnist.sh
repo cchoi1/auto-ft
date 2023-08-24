@@ -6,7 +6,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=8G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="wise-ft-idood" # Name the job (for easier monitoring)
+#SBATCH --job-name="wise-ft" # Name the job (for easier monitoring)
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -14,12 +14,14 @@
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 cd ../..
 
-#python3 main.py --method wise-ft --ft_dists id \
-#--pretrain svhn --id mnist --ood mnistc --test colored_mnist \
-#--output_channels 3 \
-#--val ood --optimizer_name LayerSGD --seeds 0
+python3 main.py --method wise-ft --alpha 0.9 \
+--ft_dists id --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
+--output_channels 3 \
+--val ood --optimizer_name LayerSGD --ft_lr 5e-2 \
+--seeds 0
 
-python3 main.py --method wise-ft --ft_dists id+ood \
---pretrain svhn --id mnist --ood mnistc --test colored_mnist \
+python3 main.py --method wise-ft --alpha 0.9 \
+--ft_dists id+ood --pretrain svhn --id mnist --ood mnistc --test colored_mnist \
 --output_channels 3 --ood_samples_per_class 50 \
---val ood --optimizer_name LayerSGD --seeds 0 --alpha 0.9
+--val ood --optimizer_name LayerSGD --ft_lr 5e-2 \
+--seeds 0
