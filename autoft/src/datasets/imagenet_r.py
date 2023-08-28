@@ -32,8 +32,15 @@ class ImageNetRValClasses(ImageNetSubsampleValClasses):
         return CLASS_SUBLIST, CLASS_SUBLIST_MASK
 
 class ImageNetR(ImageNetSubsample):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.train:
+            self.populate_train()
+        else:
+            self.populate_test()
+
     def get_class_sublist_and_mask(self):
         return CLASS_SUBLIST, CLASS_SUBLIST_MASK
 
     def get_test_path(self):
-        return os.path.join(self.location, 'imagenet-r')
+        return os.path.join(self.location, 'ImageNet-R')

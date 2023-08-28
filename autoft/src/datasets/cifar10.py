@@ -147,7 +147,6 @@ class CIFAR101:
             self.dataset = torch.utils.data.Subset(self.dataset, indices)
         self.classnames = CIFAR_CLASSNAMES
 
-
 class CIFAR102:
     def __init__(self,
                  preprocess,

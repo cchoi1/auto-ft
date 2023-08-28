@@ -69,50 +69,59 @@ class ImageNet:
             self.populate_test()
 
     def populate_train(self):
-        traindir = os.path.join(self.location, 'ILSVRC2012', 'train')
-        self.train_dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
+        # traindir = os.path.join(self.location, 'ILSVRC2012', 'train')
+        traindir = os.path.join(self.location, 'ImageNet', 'train')
+        # self.train_dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
+        self.dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
         if self.n_examples > -1:
             indices = list(range(self.n_examples))
-            self.train_dataset = torch.utils.data.Subset(self.train_dataset, indices)
+            # self.train_dataset = torch.utils.data.Subset(self.train_dataset, indices)
+            self.dataset = torch.utils.data.Subset(self.dataset, indices)
         sampler = self.get_train_sampler()
         kwargs = {'shuffle': True} if sampler is None else {}
-        self.train_loader = torch.utils.data.DataLoader(
-            self.train_dataset,
-            sampler=sampler,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            **kwargs,
-        )
+        # self.train_loader = torch.utils.data.DataLoader(
+        #     self.train_dataset,
+        #     sampler=sampler,
+        #     batch_size=self.batch_size,
+        #     num_workers=self.num_workers,
+        #     **kwargs,
+        # )
 
         if self.custom:
-            self.train_dataset_custom = CustomDataset(root=traindir, transform=self.preprocess)
+            # self.train_dataset_custom = CustomDataset(root=traindir, transform=self.preprocess)
+            self.dataset = CustomDataset(root=traindir, transform=self.preprocess)
             if self.n_examples > -1:
                 indices = list(range(self.n_examples))
-                self.train_dataset_custom = torch.utils.data.Subset(self.train_dataset_custom, indices)
-            self.train_loader_custom = torch.utils.data.DataLoader(
-                self.train_dataset_custom,
-                batch_size=1,
-                shuffle=True,
-                num_workers=self.num_workers
-            )
+                # self.train_dataset_custom = torch.utils.data.Subset(self.train_dataset_custom, indices)
+                self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            # self.train_loader_custom = torch.utils.data.DataLoader(
+            #     self.train_dataset_custom,
+            #     batch_size=1,
+            #     shuffle=True,
+            #     num_workers=self.num_workers
+            # )
 
     def populate_test(self):
-        self.test_dataset = self.get_test_dataset()
+        # self.test_dataset = self.get_test_dataset()
+        self.dataset = self.get_test_dataset()
         if self.n_examples > -1:
             indices = list(range(self.n_examples))
-            self.test_dataset = torch.utils.data.Subset(self.test_dataset, indices)
-        self.test_loader = torch.utils.data.DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            sampler=self.get_test_sampler()
-        )
+            # self.test_dataset = torch.utils.data.Subset(self.test_dataset, indices)
+            self.dataset = torch.utils.data.Subset(self.dataset, indices)
+        # self.test_loader = torch.utils.data.DataLoader(
+        #     self.test_dataset,
+        #     batch_size=self.batch_size,
+        #     num_workers=self.num_workers,
+        #     sampler=self.get_test_sampler()
+        # )
 
     def get_test_path(self):
         # test_path = os.path.join(self.location, 'ILSVRC2012', 'train_val_split_val')
-        test_path = os.path.join(self.location, 'ILSVRC2012', 'val_dirs')
+        # test_path = os.path.join(self.location, 'ILSVRC2012', 'val_dirs')
+        test_path = os.path.join(self.location, 'ImageNet', 'val')
         if not os.path.exists(test_path):
-            test_path = os.path.join(self.location, 'ILSVRC2012', 'val')
+            # test_path = os.path.join(self.location, 'ILSVRC2012', 'val')
+            test_path = os.path.join(self.location, 'ImageNet', 'val')
         return test_path
 
     def get_train_sampler(self):
@@ -128,6 +137,8 @@ class ImageNet:
     def name(self):
         return 'imagenet'
 
+    def __len__(self):
+        return len(self.dataset)
 
 class ImageNetTrain(ImageNet):
     def get_test_dataset(self):

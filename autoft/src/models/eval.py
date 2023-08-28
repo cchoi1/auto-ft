@@ -1,13 +1,10 @@
-import os
 import json
-
-import torch
-import numpy as np
-
-from src.models import utils
-from src.datasets.common import get_dataloader, maybe_dictionarize
+import os
 
 import src.datasets as datasets
+import torch
+from src.datasets.common import get_dataloader, maybe_dictionarize
+from src.models import utils
 
 
 def eval_single_dataset(image_classifier, dataset, args):
@@ -82,7 +79,8 @@ def evaluate(image_classifier, args):
     if args.eval_datasets is None:
         return
     info = vars(args)
-    for i, dataset_name in enumerate(args.eval_datasets):
+    eval_datasets = args.eval_datasets + [args.id, args.ood]
+    for i, dataset_name in enumerate(eval_datasets):
         print('Evaluating on', dataset_name)
         dataset_class = getattr(datasets, dataset_name)
         dataset = dataset_class(

@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 import torchvision.datasets as datasets
 from torch.utils.data import Dataset, DataLoader, Sampler
+from torch.utils.data.distributed import DistributedSampler
 
 
 class SubsetSampler(Sampler):
@@ -149,13 +150,33 @@ class FeatureDataset(Dataset):
 #             dataloader = dataset.train_loader if is_train else dataset.test_loader
 #     return dataloader
 
-def custom_collate(batch):
+def collate_fn_for_cifar(batch):
     data, labels = zip(*batch)
     return torch.stack(data, 0), torch.tensor(labels)
 
-def create_dataloader(dataset, batch_size, shuffle, kwargs):
+def collate_fn_for_imagenet(batch):
+    # Extract images, labels, and paths from the batch
+    images = [item['images'] for item in batch]
+    labels = [item['labels'] for item in batch]
+    image_paths = [item['image_paths'] for item in batch]
+
+    # Stack images and labels into tensors
+    images = torch.stack(images, 0)
+    labels = torch.tensor(labels)
+
+    # You don't necessarily need to convert image_paths to a tensor.
+    # Keeping it as a list should suffice, depending on your later processing.
+    # If you still want it as a tensor, you'd need to handle strings appropriately.
+
+    return {
+        'images': images,
+        'labels': labels,
+        'image_paths': image_paths
+    }
+
+def create_dataloader(dataset, kwargs):
     """Helper function to create a DataLoader."""
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=custom_collate, **kwargs)
+    return DataLoader(dataset, **kwargs)
 
 
 def get_dataloader(dataset, is_train, args, image_encoder=None):
@@ -173,21 +194,26 @@ def get_dataloader(dataset, is_train, args, image_encoder=None):
     """
 
     kwargs = {"num_workers": args.workers, "pin_memory": True} if torch.cuda.is_available() else {}
+    kwargs["batch_size"] = args.batch_size
+    if args.distributed:
+        kwargs["sampler"] = DistributedSampler(dataset)
+    else:
+        kwargs["shuffle"] = is_train
+    if args.id == "ImageNet":
+        kwargs["collate_fn"] = collate_fn_for_imagenet
+    elif args.id == "CIFAR10":
+        kwargs["collate_fn"] = collate_fn_for_cifar
 
     if image_encoder is not None:
         feature_dataset = FeatureDataset(is_train, image_encoder, dataset, args.device, args.cache_dir, args.noscale)
-        return create_dataloader(feature_dataset, args.batch_size, is_train, kwargs)
+        return create_dataloader(feature_dataset, kwargs)
 
     # If the dataset is a wrapped dataset, retrieve the underlying dataset
-    if hasattr(dataset, 'train_dataset') and is_train:
-        inner_dataset = dataset.train_dataset
-    elif hasattr(dataset, 'test_dataset') and not is_train:
-        inner_dataset = dataset.test_dataset
-    elif hasattr(dataset, 'dataset'):
+    if hasattr(dataset, 'dataset'):
         inner_dataset = dataset.dataset
     elif isinstance(dataset, torch.utils.data.ConcatDataset):
         inner_dataset = dataset
     else:
         raise ValueError("Unsupported dataset type.")
 
-    return create_dataloader(inner_dataset, args.batch_size, is_train, kwargs)
+    return create_dataloader(inner_dataset, kwargs)
