@@ -74,11 +74,11 @@ def get_features_helper(image_encoder, dataloader, device, noscale):
             inputs = batch['images'].cuda()
             image_encoder = image_encoder.to(inputs.device)
             features = image_encoder(inputs)
-            # if noscale:
-            #     features = features / features.norm(dim=-1, keepdim=True)
-            # else:
-            #     logit_scale = image_encoder.module.model.logit_scale
-            #     features = logit_scale.exp() * features
+            if noscale:
+                features = features / features.norm(dim=-1, keepdim=True)
+            else:
+                logit_scale = image_encoder.module.model.logit_scale
+                features = logit_scale.exp() * features
 
             all_data['features'].append(features.cpu())
 
@@ -98,7 +98,7 @@ def get_features_helper(image_encoder, dataloader, device, noscale):
     return all_data
 
 
-def get_features(is_train, image_encoder, dataset, device, cache_dir, noscale):
+def get_features(args, is_train, image_encoder, dataset, device, cache_dir, noscale):
     split = 'train' if is_train else 'val'
     dname = type(dataset).__name__
     # import pdb;pdb.set_trace()
@@ -113,7 +113,8 @@ def get_features(is_train, image_encoder, dataset, device, cache_dir, noscale):
             data[name] = torch.load(cached_file)
     else:
         print(f'Did not find cached features at {cache_dir}. Building from scratch.')
-        loader = dataset.train_loader if is_train else dataset.test_loader
+        # loader = dataset.train_loader if is_train else dataset.test_loader
+        loader = get_dataloader(dataset, is_train, args, image_encoder=None)
         data = get_features_helper(image_encoder, loader, device, noscale)
         if cache_dir is None:
             print('Not caching because no cache directory was passed.')
@@ -126,8 +127,8 @@ def get_features(is_train, image_encoder, dataset, device, cache_dir, noscale):
 
 
 class FeatureDataset(Dataset):
-    def __init__(self, is_train, image_encoder, dataset, device, cache_dir=None, noscale=True):
-        self.data = get_features(is_train, image_encoder, dataset, device, cache_dir, noscale)
+    def __init__(self, args, is_train, image_encoder, dataset, device, cache_dir=None, noscale=True):
+        self.data = get_features(args, is_train, image_encoder, dataset, device, cache_dir, noscale)
 
     def __len__(self):
         return len(self.data['features'])
@@ -152,27 +153,22 @@ class FeatureDataset(Dataset):
 
 def collate_fn_for_cifar(batch):
     data, labels = zip(*batch)
-    return torch.stack(data, 0), torch.tensor(labels)
+    return torch.stack(data, 0), torch.tensor(labels).long()
 
 def collate_fn_for_imagenet(batch):
-    # Extract images, labels, and paths from the batch
-    images = [item['images'] for item in batch]
-    labels = [item['labels'] for item in batch]
-    image_paths = [item['image_paths'] for item in batch]
+    # Extract images, labels, features, and image_paths from the batch
+    keys = batch[0].keys()
+    batch_dict = {k : [] for k in keys}
+    for k in keys:
+        batch_dict[k] = [item[k] for item in batch]
+    if "images" in keys:
+        batch_dict["images"] = torch.stack(batch_dict["images"], 0)
+    if "labels" in keys:
+        batch_dict["labels"] = torch.tensor(batch_dict["labels"]).long()
+    if "features" in keys:
+        batch_dict["features"] = torch.stack(batch_dict["features"], 0)
 
-    # Stack images and labels into tensors
-    images = torch.stack(images, 0)
-    labels = torch.tensor(labels)
-
-    # You don't necessarily need to convert image_paths to a tensor.
-    # Keeping it as a list should suffice, depending on your later processing.
-    # If you still want it as a tensor, you'd need to handle strings appropriately.
-
-    return {
-        'images': images,
-        'labels': labels,
-        'image_paths': image_paths
-    }
+    return batch_dict
 
 def create_dataloader(dataset, kwargs):
     """Helper function to create a DataLoader."""
@@ -199,13 +195,14 @@ def get_dataloader(dataset, is_train, args, image_encoder=None):
         kwargs["sampler"] = DistributedSampler(dataset)
     else:
         kwargs["shuffle"] = is_train
-    if args.id == "ImageNet":
+    if "ImageNet" in str(dataset):
         kwargs["collate_fn"] = collate_fn_for_imagenet
-    elif args.id == "CIFAR10":
+    elif "CIFAR" in str(dataset):
         kwargs["collate_fn"] = collate_fn_for_cifar
 
     if image_encoder is not None:
-        feature_dataset = FeatureDataset(is_train, image_encoder, dataset, args.device, args.cache_dir, args.noscale)
+        kwargs["collate_fn"] = collate_fn_for_imagenet
+        feature_dataset = FeatureDataset(args, is_train, image_encoder, dataset, args.device)
         return create_dataloader(feature_dataset, kwargs)
 
     # If the dataset is a wrapped dataset, retrieve the underlying dataset

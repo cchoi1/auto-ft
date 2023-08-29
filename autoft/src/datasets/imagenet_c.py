@@ -68,3 +68,6 @@ class ImageNetC(ImageNet):
     def name(self):
         corruptions_str = "_".join(self.corruptions)
         return f'imagenet-c_{corruptions_str}_s{self.severity}'
+
+    def __str__(self):
+        return "ImageNetC"

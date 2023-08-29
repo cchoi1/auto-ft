@@ -44,3 +44,6 @@ class ImageNetR(ImageNetSubsample):
 
     def get_test_path(self):
         return os.path.join(self.location, 'ImageNet-R')
+
+    def __str__(self):
+        return "ImageNetR"

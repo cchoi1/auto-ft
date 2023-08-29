@@ -34,6 +34,9 @@ class CIFAR10:
 
         self.classnames = self.dataset.classes
 
+    def __str__(self):
+        return "CIFAR10"
+
 def convert(x):
     if isinstance(x, np.ndarray):
         return torchvision.transforms.functional.to_pil_image(x)
@@ -121,6 +124,9 @@ class CIFAR10C(Dataset):
 
         return x_test, y_test
 
+    def __str__(self):
+        return "CIFAR10C"
+
 
 class CIFAR101:
     def __init__(self,
@@ -146,6 +152,9 @@ class CIFAR101:
             indices = list(range(n_examples))
             self.dataset = torch.utils.data.Subset(self.dataset, indices)
         self.classnames = CIFAR_CLASSNAMES
+
+    def __str__(self):
+        return "CIFAR101"
 
 class CIFAR102:
     def __init__(self,
@@ -181,3 +190,6 @@ class CIFAR102:
             indices = list(range(n_examples))
             self.dataset = torch.utils.data.Subset(self.dataset, indices)
         self.classnames = CIFAR_CLASSNAMES
+
+    def __str__(self):
+        return "CIFAR102"

@@ -140,6 +140,9 @@ class ImageNet:
     def __len__(self):
         return len(self.dataset)
 
+    def __str__(self):
+        return "ImageNet"
+
 class ImageNetTrain(ImageNet):
     def get_test_dataset(self):
         pass

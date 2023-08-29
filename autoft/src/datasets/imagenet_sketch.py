@@ -15,3 +15,6 @@ class ImageNetSketch(ImageNet):
 
     def get_test_path(self):
         return os.path.join(self.location, 'sketch')
+
+    def __str__(self):
+        return "ImageNetSketch"

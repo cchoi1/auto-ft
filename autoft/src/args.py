@@ -6,7 +6,7 @@ import torch
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", type=str, choices=["ft-id", "ft-id-ood", "autoft"])
+    parser.add_argument("--method", type=str, choices=["autoft", "ft-id", "ft-id-ood", "zeroshot"])
 
     # Datasets
     parser.add_argument("--data-location", type=str, default=os.path.expanduser('~/data'),
@@ -29,7 +29,8 @@ def parse_arguments():
     parser.add_argument("--model", type=str, default=None, help="The type of model (e.g. RN50, ViT-B/32).")
     parser.add_argument("--num_classes", type=int, default=1000)
     parser.add_argument("--num_losses", type=int, default=7)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--ft_epochs", type=int, default=10)
+    parser.add_argument("--autoft_epochs", type=int, default=10)
     parser.add_argument("--inner_steps", type=int, default=100)
     parser.add_argument("--val_freq", type=int, default=10)
     parser.add_argument("--repeats", type=int, default=1)

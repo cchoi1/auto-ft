@@ -15,8 +15,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 @torch.no_grad()
 def evaluate_hp(net, dataloader):
     losses, predictions, targets = [], [], []
-    for x, y in dataloader:
-        x, y = x.cuda(), y.cuda()
+    for batch in dataloader:
+        if type(batch) == dict:
+            x = batch["images"].cuda()
+            y = batch["labels"].cuda()
+        else:
+            x, y = batch
+            x, y = x.cuda(), y.cuda()
         outputs = net(x)
         loss = F.cross_entropy(outputs, y)
 

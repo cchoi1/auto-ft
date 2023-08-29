@@ -16,7 +16,8 @@ def eval_single_dataset(image_classifier, dataset, args):
         model = image_classifier
         input_key = 'images'
         image_enc = None
-
+    print('freeze encoder', args.freeze_encoder)
+    print('dataset', str(dataset))
     model.eval()
     dataloader = get_dataloader(
         dataset, is_train=False, args=args, image_encoder=image_enc)
@@ -79,7 +80,7 @@ def evaluate(image_classifier, args):
     if args.eval_datasets is None:
         return
     info = vars(args)
-    eval_datasets = args.eval_datasets + [args.id, args.ood]
+    eval_datasets = args.eval_datasets
     for i, dataset_name in enumerate(eval_datasets):
         print('Evaluating on', dataset_name)
         dataset_class = getattr(datasets, dataset_name)

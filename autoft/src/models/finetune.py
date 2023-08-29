@@ -9,14 +9,15 @@ from src.losses.layerloss import LayerLoss
 from src.models.eval import evaluate
 from src.models.utils import cosine_lr
 from torch.nn.parallel import DistributedDataParallel as DDP
+from src.datasets.common import get_dataloader
 
 logger = logging.getLogger('main')
 
-def finetune(args, model, loss_fn, optimizer, dataloader, input_key, print_every):
+def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, print_every):
     assert args.load is not None, "Please provide the patch to a checkpoint through --load."
     if args.distributed:
-        rank = torch.distributed.get_rank()
-        model = DDP(model.to(rank), device_ids=[rank])
+        local_rank = int(os.environ['LOCAL_RANK'])
+        model = DDP(model.to(local_rank), device_ids=[local_rank])
 
     model.train()
     params = list(model.parameters())
@@ -51,14 +52,65 @@ def finetune(args, model, loss_fn, optimizer, dataloader, input_key, print_every
             logger.info(f"Train Iter: {step}/{args.inner_steps} [{percent_complete:.0f}% ]\t"
                         f"Loss: {loss.item():.6f}\tData (t) {data_time:.3f}\tBatch (t) {batch_time:.3f}")
 
-    # Evaluate
-    if args.method != "autoft":
-        args.current_epoch = args.inner_steps
-        eval_results = evaluate(model.module, args)
-        print(eval_results)
-        logger.info(json.dumps(eval_results, indent=4))
+    return model.module
 
-    if args.save is not None and args.method != "autoft":
+def finetune_final(args, model, loss_fn, optimizer, dataset, input_key, print_every):
+    assert args.load is not None, "Please provide the patch to a checkpoint through --load."
+    if args.distributed:
+        local_rank = int(os.environ['LOCAL_RANK'])
+        model = DDP(model.to(local_rank), device_ids=[local_rank])
+
+    model.train()
+    params = list(model.parameters())
+    dataloader = get_dataloader(dataset, is_train=True, args=args, image_encoder=None)
+    num_batches = len(dataloader)
+    total_steps = args.ft_epochs * num_batches
+    scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, total_steps)
+    start_steps_time = time.time()
+
+    for epoch in range(args.ft_epochs):
+        model.train()
+        dataloader = get_dataloader(dataset, is_train=True, args=args, image_encoder=None)
+
+        for i, batch in enumerate(dataloader):
+            step = i + epoch * num_batches
+            scheduler(step)
+            optimizer.zero_grad()
+
+            start_time = time.time()
+            batch = maybe_dictionarize(batch)
+            inputs = batch[input_key].cuda()
+            labels = batch['labels'].cuda()
+            data_time = time.time() - start_time
+
+            if isinstance(loss_fn, LayerLoss):
+                loss, _ = loss_fn(inputs, labels, model)
+            else:
+                outputs = model(inputs)
+                loss = loss_fn(outputs, labels)
+
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(params, 1.0)
+            optimizer.step()
+            batch_time = time.time() - start_time
+
+            if print_every is not None and step % print_every == 0 and torch.distributed.get_rank() == 0:
+                steps_time = time.time() - start_steps_time
+                percent_complete = 100 * step / total_steps
+                print(f"Train Iter: {step}/{total_steps} [{percent_complete:.0f}% ]\t"
+                      f"Loss: {loss.item():.6f}\tData (t) {data_time:.3f}\tBatch (t) {batch_time:.3f}"
+                      f"Steps (t) {steps_time:.3f}", flush=True)
+                logger.info(f"Train Iter: {step}/{total_steps} [{percent_complete:.0f}% ]\t"
+                            f"Loss: {loss.item():.6f}\tData (t) {data_time:.3f}\tBatch (t) {batch_time:.3f}")
+                start_steps_time = time.time()
+
+    # Evaluate
+    args.current_epoch = args.ft_epochs
+    eval_results = evaluate(model.module, args)
+    print(eval_results)
+    logger.info(json.dumps(eval_results, indent=4))
+
+    if args.save is not None:
         os.makedirs(args.save, exist_ok=True)
         model_path = os.path.join(args.save, f'checkpoint_{args.inner_steps}.pt')
         print('Saving model to', model_path)

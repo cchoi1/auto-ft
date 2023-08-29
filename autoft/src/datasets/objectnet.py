@@ -161,3 +161,6 @@ class ObjectNet(ObjectNetBase):
 
     def accuracy(self, logits, targets, img_paths, args):
         return accuracy(logits, targets, img_paths, args)
+
+    def __str__(self):
+        return "ObjectNet"

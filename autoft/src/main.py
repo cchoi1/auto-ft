@@ -7,7 +7,7 @@ import src.datasets as datasets
 import torch
 from src.models.modeling import ImageClassifier
 from src.datasets.common import get_dataloader
-from src.models.finetune import finetune
+from src.models.finetune import finetune_final
 from src.models.autoft import auto_ft
 import numpy as np
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -118,13 +118,15 @@ def main(rank, args):
         image_classifier.process_images = True
         print_every = 100
     if args.distributed:
-        model = model.cuda(args.local_rank)
-        model = DDP(model, device_ids=[args.local_rank])
+        local_rank = int(os.environ['LOCAL_RANK'])
+        print('Using device', local_rank)
+        model = model.cuda(local_rank)
+        model = DDP(model, device_ids=[local_rank])
     else:
         model = model.cuda()
         model = torch.nn.DataParallel(model, device_ids=devices)
+        print('Using devices', devices)
 
-    print('Using devices', devices)
     torch.cuda.empty_cache()
 
     # Datasets
@@ -139,23 +141,21 @@ def main(rank, args):
 
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
-        dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        finetune(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
+        finetune_final(args, model, loss_fn, optimizer, all_datasets["id"], input_key, print_every)
     elif args.method == "ft-id-ood":
         loss_fn = torch.nn.CrossEntropyLoss()
         if hasattr(all_datasets["ood_subset_for_hp"], "dataset"):
             id_ood_dataset = torch.utils.data.ConcatDataset([all_datasets["id"].dataset, all_datasets["ood_subset_for_hp"].dataset])
         else:
             id_ood_dataset = torch.utils.data.ConcatDataset([all_datasets["id"].dataset, all_datasets["ood_subset_for_hp"]])
-        dataloader = get_dataloader(id_ood_dataset, is_train=True, args=args, image_encoder=None)
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        finetune(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
+        finetune_final(args, model, loss_fn, optimizer, id_ood_dataset, input_key, print_every)
     elif args.method == "autoft":
         id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
         ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
         auto_ft(args, model, id_dataloader, ood_hp_dataloader,
-                max_evals_range=range(args.val_freq, args.val_freq * args.epochs, args.val_freq), input_key=input_key)
+                max_evals_range=range(args.val_freq, args.val_freq * args.autoft_epochs, args.val_freq), input_key=input_key)
     else:
         raise ValueError("Invalid method")
 

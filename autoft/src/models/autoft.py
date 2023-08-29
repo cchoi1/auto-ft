@@ -9,7 +9,7 @@ import optuna
 import torch
 from src.losses.layerloss import LayerLoss
 from src.models.eval import evaluate
-from src.models.finetune import finetune
+from src.models.finetune import inner_finetune
 from src.models.train_utils import evaluate_hp, print_hparams, save_hparams
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -35,9 +35,9 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
     for _ in range(args.repeats):
         start_time = time.time()
         if args.distributed:
-            rank = torch.distributed.get_rank()
-            initial_net = DDP(copy.deepcopy(net).to(rank), device_ids=[rank])
-            current_net = DDP(copy.deepcopy(net).to(rank), device_ids=[rank])
+            local_rank = int(os.environ['LOCAL_RANK'])
+            initial_net = DDP(copy.deepcopy(net).to(local_rank), device_ids=[local_rank])
+            current_net = DDP(copy.deepcopy(net).to(local_rank), device_ids=[local_rank])
         else:
             initial_net = copy.deepcopy(net).cuda()
             current_net = copy.deepcopy(net).cuda()
@@ -52,7 +52,7 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
         loss_fn = LayerLoss(loss_weight_hparams, initial_net)
         print(f"Time to create loss fn: {time.time() - start_time:.3f}", flush=True)
         start_time = time.time()
-        current_net = finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
+        current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
         print(f"Time to finetune: {time.time() - start_time:.3f}", flush=True)
 
         start_time = time.time()
@@ -73,8 +73,8 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals_range, inpu
     def hp_objective_fn(trial):
         hparams = build_hparams_space(trial, args.num_losses)
         if args.distributed:
-            rank = torch.distributed.get_rank()
-            _net = DDP(copy.deepcopy(model).to(rank), device_ids=[rank])
+            local_rank = int(os.environ['LOCAL_RANK'])
+            _net = DDP(copy.deepcopy(model).to(local_rank), device_ids=[local_rank])
         else:
             _net = copy.deepcopy(model)
 
@@ -85,31 +85,33 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals_range, inpu
         return -np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results])  # maximize accuracy
 
     best_hparams = None
-    for max_evals in max_evals_range:
-        study = optuna.create_study(direction="minimize")
-        study.optimize(hp_objective_fn, n_trials=max_evals)
-        best_hparams = study.best_params
+    study = optuna.create_study(direction="minimize")
+    study.optimize(hp_objective_fn, n_trials=max_evals_range[-1])
+    best_hparams = study.best_params
 
-        if args.distributed:
-            rank = torch.distributed.get_rank()
-            _model = DDP(copy.deepcopy(model).to(rank), device_ids=[rank])
-        else:
-            _model = copy.deepcopy(model).cuda()
-        # _model_state = model.state_dict()
-        # _model = model
-        loss_weight_hparams = torch.tensor([best_hparams[f"lossw_{i}"] for i in range(args.num_losses)])
-        loss_fn = LayerLoss(loss_weight_hparams, _model)
-        optimizer = torch.optim.AdamW(_model.parameters(), lr=best_hparams["lr"], weight_decay=best_hparams["wd"])
-        _model = finetune(args, _model, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
-        start_time = time.time()
-        results = evaluate(_model, args)
-        print(results, flush=True)
-        logger.info(json.dumps(results, indent=4))
-        print(f"Time to evaluate: {time.time() - start_time:.3f}", flush=True)
-        print_hparams(best_hparams)
+    if args.distributed:
+        local_rank = int(os.environ['LOCAL_RANK'])
+        _model = DDP(copy.deepcopy(model).to(local_rank), device_ids=[local_rank])
+    else:
+        _model = copy.deepcopy(model).cuda()
+    # _model_state = model.state_dict()
+    # _model = model
+    loss_weight_hparams = torch.tensor([best_hparams[f"lossw_{i}"] for i in range(args.num_losses)])
+    loss_fn = LayerLoss(loss_weight_hparams, _model)
+    optimizer = torch.optim.AdamW(_model.parameters(), lr=best_hparams["lr"], weight_decay=best_hparams["wd"])
+    temp_inner_steps = args.inner_steps
+    args.inner_steps = 1000
+    _model = inner_finetune(args, _model, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
+    args.inner_steps = temp_inner_steps
+    start_time = time.time()
+    results = evaluate(_model, args)
+    print(results, flush=True)
+    logger.info(json.dumps(results, indent=4))
+    print(f"Time to evaluate: {time.time() - start_time:.3f}", flush=True)
+    print_hparams(best_hparams)
 
     # Saving model
-    if args.save is not None and args.rank == 0:
+    if args.save is not None and int(os.environ['LOCAL_RANK']) == 0:
         os.makedirs(args.save, exist_ok=True)
         model_path = os.path.join(args.save, f'checkpoint_{args.inner_steps}.pt')
         print('Saving model to', str(model_path), flush=True)
@@ -148,7 +150,7 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals_range, inpu
 #         loss_fn = LayerLoss(loss_weight_hparams, initial_net)
 #         print(f"Time to create loss fn: {time.time() - start_time:.3f}")
 #         start_time = time.time()
-#         current_net = finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
+#         current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
 #         print(f"Time to finetune: {time.time() - start_time:.3f}")
 #
 #         start_time = time.time()
@@ -179,7 +181,7 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals_range, inpu
 #         loss_fn = LayerLoss(loss_weight_hparams, _model)
 #         # optimizer = torch.optim.SGD(_model.parameters(), lr=best_hparams["lr"], momentum=best_hparams["momentum"])
 #         optimizer = torch.optim.AdamW(_model.parameters(), lr=best_hparams["lr"], weight_decay=best_hparams["wd"])
-#         _model = finetune(args, _model, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
+#         _model = inner_finetune(args, _model, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
 #         results = evaluate(_model, args)
 #         print_hparams(best_hparams)
 #

@@ -33,8 +33,12 @@ def get_zeroshot_classifier(args, clip_model):
                                 k=args.k)
     else:
         dataset = dataset_class(None,
-                                location=args.data_location,
-                                batch_size=args.batch_size)
+            train=True,
+            n_examples=-1,
+            location=args.data_location,
+            batch_size=args.batch_size,
+            num_workers=args.workers,
+        )
     device = args.device
     clip_model.eval()
     clip_model.to(device)
@@ -82,10 +86,11 @@ def eval(args):
                                      classification_head,
                                      process_images=False)
 
-    # evaluate(classifier, classification_head, args)
-
     if args.save is not None:
         classifier.save(args.save)
+
+    # evaluate(classifier, classification_head, args)
+    evaluate(classifier, args)
 
 
 if __name__ == '__main__':
