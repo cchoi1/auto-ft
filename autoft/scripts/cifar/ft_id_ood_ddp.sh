@@ -17,7 +17,7 @@ cd ../..
 
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
-python3 -m torch.distributed.launch --nproc_per_node=2 \
+torchrun --nproc_per_node=2 \
 src/main.py --distributed --method ft-id-ood --model ViT-L/14 --data-location /iris/u/cchoi1/Data \
 --id CIFAR10 --ood CIFAR10C --eval-datasets CIFAR101,CIFAR102,CIFAR10,CIFAR10C \
 --lr 7.5e-6 --wd 0.1 --batch-size 128 --warmup_length 2000 --workers 4 \

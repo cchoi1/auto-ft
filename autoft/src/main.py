@@ -73,7 +73,7 @@ def get_datasets(args, preprocess_fn):
     return all_datasets
 
 
-def main(rank, args):
+def main(args):
     if args.distributed:
         torch.cuda.set_device(rank)
         torch.distributed.init_process_group(backend='nccl')
@@ -163,7 +163,4 @@ def main(rank, args):
 if __name__ == '__main__':
     args = parse_arguments()
     set_seed()
-    if args.distributed:
-        torch.multiprocessing.spawn(main, nprocs=torch.cuda.device_count(), args=(args,))
-    else:
-        main(0, args)
+    main(args)
