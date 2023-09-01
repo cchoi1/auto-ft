@@ -8,10 +8,10 @@ from .utils import compute_hinge_loss
 devices = list(range(torch.cuda.device_count()))
 device = torch.device(f"cuda:{devices[0]}" if torch.cuda.is_available() else "cpu")
 
-class LayerLoss(nn.Module):
-    def __init__(self, hyperparams, initial_net):
+class LearnedLoss(nn.Module):
+    def __init__(self, hyperparams, initial_net_params):
         super().__init__()
-        self.initial_net = initial_net
+        self.initial_net_params = initial_net_params
         self.hyperparams = hyperparams.cuda().float()
 
     def forward(self, inputs, targets, net, use_contrastive_loss=False):
@@ -22,19 +22,25 @@ class LayerLoss(nn.Module):
         losses = []
         ce_loss = F.cross_entropy(outputs, targets)
         hinge_loss = compute_hinge_loss(outputs, targets)
-        entropy = -torch.sum(
+        entropy_all = -torch.sum(
             F.softmax(outputs, dim=1) * F.log_softmax(outputs, dim=1), dim=1
-        ).mean()
+        )
+        is_wrong = (outputs.argmax(dim=1) != targets).float().detach()
+        dcm_loss = (is_wrong * entropy_all).mean()
+        entropy = entropy_all.mean()
         del outputs
 
-        flat_params = torch.cat([param.flatten() for param in net.parameters()])
-        flat_params_init = torch.cat([param.flatten() for param in self.initial_net.parameters()])
+        with torch.no_grad():
+            flat_params = torch.cat([param.flatten() for param in net.parameters()])
+            flat_params_init = torch.cat([param.flatten() for param in self.initial_net_params])
         l1_zero = torch.abs(flat_params).mean()
         l2_zero = torch.pow(flat_params, 2).mean()
         l1_init = torch.abs(flat_params - flat_params_init).mean()
         l2_init = torch.pow(flat_params - flat_params_init, 2).mean()
+        del flat_params, flat_params_init
 
-        losses.extend([ce_loss, hinge_loss, entropy, l1_zero, l2_zero, l1_init, l2_init])
+        losses.extend([ce_loss, hinge_loss, entropy, dcm_loss, l1_zero, l2_zero, l1_init, l2_init])
+        # losses.extend([ce_loss, hinge_loss, entropy, l1_zero, l2_zero, l1_init, l2_init])
 
         if use_contrastive_loss:
             image_features = net.encode_image(inputs["image"])

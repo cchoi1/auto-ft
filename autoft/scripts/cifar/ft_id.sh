@@ -20,5 +20,5 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 python src/main.py --method ft-id --model ViT-L/14 --data-location /iris/u/cchoi1/Data \
 --id CIFAR10 --ood CIFAR10C --eval-datasets CIFAR101,CIFAR102,CIFAR10,CIFAR10C \
 --lr 3e-5 --wd 0.1 --batch-size 512 --warmup_length 500 --workers 4 \
---load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_openai_cifar10.pt --save ft-id-ood- --exp_name CIFAR10 \
---num_ood_examples 10000 --num_ood_hp_examples 100 --ft_epochs 10 --results-db ./results/CIFAR/ft-id-ood
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_openai_cifar10.pt \
+--num_ood_examples 10000 --num_ood_hp_examples 100 --ft_epochs 10

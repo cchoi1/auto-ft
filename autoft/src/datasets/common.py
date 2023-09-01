@@ -175,7 +175,7 @@ def create_dataloader(dataset, kwargs):
     return DataLoader(dataset, **kwargs)
 
 
-def get_dataloader(dataset, is_train, args, image_encoder=None):
+def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     """
     Get a DataLoader for the given dataset.
 
@@ -194,10 +194,13 @@ def get_dataloader(dataset, is_train, args, image_encoder=None):
     if args.distributed:
         kwargs["sampler"] = DistributedSampler(dataset)
     else:
-        kwargs["shuffle"] = is_train
-    if "ImageNet" in str(dataset):
+        if sampler is not None:
+            kwargs["sampler"] = sampler
+        else:
+            kwargs["shuffle"] = is_train
+    if "ImageNet" in args.id:
         kwargs["collate_fn"] = collate_fn_for_imagenet
-    elif "CIFAR" in str(dataset):
+    elif "CIFAR" in args.id:
         kwargs["collate_fn"] = collate_fn_for_cifar
 
     if image_encoder is not None:
@@ -211,6 +214,7 @@ def get_dataloader(dataset, is_train, args, image_encoder=None):
     elif isinstance(dataset, torch.utils.data.ConcatDataset):
         inner_dataset = dataset
     else:
-        raise ValueError("Unsupported dataset type.")
+        inner_dataset = dataset
+        # raise ValueError("Unsupported dataset type.")
 
     return create_dataloader(inner_dataset, kwargs)

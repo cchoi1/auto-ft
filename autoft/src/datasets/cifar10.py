@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 import torch
 import torchvision
+from PIL import Image
+from src.datasets.utils import SampledDataset
 from torch.utils.data import Dataset
 from torch.utils.data import random_split
 from torchvision.datasets import CIFAR10 as PyTorchCIFAR10
@@ -28,9 +30,9 @@ class CIFAR10:
         self.dataset = PyTorchCIFAR10(
             root=location, download=True, train=self.train, transform=preprocess
         )
+        self.num_classes = 10
         if n_examples > -1:
-            indices = list(range(n_examples))
-            self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
 
         self.classnames = self.dataset.classes
 
@@ -74,6 +76,7 @@ class CIFAR10C(Dataset):
         self.train = train
         self.root_dir = Path(location) / 'CIFAR-10-C'
         self.n_examples = n_examples
+        self.num_classes = 10
         self.n_total_cifar = 10000
         self.severity = severity
         self.corruptions = CIFAR10_CORRUPTIONS
@@ -104,8 +107,7 @@ class CIFAR10C(Dataset):
                 images=test_data, targets=torch.Tensor(test_targets).long(), transform=preprocess,
             )
         if n_examples > -1:
-            indices = list(range(n_examples))
-            self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
 
     def load_data(self):
         x_test_list, y_test_list = [], []
@@ -127,6 +129,42 @@ class CIFAR10C(Dataset):
     def __str__(self):
         return "CIFAR10C"
 
+class CINIC:
+    def __init__(self, preprocess, train=True, n_examples=-1, location=os.path.expanduser('~/data')):
+        """
+        Initialize CINIC dataset.
+
+        Args:
+        - preprocess: The transformations to be applied on the images.
+        - train (bool): If True, loads the training data, else loads the validation/test data.
+        - n_examples (int): Number of examples per class. Default is -1, meaning all examples.
+        - location (str): Directory with all the images.
+        """
+        self.train = train
+        self.num_classes = 10
+        self.split = 'train' if train else 'test'  # Adjust based on your directory names for train/test/valid.
+        self.data_root = os.path.join(location, 'CINIC-10', self.split)
+
+        images = []
+        labels = []
+        for class_idx, cls in enumerate(os.listdir(self.data_root)):
+            class_path = os.path.join(self.data_root, cls)
+            for img_name in os.listdir(class_path):
+                img_path = os.path.join(class_path, img_name)
+                images.append(np.array(Image.open(img_path)))
+                labels.append(class_idx)
+
+        self.dataset = BasicVisionDataset(
+            images=np.array(images), targets=torch.Tensor(labels).long(),
+            transform=preprocess,
+        )
+
+        if n_examples > -1:
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+
+    def __str__(self):
+        return "CINIC"
+
 
 class CIFAR101:
     def __init__(self,
@@ -140,6 +178,7 @@ class CIFAR101:
 
         assert train is False, "CIFAR-10.1 only has a test set."
         self.train = train
+        self.num_classes = 10
         data_root = os.path.join(location, "CIFAR-10.1")
         data = np.load(os.path.join(data_root, 'cifar10.1_v6_data.npy'), allow_pickle=True)
         labels = np.load(os.path.join(data_root, 'cifar10.1_v6_labels.npy'), allow_pickle=True)
@@ -149,8 +188,7 @@ class CIFAR101:
             transform=preprocess,
         )
         if n_examples > -1:
-            indices = list(range(n_examples))
-            self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):
@@ -167,6 +205,7 @@ class CIFAR102:
                  classnames=None):
 
         self.train = train
+        self.num_classes = 10
         train_data = np.load(os.path.join(location, "CIFAR-10.2", 'cifar102_train.npz'), allow_pickle=True)
         test_data = np.load(os.path.join(location, "CIFAR-10.2", 'cifar102_test.npz'), allow_pickle=True)
 
@@ -187,8 +226,7 @@ class CIFAR102:
                 transform=preprocess,
             )
         if n_examples > -1:
-            indices = list(range(n_examples))
-            self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):

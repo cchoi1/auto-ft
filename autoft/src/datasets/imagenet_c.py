@@ -5,6 +5,7 @@ from torch.utils.data import ConcatDataset
 
 from .common import ImageFolderWithPaths
 from .imagenet import ImageNet, CustomDataset
+from .utils import SampledDataset
 
 IMAGENET_CORRUPTIONS = ["brightness", "contrast", "defocus_blur", "elastic_transform", "fog", "frost", "gaussian_noise",
                         "glass_blur", "impulse_noise", "jpeg_compression", "motion_blur", "pixelate", "shot_noise",
@@ -42,8 +43,7 @@ class ImageNetC(ImageNet):
             traindir = os.path.join(self.location, 'ImageNet-C', corruption, str(self.severity))
             dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
             if self.n_examples > -1:
-                indices = list(range(self.n_examples))
-                dataset = torch.utils.data.Subset(dataset, indices)
+                dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples // self.num_classes)
             datasets.append(dataset)
 
         self.dataset = ConcatDataset(datasets)
@@ -54,8 +54,7 @@ class ImageNetC(ImageNet):
                 traindir = os.path.join(self.location, 'ImageNet-C', corruption, str(self.severity))
                 dataset = CustomDataset(root=traindir, transform=self.preprocess)
                 if self.n_examples > -1:
-                    indices = list(range(self.n_examples))
-                    dataset = torch.utils.data.Subset(dataset, indices)
+                    dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples // self.num_classes)
                 custom_datasets.append(dataset)
             self.dataset = ConcatDataset(custom_datasets)
 

@@ -3,6 +3,7 @@ import torch
 
 from .common import ImageFolderWithPaths, SubsetSampler
 from .imagenet_classnames import get_classnames
+from .utils import SampledDataset
 import numpy as np
 import torchvision
 import numpy as np
@@ -57,6 +58,7 @@ class ImageNet:
     ):
         self.preprocess = preprocess
         self.train = train
+        self.num_classes = 1000
         self.n_examples = n_examples
         self.location = location
         self.batch_size = batch_size
@@ -74,9 +76,7 @@ class ImageNet:
         # self.train_dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
         self.dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
         if self.n_examples > -1:
-            indices = list(range(self.n_examples))
-            # self.train_dataset = torch.utils.data.Subset(self.train_dataset, indices)
-            self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples//self.num_classes)
         sampler = self.get_train_sampler()
         kwargs = {'shuffle': True} if sampler is None else {}
         # self.train_loader = torch.utils.data.DataLoader(
@@ -91,9 +91,7 @@ class ImageNet:
             # self.train_dataset_custom = CustomDataset(root=traindir, transform=self.preprocess)
             self.dataset = CustomDataset(root=traindir, transform=self.preprocess)
             if self.n_examples > -1:
-                indices = list(range(self.n_examples))
-                # self.train_dataset_custom = torch.utils.data.Subset(self.train_dataset_custom, indices)
-                self.dataset = torch.utils.data.Subset(self.dataset, indices)
+                self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples // self.num_classes)
             # self.train_loader_custom = torch.utils.data.DataLoader(
             #     self.train_dataset_custom,
             #     batch_size=1,
@@ -105,9 +103,7 @@ class ImageNet:
         # self.test_dataset = self.get_test_dataset()
         self.dataset = self.get_test_dataset()
         if self.n_examples > -1:
-            indices = list(range(self.n_examples))
-            # self.test_dataset = torch.utils.data.Subset(self.test_dataset, indices)
-            self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples//self.num_classes)
         # self.test_loader = torch.utils.data.DataLoader(
         #     self.test_dataset,
         #     batch_size=self.batch_size,
@@ -180,6 +176,7 @@ class ImageNetSubsample(ImageNet):
         class_sublist, self.class_sublist_mask = self.get_class_sublist_and_mask(
         )
         self.classnames = [self.classnames[i] for i in class_sublist]
+        self.num_classes = len(self.classnames)
 
     def get_class_sublist_and_mask(self):
         raise NotImplementedError()

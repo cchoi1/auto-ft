@@ -24,11 +24,15 @@ def parse_arguments():
     )
     parser.add_argument("--dataset-type", choices=["webdataset", "csv", "auto"], default="auto",
                         help="Which type of dataset to process.")
+    parser.add_argument("--severity", type=int, default=5, help="Severity of corruption for CIFAR10C.")
 
     # Training
     parser.add_argument("--model", type=str, default=None, help="The type of model (e.g. RN50, ViT-B/32).")
     parser.add_argument("--num_classes", type=int, default=1000)
-    parser.add_argument("--num_losses", type=int, default=7)
+    parser.add_argument("--num_losses", type=int, default=8)
+    parser.add_argument("--loss_type", type=str, choices=["LearnedLoss", "LayerwiseLoss"], default="LearnedLoss")
+    parser.add_argument("--pointwise_loss", action="store_true")
+    parser.add_argument("--load_hparams", type=str, help="Path to hyperparameters to load.")
     parser.add_argument("--ft_epochs", type=int, default=10)
     parser.add_argument("--autoft_epochs", type=int, default=10)
     parser.add_argument("--inner_steps", type=int, default=100)
@@ -40,11 +44,10 @@ def parse_arguments():
     parser.add_argument("--workers", type=int, default=4, help="Number of dataloader workers per GPU.")
     parser.add_argument("--local-rank", type=int, default=0, help="Local rank for distributed training.")
     parser.add_argument("--distributed", action="store_true")
+    parser.add_argument("--plot", action="store_true", help="Plot results.")
 
     # Saving/Logging
-    parser.add_argument("--exp_name", type=str, default=None, help="Name of the experiment, for organization purposes only.")
     parser.add_argument("--eval_every", type=int, default=1000)
-    parser.add_argument("--results-db", type=str, default=None, help="Where to store the results, else does not store")
     parser.add_argument(
         "--load",
         type=lambda x: x.split(","),
@@ -55,9 +58,9 @@ def parse_arguments():
     parser.add_argument(
         "--save",
         type=str,
-        default=None,
+        default="./saved",
         help=
-        "Optionally save a _classifier_, e.g. a zero shot classifier or probe.",
+        "Directory to save models and results. If not provided, will not save anything.",
     )
 
     # Reproduction

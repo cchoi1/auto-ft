@@ -2,6 +2,7 @@ from src.args import parse_arguments
 import random
 
 import os
+import time
 
 import src.datasets as datasets
 import torch
@@ -41,14 +42,12 @@ def get_datasets(args, preprocess_fn):
     )
 
     ood_dataset_class = getattr(datasets, args.ood)
-    ood_dataset = ood_dataset_class(
-        preprocess_fn,
-        train=True,
-        n_examples=args.num_ood_examples,
-        location=args.data_location,
-        batch_size=args.batch_size,
-        num_workers=args.workers,
-    )
+    ood_dataset_kwargs = {"preprocess": preprocess_fn, "train": True, "n_examples": args.num_ood_examples,
+                          "location": args.data_location, "batch_size": args.batch_size, "num_workers": args.workers}
+    if args.ood == "CIFAR10C":
+        ood_dataset_kwargs["severity"] = args.severity
+    ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
+
     ood_subset_for_hp = ood_dataset_class(
         preprocess_fn,
         train=True,
@@ -75,16 +74,29 @@ def get_datasets(args, preprocess_fn):
 
 def main(args):
     if args.distributed:
-        torch.cuda.set_device(rank)
+        local_rank = int(os.environ['LOCAL_RANK'])
+        torch.cuda.set_device(local_rank)
         torch.distributed.init_process_group(backend='nccl')
 
     ###logging##################################################################
-    os.makedirs(args.save + args.exp_name, exist_ok=True)
-    args.save = args.save + args.exp_name + "/" + "_BS" + str(
-        args.batch_size) + "_WD" + str(args.wd) + "_LR" + str(args.lr) + "_run" + str(args.run)
-    os.makedirs("expt_logs/" + args.exp_name, exist_ok=True)
-    logging_path = "expt_logs/" + args.exp_name + "/" + "_BS" + str(
-        args.batch_size) + "_WD" + str(args.wd) + "_LR" + str(args.lr) + "_run" + str(args.run)
+    save_dir = os.path.join(args.save, args.id, args.method)
+    os.makedirs(save_dir, exist_ok=True)
+    if args.method == "autoft":
+        method_name = f"ood{args.ood}_{args.loss_type}"
+        if args.pointwise_loss:
+            method_name += "_pw"
+        run_details = f"no{args.num_ood_hp_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        args.save = os.path.join(save_dir, method_name, run_details)
+    elif args.method == "ft-id-ood":
+        method_name = f"ood{args.ood}"
+        run_details = f"no{args.num_ood_hp_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        args.save = os.path.join(save_dir, method_name, run_details)
+    elif args.method == "ft-id":
+        run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        args.save = os.path.join(save_dir, run_details)
+    logging_path = os.path.join("logs", args.save)
+    print(f"\nMODEL SAVE PATH: {args.save}")
+    print(f"\nLOGGING PATH: {logging_path}\n")
     os.makedirs(logging_path, exist_ok=True)
     log_filename = logging_path + "/log.log"
     logging.basicConfig(filename=log_filename,
@@ -92,7 +104,6 @@ def main(args):
                         filemode='w')
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    assert args.save is not None, 'Please provide a path to store models'
     #############################################################################
 
     # # Initialize the CLIP encoder
@@ -107,14 +118,12 @@ def main(args):
         model = image_classifier.classification_head
         input_key = 'features'
         preprocess_fn = image_classifier.val_preprocess
-        image_enc = image_classifier.image_encoder
         print_every = 1000
     else:
         print('Fine-tuning end-to-end')
         model = image_classifier
         input_key = 'images'
         preprocess_fn = image_classifier.train_preprocess
-        image_enc = None
         image_classifier.process_images = True
         print_every = 100
     if args.distributed:
@@ -129,14 +138,7 @@ def main(args):
 
     torch.cuda.empty_cache()
 
-    # Datasets
     all_datasets = get_datasets(args, preprocess_fn)
-
-    # Hyperparameters
-    hparams = {f"lossw_{i}": 0.0 for i in range(args.num_losses)}
-    hparams["lossw_0"] = 1.0
-    hparams["lr"] = args.lr
-    hparams["momentum"] = 0.9
     params = [p for p in model.parameters() if p.requires_grad]
 
     if args.method == "ft-id":
@@ -154,8 +156,10 @@ def main(args):
     elif args.method == "autoft":
         id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
         ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
-        auto_ft(args, model, id_dataloader, ood_hp_dataloader,
-                max_evals_range=range(args.val_freq, args.val_freq * args.autoft_epochs, args.val_freq), input_key=input_key)
+        if args.plot:
+            auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals=args.autoft_epochs, input_key=input_key, print_every=100)
+        else:
+            auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals=args.autoft_epochs, input_key=input_key)
     else:
         raise ValueError("Invalid method")
 
@@ -163,4 +167,6 @@ def main(args):
 if __name__ == '__main__':
     args = parse_arguments()
     set_seed()
+    start_time = time.time()
     main(args)
+    print(f"Total run time: {time.time() - start_time:.3f}", flush=True)

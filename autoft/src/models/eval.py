@@ -16,8 +16,6 @@ def eval_single_dataset(image_classifier, dataset, args):
         model = image_classifier
         input_key = 'images'
         image_enc = None
-    print('freeze encoder', args.freeze_encoder)
-    print('dataset', str(dataset))
     model.eval()
     dataloader = get_dataloader(
         dataset, is_train=False, args=args, image_encoder=image_enc)
@@ -91,25 +89,13 @@ def evaluate(image_classifier, args):
             location=args.data_location,
             batch_size=args.batch_size
         )
-
         results = eval_single_dataset(image_classifier, dataset, args)
-
         if 'top1' in results:
             print(f"{dataset_name} Top-1 accuracy: {results['top1']:.4f}")
         for key, val in results.items():
             if 'worst' in key or 'f1' in key.lower() or 'pm0' in key:
                 print(f"{dataset_name} {key}: {val:.4f}")
             info[dataset_name + ':' + key] = val
-
-    if args.results_db is not None:
-        dirname = os.path.dirname(args.results_db)
-        if dirname:
-            os.makedirs(dirname, exist_ok=True)
-        with open(args.results_db, 'a+') as f:
-            f.write(json.dumps(info) + '\n')
-        print(f'Results saved to {args.results_db}.')
-    else:
-        print('Results not saved (to do so, use --results_db to specify a path).')
 
     return info
 

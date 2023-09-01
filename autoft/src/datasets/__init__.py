@@ -13,4 +13,4 @@ from .stanfordcars import StanfordCarsVal, StanfordCarsTest
 from .flowers102 import Flowers102Val, Flowers102Test
 from .patchcamelyon import PatchCamelyonVal, PatchCamelyonTest
 from .sst2 import sst2Val, sst2Test
-from .cifar10 import CIFAR10, CIFAR101, CIFAR102, CIFAR10C
+from .cifar10 import CIFAR10, CIFAR101, CIFAR102, CIFAR10C, CINIC

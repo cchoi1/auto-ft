@@ -1,16 +1,18 @@
-import copy
+import json
 import os
-import pickle
 import random
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-
-from src.losses.layerloss import LayerLoss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def set_seed(seed=0):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 @torch.no_grad()
 def evaluate_hp(net, dataloader):
@@ -51,7 +53,8 @@ def get_subset(dataset, num_datapoints):
 def print_hparams(best_hparams):
     print("\nBest Hyperparameters:")
     for key, value in best_hparams.items():
-        print(f"{key}: {value:.4f}")
+        if not "dataw" in key:
+            print(f"{key}: {value:.4f}")
 
 def save_hparams(args, best_hparams):
     filename_parts = [args.id, args.ood] + args.eval_datasets + [
@@ -66,10 +69,10 @@ def save_hparams(args, best_hparams):
         f"rep{args.repeats}"
     ]
 
-    filename = "_".join(filename_parts) + ".pkl"
+    filename = "_".join(filename_parts) + ".json"
     filepath = os.path.join(args.save, filename)
 
-    with open(filepath, 'wb') as file:
-        pickle.dump(best_hparams, file)
+    with open(filepath, 'w') as file:
+        json.dump(best_hparams, file)
 
     print(f"Saved best_hparams to {filepath}")
