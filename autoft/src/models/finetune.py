@@ -40,7 +40,6 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, print
         else:
             outputs = model(inputs)
             loss = loss_fn(outputs, labels)
-
         loss.backward()
         torch.nn.utils.clip_grad_norm_(params, 1.0)
         optimizer.step()
@@ -90,7 +89,6 @@ def finetune_final(args, model, loss_fn, optimizer, dataset, input_key, print_ev
             else:
                 outputs = model(inputs)
                 loss = loss_fn(outputs, labels)
-
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, 1.0)
             optimizer.step()
@@ -114,8 +112,9 @@ def finetune_final(args, model, loss_fn, optimizer, dataset, input_key, print_ev
     print(eval_results)
     logger.info(json.dumps(eval_results, indent=4))
     all_eval_results[total_steps] = eval_results
+    os.makedirs(args.save, exist_ok=True)
     results_path = os.path.join(args.save, 'eval_results.json')
-    with open(results_path, 'a+') as f:
+    with open(results_path, 'wb') as f:
         f.write(json.dumps(all_eval_results) + '\n')
     print(f'\nSaved evaluation results to {results_path}.')
 
@@ -128,6 +127,8 @@ def finetune_final(args, model, loss_fn, optimizer, dataset, input_key, print_ev
         model.module.save(model_path)
         optim_path = os.path.join(args.save, f'optim_{args.ft_epochs}.pt')
         torch.save(optimizer.state_dict(), optim_path)
+        print('Saving optimizer to', optim_path)
+        logger.info(f"Saving optimizer to {optim_path}")
         return model_path
 
     return model.module

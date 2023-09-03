@@ -1,18 +1,72 @@
-import json
-import os
 import random
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from src.models.modeling import ImageClassifier
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def set_seed(seed=0):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+
+def create_layerwise_optimizer(model, hyperparams):
+    """
+    Create a layer-wise optimizer for the given model.
+
+    :param model: An instance of the ImageClassifier model.
+    :param hyperparams: A dictionary of hyperparameters.
+    :return: Optimizer object.
+    """
+    if isinstance(model, torch.nn.DataParallel):
+        model = [c for c in model.children()][0]  # Extract from nn.DataParallel
+    assert isinstance(model, ImageClassifier), "Expected model to be an instance of ImageClassifier"
+
+    layerwise_params = []
+    layer_idx = 0
+
+    # Extract layers from the image_encoder (CLIPEncoder) of the model
+    for name, module in model.image_encoder.named_children():
+        if name == 'model':
+            # Initial Convolutional layer
+            params_for_layer = {
+                'params': module.visual.conv1.parameters(),
+                'lr': hyperparams[f"lr_{layer_idx}"],
+                'weight_decay': hyperparams[f"wd_{layer_idx}"]
+            }
+            layerwise_params.append(params_for_layer)
+            layer_idx += 1
+
+            # Layer normalization before the transformer
+            params_for_layer = {
+                'params': module.visual.ln_pre.parameters(),
+                'lr': hyperparams[f"lr_{layer_idx}"],
+                'weight_decay': hyperparams[f"wd_{layer_idx}"]
+            }
+            layerwise_params.append(params_for_layer)
+            layer_idx += 1
+
+            # Transformer blocks
+            for block in module.visual.transformer.resblocks:
+                for layer in block.children():
+                    params_for_layer = {
+                        'params': layer.parameters(),
+                        'lr': hyperparams[f"lr_{layer_idx}"],
+                        'weight_decay': hyperparams[f"wd_{layer_idx}"]
+                    }
+                    layerwise_params.append(params_for_layer)
+                    layer_idx += 1
+
+    # Classification head of the model
+    params_for_layer = {
+        'params': model.classification_head.parameters(),
+        'lr': hyperparams[f"lr_{layer_idx}"],
+        'weight_decay': hyperparams[f"wd_{layer_idx}"]
+    }
+    layerwise_params.append(params_for_layer)
+
+    optimizer = torch.optim.AdamW(layerwise_params)
+
+    return optimizer
+
 
 @torch.no_grad()
 def evaluate_hp(net, dataloader):
@@ -25,6 +79,10 @@ def evaluate_hp(net, dataloader):
             x, y = batch
             x, y = x.cuda(), y.cuda()
         outputs = net(x)
+        if (y == -1).any(): # if parts of the batch are unlabeled, replace them with their pseudolabels
+            pseudo_labels = torch.argmax(outputs, dim=1)
+            mask = (y == -1)
+            y[mask] = pseudo_labels[mask]
         loss = F.cross_entropy(outputs, y)
 
         targets.append(y.cpu())
@@ -55,24 +113,3 @@ def print_hparams(best_hparams):
     for key, value in best_hparams.items():
         if not "dataw" in key:
             print(f"{key}: {value:.4f}")
-
-def save_hparams(args, best_hparams):
-    filename_parts = [args.id, args.ood] + args.eval_datasets + [
-        f"nie{args.num_id_examples}",
-        f"nive{args.num_id_val_examples}",
-        f"noe{args.num_ood_examples}",
-        f"nohpe{args.num_ood_hp_examples}",
-        f"ep{args.epochs}",
-        f"vf{args.val_freq}",
-        f"is{args.inner_steps}",
-        f"bs{args.batch_size}",
-        f"rep{args.repeats}"
-    ]
-
-    filename = "_".join(filename_parts) + ".json"
-    filepath = os.path.join(args.save, filename)
-
-    with open(filepath, 'w') as file:
-        json.dump(best_hparams, file)
-
-    print(f"Saved best_hparams to {filepath}")

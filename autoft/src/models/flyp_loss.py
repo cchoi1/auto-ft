@@ -20,7 +20,6 @@ import src.datasets as datasets
 
 
 def flyp_loss(args, clip_encoder, classification_head, logger):
-    assert args.train_dataset is not None, "Please provide a training dataset."
     logger.info('Fine-tuning Using FLYP Loss')
     model = clip_encoder
     input_key = 'images'

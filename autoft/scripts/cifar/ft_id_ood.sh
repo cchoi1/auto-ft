@@ -21,4 +21,4 @@ python src/main.py --method ft-id-ood --plot --model ViT-L/14 --data-location /i
 --id CIFAR10 --ood CIFAR10C --eval-datasets CIFAR101,CIFAR102,CIFAR10,CIFAR10C \
 --lr 3.75e-6 --wd 0.1 --batch-size 64 --warmup_length 4000 --workers 4 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_openai_cifar10.pt \
---num_ood_examples 10000 --num_ood_hp_examples 100 --ft_epochs 10
+--num_ood_hp_examples 100 --ft_epochs 10

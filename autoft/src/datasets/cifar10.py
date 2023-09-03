@@ -130,7 +130,14 @@ class CIFAR10C(Dataset):
         return "CIFAR10C"
 
 class CINIC:
-    def __init__(self, preprocess, train=True, n_examples=-1, location=os.path.expanduser('~/data')):
+    def __init__(
+            self,
+            preprocess,
+            train,
+            n_examples,
+            location=os.path.expanduser('~/data'),
+            batch_size=128,
+            num_workers=16):
         """
         Initialize CINIC dataset.
 

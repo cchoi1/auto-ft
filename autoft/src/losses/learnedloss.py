@@ -16,8 +16,10 @@ class LearnedLoss(nn.Module):
 
     def forward(self, inputs, targets, net, use_contrastive_loss=False):
         outputs = net(inputs)
-        if targets is None:
-            targets = torch.argmax(outputs, dim=1)
+        if (targets == -1).any(): # if parts of the batch are unlabeled, replace them with their pseudolabels
+            pseudo_labels = torch.argmax(outputs, dim=1)
+            mask = (targets == -1)
+            targets[mask] = pseudo_labels[mask]
 
         losses = []
         ce_loss = F.cross_entropy(outputs, targets)

@@ -1,18 +1,19 @@
-from src.args import parse_arguments
-import random
-
+import logging
 import os
+import random
 import time
 
+import numpy as np
 import src.datasets as datasets
 import torch
-from src.models.modeling import ImageClassifier
+from src.args import parse_arguments
 from src.datasets.common import get_dataloader
-from src.models.finetune import finetune_final
+from src.datasets.utils import get_ood_datasets
 from src.models.autoft import auto_ft
-import numpy as np
+from src.models.finetune import finetune_final
+from src.models.flyp_loss import flyp_loss
+from src.models.modeling import ClassificationHead, CLIPEncoder, ImageClassifier
 from torch.nn.parallel import DistributedDataParallel as DDP
-import logging
 
 devices = list(range(torch.cuda.device_count()))
 
@@ -42,22 +43,26 @@ def get_datasets(args, preprocess_fn):
     )
 
     ood_dataset_class = getattr(datasets, args.ood)
-    ood_dataset_kwargs = {"preprocess": preprocess_fn, "train": True, "n_examples": args.num_ood_examples,
+    n_examples = args.num_ood_hp_examples + args.num_ood_unlabeled_examples if args.num_ood_unlabeled_examples is not None else args.num_ood_hp_examples
+    ood_dataset_kwargs = {"preprocess": preprocess_fn, "train": True, "n_examples": n_examples,
                           "location": args.data_location, "batch_size": args.batch_size, "num_workers": args.workers}
     if args.ood == "CIFAR10C":
         ood_dataset_kwargs["severity"] = args.severity
     ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
+    if args.num_ood_unlabeled_examples is not None:
+        ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
+            ood_dataset.dataset,
+            args.num_ood_hp_examples,
+            args.num_ood_unlabeled_examples
+        )
+        ood_subset_for_hp = torch.utils.data.ConcatDataset([ood_labeled_dataset, ood_unlabeled_dataset])
+    else:
+        ood_subset_for_hp = ood_dataset
 
-    ood_subset_for_hp = ood_dataset_class(
-        preprocess_fn,
-        train=True,
-        n_examples=args.num_ood_hp_examples,
-        location=args.data_location,
-        batch_size=args.batch_size,
-        num_workers=args.workers,
-    )
+    if args.ood == "CIFAR10":
+        ood_subset_for_hp = id_val_dataset
 
-    all_datasets = {"id": id_dataset, "id_val": id_val_dataset, "ood": ood_dataset, "ood_subset_for_hp": ood_subset_for_hp}
+    all_datasets = {"id": id_dataset, "id_val": id_val_dataset, "ood_subset_for_hp": ood_subset_for_hp}
     for i, dataset_name in enumerate(args.eval_datasets):
         test_dataset_class = getattr(datasets, dataset_name)
         all_datasets[f"test{i}"] = test_dataset_class(
@@ -85,11 +90,15 @@ def main(args):
         method_name = f"ood{args.ood}_{args.loss_type}"
         if args.pointwise_loss:
             method_name += "_pw"
-        run_details = f"no{args.num_ood_hp_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        if args.num_ood_unlabeled_examples is not None:
+            method_name += "_unlabeled"
+        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
         args.save = os.path.join(save_dir, method_name, run_details)
     elif args.method == "ft-id-ood":
         method_name = f"ood{args.ood}"
-        run_details = f"no{args.num_ood_hp_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        if args.num_ood_unlabeled_examples is not None:
+            method_name += "_unlabeled"
+        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
         args.save = os.path.join(save_dir, method_name, run_details)
     elif args.method == "ft-id":
         run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
@@ -105,11 +114,12 @@ def main(args):
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     #############################################################################
-
-    # # Initialize the CLIP encoder
-    # clip_encoder = CLIPEncoder(args, keep_lang=True)
-    # classification_head = ClassificationHead(normalize=True, weights=None)
     logger.info(args)
+
+    if args.method == "flyp":
+        clip_encoder = CLIPEncoder(args, keep_lang=True)
+        classification_head = ClassificationHead(normalize=True, weights=None)
+        return flyp_loss(args, clip_encoder, classification_head, logger)
 
     # Model
     image_classifier = ImageClassifier.load(args.load)

@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,8 +16,10 @@ class LayerwiseLoss(nn.Module):
 
     def forward(self, inputs, targets, net, use_contrastive_loss=False):
         outputs = net(inputs)
-        if targets is None:
-            targets = torch.argmax(outputs, dim=1)
+        if (targets == -1).any(): # if parts of the batch are unlabeled, replace them with their pseudolabels
+            pseudo_labels = torch.argmax(outputs, dim=1)
+            mask = (targets == -1)
+            targets[mask] = pseudo_labels[mask]
 
         ce_loss = F.cross_entropy(outputs, targets)
         hinge_loss = compute_hinge_loss(outputs, targets)
@@ -55,5 +58,7 @@ class LayerwiseLoss(nn.Module):
             loss = torch.dot(stacked_losses, layer_hyperparams.detach())
             layerwise_losses.append(loss)
 
-        return torch.stack(layerwise_losses), torch.stack(layerwise_losses)
+        losses = torch.stack(layerwise_losses, dim=0)
+
+        return losses.mean(dim=0), losses
 
