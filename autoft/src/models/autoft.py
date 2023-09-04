@@ -171,8 +171,6 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals, input_key,
         _model = copy.deepcopy(model).cuda()
     set_seed(best_hparams["seed"])
     if args.loss_type == "LayerwiseLoss":
-        loss_weight_hparams = [torch.tensor([best_hparams[k] for k in best_hparams.keys() if f"lossw" in k])]
-    else:
         loss_weight_keys = [k for k in best_hparams.keys() if f"lossw" in k]
         layer_idx = 0
         layer_loss_weights = []
@@ -184,6 +182,8 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals, input_key,
                 loss_weight_hparams.append(torch.tensor(layer_loss_weights))
                 layer_loss_weights = [best_hparams[k]]
                 layer_idx += 1
+    else:
+        loss_weight_hparams = torch.tensor([best_hparams[f"lossw_{i}"] for i in range(args.num_losses)])
     model_params = [p for p in model.parameters()]
     loss_fn = getattr(losses, args.loss_type)(loss_weight_hparams, model_params)
     if args.loss_type == "LayerwiseLoss":

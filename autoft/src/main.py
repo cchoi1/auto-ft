@@ -46,21 +46,21 @@ def get_datasets(args, preprocess_fn):
     n_examples = args.num_ood_hp_examples + args.num_ood_unlabeled_examples if args.num_ood_unlabeled_examples is not None else args.num_ood_hp_examples
     ood_dataset_kwargs = {"preprocess": preprocess_fn, "train": True, "n_examples": n_examples,
                           "location": args.data_location, "batch_size": args.batch_size, "num_workers": args.workers}
-    if args.ood == "CIFAR10C":
-        ood_dataset_kwargs["severity"] = args.severity
-    ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
-    if args.num_ood_unlabeled_examples is not None:
-        ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
-            ood_dataset.dataset,
-            args.num_ood_hp_examples,
-            args.num_ood_unlabeled_examples
-        )
-        ood_subset_for_hp = torch.utils.data.ConcatDataset([ood_labeled_dataset, ood_unlabeled_dataset])
-    else:
-        ood_subset_for_hp = ood_dataset
-
-    if args.ood == "CIFAR10":
+    if args.ood == args.id:
         ood_subset_for_hp = id_val_dataset
+    else:
+        if args.ood == "CIFAR10C":
+            ood_dataset_kwargs["severity"] = args.severity
+        ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
+        if args.num_ood_unlabeled_examples is not None:
+            ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
+                ood_dataset.dataset,
+                args.num_ood_hp_examples,
+                args.num_ood_unlabeled_examples
+            )
+            ood_subset_for_hp = torch.utils.data.ConcatDataset([ood_labeled_dataset, ood_unlabeled_dataset])
+        else:
+            ood_subset_for_hp = ood_dataset
 
     all_datasets = {"id": id_dataset, "id_val": id_val_dataset, "ood_subset_for_hp": ood_subset_for_hp}
     for i, dataset_name in enumerate(args.eval_datasets):

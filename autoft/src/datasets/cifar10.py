@@ -75,9 +75,12 @@ class CIFAR10C(Dataset):
         assert 1 <= severity <= 5, "Severity level must be between 1 and 5."
         self.train = train
         self.root_dir = Path(location) / 'CIFAR-10-C'
-        self.n_examples = n_examples
-        self.num_classes = 10
         self.n_total_cifar = 10000
+        if n_examples < 0:
+            self.n_examples = self.n_total_cifar
+        else:
+            self.n_examples = n_examples
+        self.num_classes = 10
         self.severity = severity
         self.corruptions = CIFAR10_CORRUPTIONS
         self.transform = preprocess
@@ -106,25 +109,37 @@ class CIFAR10C(Dataset):
             self.dataset = BasicVisionDataset(
                 images=test_data, targets=torch.Tensor(test_targets).long(), transform=preprocess,
             )
-        if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
-
     def load_data(self):
-        x_test_list, y_test_list = [], []
+        x_list, y_list = [], []
+        num_examples_per_class = self.n_examples // (len(self.corruptions) * self.num_classes)
+
         for corruption in self.corruptions:
             corruption_file_path = self.root_dir / (corruption + '.npy')
             if not corruption_file_path.is_file():
                 raise ValueError(f"{corruption} file is missing, try to re-download it.")
+
             images_all = np.load(corruption_file_path)
-            images = images_all[(self.severity - 1) * self.n_total_cifar:self.severity * self.n_total_cifar]
-            x_test_list.append(images)
-            y_test_list.append(self.labels)
+            start_idx = (self.severity - 1) * self.n_total_cifar
+            end_idx = self.severity * self.n_total_cifar
+            images = images_all[start_idx:end_idx]
+            labels_for_corruption = self.labels[start_idx:end_idx]
 
-        x_test, y_test = np.concatenate(x_test_list), np.concatenate(y_test_list)
-        rand_idx = np.random.permutation(np.arange(len(x_test)))
-        x_test, y_test = x_test[rand_idx], y_test[rand_idx]
+            smallest_class_count = min(self.n_total_cifar//self.num_classes, num_examples_per_class)
+            x_class_balanced, y_class_balanced = [], []
+            for cls in range(self.num_classes):
+                class_indices = np.where(labels_for_corruption == cls)[0]
+                selected_indices = np.random.choice(class_indices, smallest_class_count, replace=False)
+                x_class_balanced.append(images[selected_indices])
+                y_class_balanced.extend([cls] * smallest_class_count)
 
-        return x_test, y_test
+            x_list.append(np.concatenate(x_class_balanced, axis=0))
+            y_list.append(np.array(y_class_balanced))
+
+        x, y = np.concatenate(x_list), np.concatenate(y_list)
+        rand_idx = np.random.permutation(np.arange(len(x)))
+        x, y = x[rand_idx], y[rand_idx]
+
+        return x, y
 
     def __str__(self):
         return "CIFAR10C"
@@ -158,7 +173,10 @@ class CINIC:
             class_path = os.path.join(self.data_root, cls)
             for img_name in os.listdir(class_path):
                 img_path = os.path.join(class_path, img_name)
-                images.append(np.array(Image.open(img_path)))
+                img = np.array(Image.open(img_path))
+                if img.shape != (32, 32, 3): # skip the one image that is (32,32)
+                    continue
+                images.append(img)
                 labels.append(class_idx)
 
         self.dataset = BasicVisionDataset(
