@@ -42,8 +42,6 @@ def parse_arguments():
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--wd", type=float, default=0.1, help="Weight decay")
     parser.add_argument("--workers", type=int, default=4, help="Number of dataloader workers per GPU.")
-    parser.add_argument("--local-rank", type=int, default=0, help="Local rank for distributed training.")
-    parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--plot", action="store_true", help="Plot results.")
 
     # Saving/Logging

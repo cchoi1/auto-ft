@@ -1,27 +1,74 @@
 import logging
 import os
-import random
 import time
 
-import numpy as np
 import src.datasets as datasets
 import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.xla_multiprocessing as xmp
 from src.args import parse_arguments
 from src.datasets.common import get_dataloader
 from src.datasets.utils import get_ood_datasets
 from src.models.autoft import auto_ft
 from src.models.finetune import finetune_final
-from src.models.flyp_loss import flyp_loss
-from src.models.modeling import ClassificationHead, CLIPEncoder, ImageClassifier
-from torch.nn.parallel import DistributedDataParallel as DDP
+from src.models.modeling import ImageClassifier
+from src.models.utils import is_tpu_available
 
 devices = list(range(torch.cuda.device_count()))
+device = xm.xla_device()
 
-def set_seed(seed=0):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+def setup_logging(args):
+    save_dir = os.path.join(args.save, args.id, args.method)
+    os.makedirs(save_dir, exist_ok=True)
+    if args.method == "autoft":
+        method_name = f"ood{args.ood}_{args.loss_type}"
+        if args.pointwise_loss:
+            method_name += "_pw"
+        if args.num_ood_unlabeled_examples is not None:
+            method_name += "_unlabeled"
+        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        args.save = os.path.join(save_dir, method_name, run_details)
+    elif args.method == "ft-id-ood":
+        method_name = f"ood{args.ood}"
+        if args.num_ood_unlabeled_examples is not None:
+            method_name += "_unlabeled"
+        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        args.save = os.path.join(save_dir, method_name, run_details)
+    elif args.method == "ft-id":
+        run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        args.save = os.path.join(save_dir, run_details)
+    logging_path = os.path.join("logs", args.save)
+    xm.master_print(f"\nMODEL SAVE PATH: {args.save}")
+    xm.master_print(f"\nLOGGING PATH: {logging_path}\n")
+    os.makedirs(logging_path, exist_ok=True)
+    log_filename = logging_path + "/log.log"
+    logging.basicConfig(filename=log_filename,
+                        format='%(asctime)s %(message)s',
+                        filemode='w')
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    return logger
+
+def initialize_model(args):
+    image_classifier = ImageClassifier.load(args.load)
+    if args.freeze_encoder:
+        model = image_classifier.classification_head
+        preprocess_fn = image_classifier.val_preprocess
+    else:
+        model = image_classifier
+        preprocess_fn = image_classifier.train_preprocess
+        image_classifier.process_images = True
+    return model, preprocess_fn
+
+def configure_device(model):
+    if is_tpu_available():
+        device = xm.xla_device()
+    else:
+        devices = list(range(torch.cuda.device_count()))
+        model = torch.nn.DataParallel(model, device_ids=devices)
+        xm.master_print('Using devices', devices)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    return model.to(device), device
 
 def get_datasets(args, preprocess_fn):
     id_dataset_class = getattr(datasets, args.id)
@@ -77,80 +124,17 @@ def get_datasets(args, preprocess_fn):
     return all_datasets
 
 
-def main(args):
-    if args.distributed:
-        local_rank = int(os.environ['LOCAL_RANK'])
-        torch.cuda.set_device(local_rank)
-        torch.distributed.init_process_group(backend='nccl')
-
-    ###logging##################################################################
-    save_dir = os.path.join(args.save, args.id, args.method)
-    os.makedirs(save_dir, exist_ok=True)
-    if args.method == "autoft":
-        method_name = f"ood{args.ood}_{args.loss_type}"
-        if args.pointwise_loss:
-            method_name += "_pw"
-        if args.num_ood_unlabeled_examples is not None:
-            method_name += "_unlabeled"
-        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
-        args.save = os.path.join(save_dir, method_name, run_details)
-    elif args.method == "ft-id-ood":
-        method_name = f"ood{args.ood}"
-        if args.num_ood_unlabeled_examples is not None:
-            method_name += "_unlabeled"
-        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
-        args.save = os.path.join(save_dir, method_name, run_details)
-    elif args.method == "ft-id":
-        run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
-        args.save = os.path.join(save_dir, run_details)
-    logging_path = os.path.join("logs", args.save)
-    print(f"\nMODEL SAVE PATH: {args.save}")
-    print(f"\nLOGGING PATH: {logging_path}\n")
-    os.makedirs(logging_path, exist_ok=True)
-    log_filename = logging_path + "/log.log"
-    logging.basicConfig(filename=log_filename,
-                        format='%(asctime)s %(message)s',
-                        filemode='w')
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    #############################################################################
-    logger.info(args)
-
-    if args.method == "flyp":
-        clip_encoder = CLIPEncoder(args, keep_lang=True)
-        classification_head = ClassificationHead(normalize=True, weights=None)
-        return flyp_loss(args, clip_encoder, classification_head, logger)
-
-    # Model
-    image_classifier = ImageClassifier.load(args.load)
+def run_method(args, model, preprocess_fn):
     if args.freeze_encoder:
-        print('Fine-tuning a linear classifier')
-        model = image_classifier.classification_head
         input_key = 'features'
-        preprocess_fn = image_classifier.val_preprocess
         print_every = 1000
     else:
-        print('Fine-tuning end-to-end')
-        model = image_classifier
         input_key = 'images'
-        preprocess_fn = image_classifier.train_preprocess
-        image_classifier.process_images = True
         print_every = 100
-    if args.distributed:
-        local_rank = int(os.environ['LOCAL_RANK'])
-        print('Using device', local_rank)
-        model = model.cuda(local_rank)
-        model = DDP(model, device_ids=[local_rank])
-    else:
-        model = model.cuda()
-        model = torch.nn.DataParallel(model, device_ids=devices)
-        print('Using devices', devices)
-
-    torch.cuda.empty_cache()
 
     all_datasets = get_datasets(args, preprocess_fn)
-    params = [p for p in model.parameters() if p.requires_grad]
 
+    params = [p for p in model.parameters() if p.requires_grad]
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
@@ -173,10 +157,22 @@ def main(args):
     else:
         raise ValueError("Invalid method")
 
+def main(args, rank=None):
+    logger = setup_logging(args)
+    logger.info(args)
+    model, preprocess_fn = initialize_model(args)
+    model, device = configure_device(model)
+    run_method(args, model, preprocess_fn)
+
 
 if __name__ == '__main__':
     args = parse_arguments()
-    set_seed()
     start_time = time.time()
-    main(args)
-    print(f"Total run time: {time.time() - start_time:.3f}", flush=True)
+
+    if is_tpu_available():
+        print("TPU AVAILABLE")
+        xmp.spawn(main, args=(args,), nprocs=8, start_method='fork')
+    else:
+        main(args)
+
+    print(f"\nRUN TIME: {time.time() - start_time:.3f}", flush=True)

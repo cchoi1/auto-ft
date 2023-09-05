@@ -1,11 +1,43 @@
 import os
-
-import torch
 import pickle
-from tqdm import tqdm
-import math
+import random
 
 import numpy as np
+import torch
+import torch_xla.core.xla_model as xm
+
+def is_tpu_available():
+    return len(xm.get_xla_supported_devices()) > 1
+
+
+def get_device(rank=0):
+    if len(xm.get_xla_supported_devices()) > 1:
+        device = xm.xla_device()
+    elif torch.cuda.is_available():
+        device = torch.device(f'cuda:{rank}')
+    else:
+        device = torch.device('cpu')
+    return device
+
+
+def extract_from_data_parallel(model):
+    if isinstance(model, torch.nn.DataParallel):
+        return next(model.children())
+    return model
+
+
+def set_seed(seed=0):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def get_subset(dataset, num_datapoints):
+    rand_idxs = torch.randperm(len(dataset))[:num_datapoints]
+    return torch.utils.data.Subset(dataset, rand_idxs)
 
 
 def assign_learning_rate(param_group, new_lr):

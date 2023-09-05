@@ -1,10 +1,10 @@
-import json
-import os
-
 import src.datasets as datasets
 import torch
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
 from src.datasets.common import get_dataloader, maybe_dictionarize
 from src.models import utils
+from src.models.utils import get_device, is_tpu_available
 
 
 def eval_single_dataset(image_classifier, dataset, args):
@@ -16,11 +16,13 @@ def eval_single_dataset(image_classifier, dataset, args):
         model = image_classifier
         input_key = 'images'
         image_enc = None
-    model.eval()
-    dataloader = get_dataloader(
-        dataset, is_train=False, args=args, image_encoder=image_enc)
+
+    device = get_device()
+    model.to(device).eval()
+    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
+    if is_tpu_available():
+        dataloader = pl.MpDeviceLoader(dataloader, device)
     batched_data = enumerate(dataloader)
-    device = args.device
 
     if hasattr(dataset, 'post_loop_metrics'):
         # keep track of labels, predictions and metadata
@@ -70,6 +72,9 @@ def eval_single_dataset(image_classifier, dataset, args):
             metrics = {}
     if 'top1' not in metrics:
         metrics['top1'] = top1
+
+    if is_tpu_available():
+        metrics = xm.mesh_reduce('metrics_reduce', metrics, lambda x: {k: sum(v) for k, v in zip(x.keys(), x.values())})
 
     return metrics
 
