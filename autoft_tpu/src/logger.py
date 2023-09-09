@@ -1,19 +1,8 @@
 import logging
 import os
-import time
 
-import src.datasets as datasets
-import torch
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.xla_multiprocessing as xmp
-from src.args import parse_arguments
-from src.datasets.common import get_dataloader
-from src.datasets.utils import get_ood_datasets
-from src.models.autoft import auto_ft
-from src.models.finetune import finetune_final
-from src.models.modeling import ImageClassifier
-from src.models.utils import is_tpu_available, get_device
-from src.models.sampler import get_sampler
+
 
 def setup_logging(args):
     save_dir = os.path.join(args.save, args.id, args.method)

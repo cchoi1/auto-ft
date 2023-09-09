@@ -1,17 +1,15 @@
-import os
-import torch
-import json
-import glob
 import collections
+import glob
+import os
 import random
 
-import numpy as np
-
-from tqdm import tqdm
-
+import torch
+import torch_xla.core.xla_model as xm
 import torchvision.datasets as datasets
 from torch.utils.data import Dataset, DataLoader, Sampler
 from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
+import torch_xla.distributed.parallel_loader as pl
 
 
 class SubsetSampler(Sampler):
@@ -170,9 +168,19 @@ def collate_fn_for_imagenet(batch):
 
     return batch_dict
 
-def create_dataloader(dataset, kwargs):
-    """Helper function to create a DataLoader."""
-    return DataLoader(dataset, **kwargs)
+
+def get_sampler(dataset, train):
+    """Helper function to create a sampler."""
+    if xm.xrt_world_size() > 1:
+        sampler = DistributedSampler(
+            dataset,
+            num_replicas=xm.xrt_world_size(),
+            rank=xm.get_ordinal(),
+            shuffle=train,
+        )
+    else:
+        sampler = None
+    return sampler
 
 
 def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
@@ -189,15 +197,18 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
         DataLoader for the given dataset.
     """
 
-    kwargs = {"num_workers": args.workers, "pin_memory": True} if torch.cuda.is_available() else {}
-    kwargs["batch_size"] = args.batch_size
-    if args.distributed:
-        kwargs["sampler"] = DistributedSampler(dataset)
+    kwargs = {"batch_size": args.batch_size, "num_workers": args.workers, "persistent_workers": args.persistent_workers,
+              "prefetch_factor": args.prefetch_factor}
+    if sampler is not None:
+        kwargs["sampler"] = sampler
     else:
-        if sampler is not None:
-            kwargs["sampler"] = sampler
-        else:
-            kwargs["shuffle"] = is_train
+        kwargs["sampler"] = get_sampler(dataset, is_train)
+
+    if is_train and kwargs["sampler"] is None:
+        kwargs["shuffle"] = True
+    else:
+        kwargs["shuffle"] = False
+
     if "ImageNet" in args.id:
         kwargs["collate_fn"] = collate_fn_for_imagenet
     elif "CIFAR" in args.id:
@@ -205,16 +216,18 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
 
     if image_encoder is not None:
         kwargs["collate_fn"] = collate_fn_for_imagenet
-        feature_dataset = FeatureDataset(args, is_train, image_encoder, dataset, args.device)
-        return create_dataloader(feature_dataset, kwargs)
+        dataset = FeatureDataset(args, is_train, image_encoder, dataset, args.device)
+    elif hasattr(dataset, 'dataset'):
+        dataset = dataset.dataset
+    kwargs["dataset"] = dataset
 
-    # If the dataset is a wrapped dataset, retrieve the underlying dataset
-    if hasattr(dataset, 'dataset'):
-        inner_dataset = dataset.dataset
-    elif isinstance(dataset, torch.utils.data.ConcatDataset):
-        inner_dataset = dataset
-    else:
-        inner_dataset = dataset
-        # raise ValueError("Unsupported dataset type.")
+    dataloader = DataLoader(**kwargs)
+    device = xm.xla_device()
+    dataloader = pl.MpDeviceLoader(
+        dataloader,
+        device,
+        loader_prefetch_size=args.loader_prefetch_size,
+        device_prefetch_size=args.device_prefetch_size,
+    )
 
-    return create_dataloader(inner_dataset, kwargs)
+    return dataloader

@@ -1,11 +1,16 @@
+import json
+import logging
+import os
+
 import src.datasets as datasets
 import torch
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
+import torch_xla.distributed.xla_multiprocessing as xmp
 from src.datasets.common import get_dataloader, maybe_dictionarize
 from src.models import utils
-from src.models.utils import get_device, is_tpu_available
+from src.models.utils import is_tpu_available
 
+logger = logging.getLogger('main')
 
 def _move_model_to_device(image_classifier, args):
     if args.freeze_encoder:
@@ -16,21 +21,15 @@ def _move_model_to_device(image_classifier, args):
         model = image_classifier
         input_key = 'images'
         image_enc = None
-    return model.to(get_device()), input_key, image_enc
-
-
-def _prepare_dataloader(dataset, args, image_enc=None):
-    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
-    if is_tpu_available():
-        dataloader = pl.MpDeviceLoader(dataloader, get_device())
-    return dataloader
+    device = xm.xla_device()
+    return model.to(device), input_key, image_enc
 
 
 def _calculate_accuracy(dataset, logits, y, image_paths, args):
     if hasattr(dataset, 'accuracy'):
         acc1, num_total = dataset.accuracy(logits, y, image_paths, args)
     else:
-        pred = logits.argmax(dim=1, keepdim=True).to(get_device())
+        pred = logits.argmax(dim=1, keepdim=True)
         acc1 = pred.eq(y.view_as(pred)).sum().item()
         num_total = y.size(0)
     return acc1, num_total
@@ -38,14 +37,14 @@ def _calculate_accuracy(dataset, logits, y, image_paths, args):
 
 def _process_batch(data, dataset, model, input_key, args):
     """Process batch and return results."""
-    device = get_device()
-    x = data[input_key].to(device)
-    y = data['labels'].to(device)
+    x = data[input_key]
+    y = data['labels']
 
     image_paths = data.get('image_paths', None)
     logits = utils.get_logits(x, model)
 
     projection_fn = getattr(dataset, 'project_logits', None)
+    device = xm.xla_device()
     if projection_fn:
         logits = projection_fn(logits, device)
     if hasattr(dataset, 'project_labels'):
@@ -66,7 +65,7 @@ def eval_single_dataset(image_classifier, dataset, args):
     """Evaluate a single dataset and return metrics."""
     model, input_key, image_enc = _move_model_to_device(image_classifier, args)
     model.eval()
-    dataloader = _prepare_dataloader(dataset, args, image_enc)
+    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
 
     top1, correct, n = 0., 0., 0.
     all_labels, all_preds, all_metadata = [], [], []
@@ -74,14 +73,15 @@ def eval_single_dataset(image_classifier, dataset, args):
     with torch.no_grad():
         for _, data in enumerate(dataloader):
             data = maybe_dictionarize(data)
-            acc1, num_total, labels, preds, metadata = _process_batch(data, dataset, model, input_key, args)
+            acc1, batch_size, labels, preds, metadata = _process_batch(data, dataset, model, input_key, args)
             correct += acc1
-            n += num_total
+            n += batch_size
 
             if labels is not None:
                 all_labels.append(labels)
                 all_preds.append(preds)
                 all_metadata.extend(metadata)
+
 
     top1 = correct / n
 
@@ -101,13 +101,13 @@ def eval_single_dataset(image_classifier, dataset, args):
     return metrics
 
 
-def evaluate(image_classifier, args):
+def _mp_evaluate(rank, image_classifier, args, spawn_required=True):
     """Evaluate on multiple datasets and print results."""
     if args.eval_datasets is None:
         return
     info = vars(args)
     for dataset_name in args.eval_datasets:
-        print('Evaluating on', dataset_name)
+        xm.master_print('Evaluating on', dataset_name)
         dataset_class = getattr(datasets, dataset_name)
         dataset = dataset_class(
             image_classifier.val_preprocess,
@@ -120,200 +120,27 @@ def evaluate(image_classifier, args):
         for key, val in results.items():
             prefix = f"{dataset_name} "
             if key == 'top1':
-                print(f"{prefix}Top-1 accuracy: {val:.4f}")
+                xm.master_print(f"{prefix}Top-1 accuracy: {val:.4f}")
             elif 'worst' in key or 'f1' in key.lower() or 'pm0' in key:
-                print(f"{prefix}{key}: {val:.4f}")
+                xm.master_print(f"{prefix}{key}: {val:.4f}")
             info[f"{dataset_name}:{key}"] = val
-    return info
+
+    xm.master_print(info)
+    if xm.is_master_ordinal():
+        logger.info(json.dumps(info, indent=4))
+        os.makedirs(args.save, exist_ok=True)
+        results_path = os.path.join(args.save, 'eval_results.json')
+        with open(results_path, 'wb') as f:
+            f.write(json.dumps(info))
+        xm.master_print(f'\nSaved evaluation results to {results_path}.')
 
 
-
-# eval.py from FLYP codebase which uses classification head
-#
-# import osx
-# import json
-#
-# import torch
-# import numpy as np
-# from src.models import utils
-# from src.datasets.common import get_dataloader, maybe_dictionarize
-# import src.datasets as datasets
-# import torch.nn.functional as F
-#
-#
-# def eval_single_dataset(image_classifier, dataset, args, classification_head):
-#
-#     model = image_classifier
-#     input_key = 'images'
-#     image_enc = None
-#
-#     model.eval()
-#     classification_head.eval()
-#
-#     dataloader = get_dataloader(dataset,
-#                                 is_train=False,
-#                                 args=args,
-#                                 image_encoder=image_enc)
-#
-#     batched_data = enumerate(dataloader)
-#     device = args.device
-#
-#     if hasattr(dataset, 'post_loop_metrics'):
-#         # keep track of labels, predictions and metadata
-#         all_labels, all_preds, all_metadata = [], [], []
-#
-#     with torch.no_grad():
-#         top1, correct, n = 0., 0., 0.
-#         for i, data in batched_data:
-#
-#             data = maybe_dictionarize(data)
-#             x = data[input_key].to(device)
-#             y = data['labels'].to(device)
-#
-#             if 'image_paths' in data:
-#                 image_paths = data['image_paths']
-#
-#             logits = utils.get_logits(x, model, classification_head)
-#
-#             projection_fn = getattr(dataset, 'project_logits', None)
-#             if projection_fn is not None:
-#                 logits = projection_fn(logits, device)
-#
-#             if hasattr(dataset, 'project_labels'):
-#                 y = dataset.project_labels(y, device)
-#             pred = logits.argmax(dim=1, keepdim=True).to(device)
-#             if hasattr(dataset, 'accuracy'):
-#                 acc1, num_total = dataset.accuracy(logits, y, image_paths,
-#                                                    args)
-#                 correct += acc1
-#                 n += num_total
-#             else:
-#                 correct += pred.eq(y.view_as(pred)).sum().item()
-#                 n += y.size(0)
-#
-#             if hasattr(dataset, 'post_loop_metrics'):
-#                 all_labels.append(y.cpu().clone().detach())
-#                 all_preds.append(logits.cpu().clone().detach())
-#                 metadata = data[
-#                     'metadata'] if 'metadata' in data else image_paths
-#                 all_metadata.extend(metadata)
-#
-#         top1 = correct / n
-#
-#         if hasattr(dataset, 'post_loop_metrics'):
-#             all_labels = torch.cat(all_labels)
-#             all_preds = torch.cat(all_preds)
-#             metrics = dataset.post_loop_metrics(all_labels, all_preds,
-#                                                 all_metadata, args)
-#             if 'acc' in metrics:
-#                 metrics['top1'] = metrics['acc']
-#         else:
-#             metrics = {}
-#     if 'top1' not in metrics:
-#         metrics['top1'] = top1
-#
-#     return metrics
-#
-#
-# def eval_single_batch_dataset(image_classifier, dataset, args,
-#                               classification_head, data):
-#
-#     model = image_classifier
-#     input_key = 'images'
-#
-#     model.eval()
-#     classification_head.eval()
-#
-#     device = args.device
-#
-#     if hasattr(dataset, 'post_loop_metrics'):
-#         # keep track of labels, predictions and metadata
-#         all_labels, all_preds, all_metadata = [], [], []
-#
-#     with torch.no_grad():
-#         top1, correct, n, cnt_loss = 0., 0., 0., 0.
-#
-#         data = maybe_dictionarize(data)
-#         x = data[input_key].to(device)
-#         y = data['labels'].to(device)
-#
-#         assert x.shape[0] == 2 * args.k, 'val mismatch size'
-#
-#         if 'image_paths' in data:
-#             image_paths = data['image_paths']
-#
-#         logits = utils.get_logits(x, model, classification_head)
-#
-#         projection_fn = getattr(dataset, 'project_logits', None)
-#         if projection_fn is not None:
-#             logits = projection_fn(logits, device)
-#
-#         if hasattr(dataset, 'project_labels'):
-#             y = dataset.project_labels(y, device)
-#
-#         cnt_loss = F.cross_entropy(logits, y)
-#         pred = logits.argmax(dim=1, keepdim=True).to(device)
-#         if hasattr(dataset, 'accuracy'):
-#             acc1, num_total = dataset.accuracy(logits, y, image_paths, args)
-#             correct += acc1
-#             n += num_total
-#         else:
-#             correct += pred.eq(y.view_as(pred)).sum().item()
-#             n += y.size(0)
-#
-#         if hasattr(dataset, 'post_loop_metrics'):
-#             all_labels.append(y.cpu().clone().detach())
-#             all_preds.append(logits.cpu().clone().detach())
-#             metadata = data['metadata'] if 'metadata' in data else image_paths
-#             all_metadata.extend(metadata)
-#
-#         top1 = correct / n
-#
-#         if hasattr(dataset, 'post_loop_metrics'):
-#             all_labels = torch.cat(all_labels)
-#             all_preds = torch.cat(all_preds)
-#             metrics = dataset.post_loop_metrics(all_labels, all_preds,
-#                                                 all_metadata, args)
-#             if 'acc' in metrics:
-#                 metrics['top1'] = metrics['acc']
-#         else:
-#             metrics = {}
-#     if 'top1' not in metrics:
-#         metrics['top1'] = top1
-#
-#     return metrics['top1'], cnt_loss.item()
-#
-#
-# def evaluate(image_classifier,
-#              args,
-#              classification_head,
-#              train_stats={},
-#              logger=None):
-#     if args.eval_datasets is None:
-#         return
-#     info = vars(args)
-#     for i, dataset_name in enumerate(args.eval_datasets):
-#         print('Evaluating on', dataset_name)
-#         dataset_class = getattr(datasets, dataset_name)
-#         dataset = dataset_class(image_classifier.module.val_preprocess,
-#                                 location=args.data_location,
-#                                 batch_size=args.batch_size)
-#
-#         results = eval_single_dataset(image_classifier, dataset, args,
-#                                       classification_head)
-#
-#         if 'top1' in results:
-#             print(f"{dataset_name} Top-1 accuracy: {results['top1']:.4f}")
-#             if logger != None:
-#                 logger.info(
-#                     f"{dataset_name} Top-1 accuracy: {results['top1']:.4f}")
-#             train_stats[dataset_name + " Accuracy"] = round(results['top1'], 4)
-#
-#         for key, val in results.items():
-#             if 'worst' in key or 'f1' in key.lower() or 'pm0' in key:
-#                 print(f"{dataset_name} {key}: {val:.4f}")
-#                 if logger != None:
-#                     logger.info(f"{dataset_name} {key}: {val:.4f}")
-#                 train_stats[dataset_name + key] = round(val, 4)
-#
-#     return info
+def evaluate(image_classifier, args, spawn_required=True):
+    """Depending on the flag, either spawn new processes or directly evaluate."""
+    if spawn_required:
+        # If called outside of the training loop, spawn new processes.
+        xmp.spawn(_mp_evaluate, args=(image_classifier, args,), nprocs=8, start_method='spawn')
+    else:
+        # If called within the training loop, use the current process.
+        rank = xm.get_ordinal()
+        _mp_evaluate(rank, image_classifier, args)

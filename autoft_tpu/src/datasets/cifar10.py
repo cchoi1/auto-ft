@@ -38,6 +38,9 @@ class CIFAR10:
     def __str__(self):
         return "CIFAR10"
 
+    def __len__(self):
+        return len(self.dataset)
+
 def convert(x):
     if isinstance(x, np.ndarray):
         return torchvision.transforms.functional.to_pil_image(x)
@@ -143,6 +146,9 @@ class CIFAR10C(Dataset):
     def __str__(self):
         return "CIFAR10C"
 
+    def __len__(self):
+        return len(self.dataset)
+
 class CINIC:
     def __init__(
             self,
@@ -189,6 +195,9 @@ class CINIC:
     def __str__(self):
         return "CINIC"
 
+    def __len__(self):
+        return len(self.dataset)
+
 
 class CIFAR101:
     def __init__(self,
@@ -217,6 +226,9 @@ class CIFAR101:
 
     def __str__(self):
         return "CIFAR101"
+
+    def __len__(self):
+        return len(self.dataset)
 
 class CIFAR102:
     def __init__(self,
@@ -255,3 +267,6 @@ class CIFAR102:
 
     def __str__(self):
         return "CIFAR102"
+
+    def __len__(self):
+        return len(self.dataset)

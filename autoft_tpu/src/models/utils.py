@@ -1,23 +1,58 @@
 import os
 import pickle
 import random
+from datetime import datetime
 
 import numpy as np
 import torch
 import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
+
+def _get_device_spec(device):
+  ordinal = xm.get_ordinal(defval=-1)
+  return str(device) if ordinal < 0 else '{}/{}'.format(device, ordinal)
+
+def now(format='%H:%M:%S'):
+  return datetime.now().strftime(format)
+
+def print_train_update(device, tracker, loss, step, total_steps, epoch=None):
+  """Prints the training metrics at a given step.
+
+  Args:
+    device (torch.device): The device where these statistics came from.
+    step_num (int): Current step number.
+    loss (float): Current loss.
+    rate (float): The examples/sec rate for the current batch.
+    global_rate (float): The average examples/sec rate since training began.
+    epoch (int, optional): The epoch number.
+  """
+  update_data = [
+      'Training', 'Device={}'.format(_get_device_spec(device)),
+      'Epoch={}'.format(epoch) if epoch is not None else None,
+      'Step={} / {}'.format(step, total_steps), 'Loss={:.5f}'.format(loss),
+      'Rate={:.2f}'.format(tracker.rate()), 'GlobalRate={:.2f}'.format(tracker.global_rate()),
+      'Percent Completed={:.2f}'.format(step / total_steps),
+      'Time={}'.format(now())
+  ]
+  xm.master_print('|', ' '.join(item for item in update_data if item), flush=True)
+
+def setup_net(net):
+    """Configure the model for multi-core TPU or multi-GPU if available."""
+    if is_tpu_available():
+        devices = xm.get_xla_supported_devices()
+        net = xm.replicate(net, devices=devices)
+    elif torch.cuda.device_count() > 1:
+        net = torch.nn.DataParallel(net)
+    return net
+
+def setup_dataloader(dataloader, device):
+    """Configure the dataloader for multi-core TPU or multi-GPU if available."""
+    if is_tpu_available():
+        dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
+    return dataloader
 
 def is_tpu_available():
     return len(xm.get_xla_supported_devices()) >= 8
-
-
-def get_device(rank=0):
-    if len(xm.get_xla_supported_devices()) >= 8:
-        device = xm.xla_device()
-    elif torch.cuda.is_available():
-        device = torch.device(f'cuda:{rank}')
-    else:
-        device = torch.device('cpu')
-    return device
 
 
 def extract_from_data_parallel(model):
@@ -39,29 +74,13 @@ def get_subset(dataset, num_datapoints):
     rand_idxs = torch.randperm(len(dataset))[:num_datapoints]
     return torch.utils.data.Subset(dataset, rand_idxs)
 
-
-def print_train_update(logger, print_every, total_steps, step, loss, batch_time, data_time):
-    if is_tpu_available():
-        should_print = (print_every is not None and step % print_every == 0) if xm.is_master_ordinal() else False
-    else:
-        should_print = (print_every is not None and step % print_every == 0)
-    if should_print:
-        percent_complete = 100 * step / total_steps
-        xm.master_print(f"Train Iter: {step}/{total_steps} [{percent_complete:.0f}% ]\t"
-            f"Loss: {loss.item():.6f}\tData (t) {data_time:.3f}\tBatch (t) {batch_time:.3f}", flush=True)
-        logger.info(f"Train Iter: {step}/{total_steps} [{percent_complete:.0f}% ]\t"
-                    f"Loss: {loss.item():.6f}\tData (t) {data_time:.3f}\tBatch (t) {batch_time:.3f}")
-
-
 def save_model(args, model, logger):
-    should_save = xm.is_master_ordinal() if is_tpu_available() else True
-    if should_save:
-        os.makedirs(args.save, exist_ok=True)
-        model_path = os.path.join(args.save, f'checkpoint_{args.ft_epochs}.pt')
-        xm.master_print('Saving model to', model_path)
-        logger.info(f"Saving model to {model_path}")
-        model.module.save(model_path)
-        return model_path
+    os.makedirs(args.save, exist_ok=True)
+    model_path = os.path.join(args.save, f'checkpoint_{args.ft_epochs}.pt')
+    xm.master_print('Saving model to', model_path)
+    logger.info(f"Saving model to {model_path}")
+    model.module.save(model_path)
+    return model_path
 
 
 def assign_learning_rate(param_group, new_lr):

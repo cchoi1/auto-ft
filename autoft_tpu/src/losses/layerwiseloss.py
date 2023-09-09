@@ -1,22 +1,20 @@
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch_xla.core.xla_model as xm
 
 from .utils import compute_hinge_loss
-
-devices = list(range(torch.cuda.device_count()))
-device = torch.device(f"cuda:{devices[0]}" if torch.cuda.is_available() else "cpu")
 
 class LayerwiseLoss(nn.Module):
     def __init__(self, hyperparams, initial_net_params):
         super().__init__()
-        self.initial_net_params = initial_net_params
-        self.hyperparams = [hp.cuda().float() for hp in hyperparams]
+        self.device = xm.xla_device()  # Get TPU device
+        self.initial_net_params = [param.to(self.device) for param in initial_net_params]
+        self.hyperparams = [hp.to(self.device).float() for hp in hyperparams]
 
     def forward(self, inputs, targets, net, use_contrastive_loss=False):
         outputs = net(inputs)
-        if (targets == -1).any(): # if parts of the batch are unlabeled, replace them with their pseudolabels
+        if (targets == -1).any():
             pseudo_labels = torch.argmax(outputs, dim=1)
             mask = (targets == -1)
             targets[mask] = pseudo_labels[mask]
@@ -50,8 +48,8 @@ class LayerwiseLoss(nn.Module):
                 text_features = net.encode_text(inputs["text"])
                 logits_per_image = torch.matmul(image_features, text_features.t()) / self.temperature
                 logits_per_text = torch.matmul(text_features, image_features.t()) / self.temperature
-                contrastive_loss = (F.cross_entropy(logits_per_image, torch.arange(len(logits_per_image), device=device)) +
-                                    F.cross_entropy(logits_per_text, torch.arange(len(logits_per_text), device=device))) / 2
+                contrastive_loss = (F.cross_entropy(logits_per_image, torch.arange(len(logits_per_image), device=self.device)) +
+                                    F.cross_entropy(logits_per_text, torch.arange(len(logits_per_text), device=self.device))) / 2
                 losses.append(contrastive_loss)
 
             stacked_losses = torch.stack(losses)
@@ -61,4 +59,3 @@ class LayerwiseLoss(nn.Module):
         losses = torch.stack(layerwise_losses, dim=0)
 
         return losses.mean(dim=0), losses
-
