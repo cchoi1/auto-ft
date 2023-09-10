@@ -8,7 +8,7 @@ class LearnedLoss(nn.Module):
     def __init__(self, hyperparams, initial_net_params):
         super().__init__()
         self.initial_net_params = [param for param in initial_net_params]
-        self.hyperparams = hyperparams.float()
+        self.hyperparams = hyperparams
 
     def forward(self, outputs, targets, net, use_contrastive_loss=False):
         # inputs = inputs.to('cpu')
@@ -51,7 +51,8 @@ class LearnedLoss(nn.Module):
         #     losses.append(contrastive_loss)
 
         stacked_losses = torch.stack(losses)
-        loss = torch.dot(stacked_losses, self.hyperparams.detach())
+        device = stacked_losses.device
+        loss = torch.dot(stacked_losses, self.hyperparams.to(device).detach())
         del losses
 
         return loss, stacked_losses.detach()

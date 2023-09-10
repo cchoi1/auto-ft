@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 import numpy as np
 import torch
@@ -26,12 +25,13 @@ class CIFAR10:
                  classnames=None):
 
         self.train = train
+        self.location = location
         self.dataset = PyTorchCIFAR10(
             root=location, download=True, train=self.train, transform=preprocess
         )
         self.num_classes = 10
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
 
         self.classnames = self.dataset.classes
 
@@ -76,7 +76,7 @@ class CIFAR10C(Dataset):
 
         assert 1 <= severity <= 5, "Severity level must be between 1 and 5."
         self.train = train
-        self.root_dir = Path(location) / 'CIFAR-10-C'
+        self.location = os.path.join(location, "CIFAR-10-C")
         self.n_total_cifar = 10000
         if n_examples < 0:
             self.n_examples = self.n_total_cifar
@@ -87,11 +87,8 @@ class CIFAR10C(Dataset):
         self.corruptions = CIFAR10_CORRUPTIONS
         self.transform = preprocess
 
-        if not self.root_dir.exists():
-            os.makedirs(self.root_dir)
-
         # Load data
-        labels_path = self.root_dir / 'labels.npy'
+        labels_path = os.path.join(self.location, 'labels.npy')
         if not os.path.isfile(labels_path):
             raise ValueError("Labels are missing, try to re-download them.")
         self.labels = np.load(labels_path)
@@ -116,8 +113,8 @@ class CIFAR10C(Dataset):
         num_examples_per_class = self.n_examples // (len(self.corruptions) * self.num_classes)
 
         for corruption in self.corruptions:
-            corruption_file_path = self.root_dir / (corruption + '.npy')
-            if not corruption_file_path.is_file():
+            corruption_file_path = os.path.join(self.location, f"{corruption}.npy")
+            if not os.path.isfile(corruption_file_path):
                 raise ValueError(f"{corruption} file is missing, try to re-download it.")
 
             images_all = np.load(corruption_file_path)
@@ -158,24 +155,15 @@ class CINIC:
             location=os.path.expanduser('~/data'),
             batch_size=128,
             num_workers=16):
-        """
-        Initialize CINIC dataset.
-
-        Args:
-        - preprocess: The transformations to be applied on the images.
-        - train (bool): If True, loads the training data, else loads the validation/test data.
-        - n_examples (int): Number of examples per class. Default is -1, meaning all examples.
-        - location (str): Directory with all the images.
-        """
         self.train = train
         self.num_classes = 10
         self.split = 'train' if train else 'test'  # Adjust based on your directory names for train/test/valid.
-        self.data_root = os.path.join(location, 'CINIC-10', self.split)
+        self.location = os.path.join(location, 'CINIC-10', self.split)
 
         images = []
         labels = []
-        for class_idx, cls in enumerate(os.listdir(self.data_root)):
-            class_path = os.path.join(self.data_root, cls)
+        for class_idx, cls in enumerate(os.listdir(self.location)):
+            class_path = os.path.join(self.location, cls)
             for img_name in os.listdir(class_path):
                 img_path = os.path.join(class_path, img_name)
                 img = np.array(Image.open(img_path))
@@ -190,7 +178,7 @@ class CINIC:
         )
 
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
 
     def __str__(self):
         return "CINIC"
@@ -212,16 +200,16 @@ class CIFAR101:
         assert train is False, "CIFAR-10.1 only has a test set."
         self.train = train
         self.num_classes = 10
-        data_root = os.path.join(location, "CIFAR-10.1")
-        data = np.load(os.path.join(data_root, 'cifar10.1_v6_data.npy'), allow_pickle=True)
-        labels = np.load(os.path.join(data_root, 'cifar10.1_v6_labels.npy'), allow_pickle=True)
+        self.location = os.path.join(location, "CIFAR-10.1")
+        data = np.load(os.path.join(self.location, 'cifar10.1_v6_data.npy'), allow_pickle=True)
+        labels = np.load(os.path.join(self.location, 'cifar10.1_v6_labels.npy'), allow_pickle=True)
 
         self.dataset = BasicVisionDataset(
             images=data, targets=torch.Tensor(labels).long(),
             transform=preprocess,
         )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):
@@ -242,8 +230,9 @@ class CIFAR102:
 
         self.train = train
         self.num_classes = 10
-        train_data = np.load(os.path.join(location, "CIFAR-10.2", 'cifar102_train.npz'), allow_pickle=True)
-        test_data = np.load(os.path.join(location, "CIFAR-10.2", 'cifar102_test.npz'), allow_pickle=True)
+        self.location = os.path.join(location, "CIFAR-10.2")
+        train_data = np.load(os.path.join(self.location, 'cifar102_train.npz'), allow_pickle=True)
+        test_data = np.load(os.path.join(self.location, 'cifar102_test.npz'), allow_pickle=True)
 
         train_data_images = train_data['images']
         train_data_labels = train_data['labels']
@@ -262,7 +251,7 @@ class CIFAR102:
                 transform=preprocess,
             )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):

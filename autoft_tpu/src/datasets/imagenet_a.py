@@ -44,8 +44,7 @@ class ImageNetA(ImageNetSubsample):
         return CLASS_SUBLIST, CLASS_SUBLIST_MASK
 
     def get_test_path(self):
-        # return os.path.join(self.location, 'ImageNet-A')
-        return "/iris/u/cchoi1/Data/ImageNet-A"
+        return os.path.join(self.location, 'ImageNet-A')
 
     def __str__(self):
         return "ImageNetA"

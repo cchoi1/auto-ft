@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 
 import torch
 import torch_xla.core.xla_model as xm
@@ -28,11 +29,10 @@ def finetune_helper(args, device, model, loss_fn, optimizer, dataloader, input_k
     model.train()
 
     # If steps is not provided, calculate the total number of steps for the entire epoch
+    scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, args.inner_steps)
     total_steps = len(dataloader) if steps is None else steps
-    scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, total_steps)
 
     for step, batch in enumerate(dataloader):
-        # If the step count exceeds the specified number of steps, break out of the loop
         if steps is not None and step >= steps:
             break
 
@@ -57,7 +57,7 @@ def finetune_helper(args, device, model, loss_fn, optimizer, dataloader, input_k
 
 
 def _mp_inner_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed + rank)
     device = xm.xla_device()
     model = model.to(device)
     dataloader = get_dataloader(dataset, is_train=True, args=args)
@@ -72,14 +72,28 @@ def inner_finetune(args, model, loss_fn, optimizer, dataset, input_key):
 
 def _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
     """Finetune the model on the entire dataset for full epochs."""
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed + rank)
     device = xm.xla_device()
     model = model.to(device)
     dataloader = get_dataloader(dataset, is_train=True, args=args)
     total_steps = len(dataloader) * args.ft_epochs
+    scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, total_steps)
     per_epoch_eval_results = {}
 
-    for epoch in range(args.ft_epochs):
+    # Resume training from the latest checkpoint if it exists
+    start_epoch = 0
+    checkpoints = [f for f in os.listdir(args.save) if re.match(r'checkpoint_\d+\.pt', f)]
+    if checkpoints:
+        latest_checkpoint = max(checkpoints, key=lambda x: int(re.search(r'(\d+)', x).group()))
+        checkpoint_path = os.path.join(args.save, latest_checkpoint)
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state'])
+        optimizer.load_state_dict(checkpoint['optimizer_state'])
+        scheduler.load_state_dict(checkpoint['scheduler_state'])
+        start_epoch = checkpoint['epoch'] + 1  # Start next epoch after the saved epoch
+        xm.master_print(f"Found checkpoint {checkpoint_path}. Resuming training from epoch {start_epoch}.")
+
+    for epoch in range(start_epoch, args.ft_epochs):
         xm.master_print(f"Epoch {epoch} train begin {now()}")
         model = finetune_helper(args, device, model, loss_fn, optimizer, dataloader, input_key, total_steps)
         xm.master_print(f"Epoch {epoch} train end {now()}")
@@ -87,14 +101,19 @@ def _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
         # Remove the checkpoint from the previous epoch if it exists
         if epoch > 0:
             prev_checkpoint = os.path.join(args.save, f"checkpoint_{epoch - 1}.pt")
-            if os.path.exists(prev_checkpoint) and xm.master_ordinal():
+            if xm.master_ordinal() and os.path.exists(prev_checkpoint):
                 os.remove(prev_checkpoint)
                 xm.master_print(f"Removed checkpoint {prev_checkpoint}")
-        # Save the current checkpoint
-        os.makedirs(args.save, exist_ok=True)
+
+        # Save the current checkpoint along with optimizer and scheduler
         save_path = os.path.join(args.save, f"checkpoint_{epoch}.pt")
-        xm.save(model.state_dict(), save_path)
-        xm.master_print(f"Saved model to {save_path}")
+        xm.save({
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict(),
+            'epoch': epoch
+        }, save_path)
+        xm.master_print(f"Saved model, optimizer, and scheduler to {save_path}")
 
         if args.plot or epoch == args.ft_epochs - 1:
             xm.rendezvous('update_barrier')
@@ -105,6 +124,7 @@ def _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
 
     ft_results = {"model": model, "eval_results": per_epoch_eval_results}
     return ft_results
+
 
 
 def finetune(args, model, loss_fn, optimizer, dataset, input_key, spawn_required=True):

@@ -9,7 +9,7 @@ def parse_arguments():
     parser.add_argument("--method", type=str, choices=["autoft", "ft-id", "ft-id-ood", "zeroshot", "flyp"])
 
     # Datasets
-    parser.add_argument("--data-location", type=str, default=os.path.expanduser('~/data'),
+    parser.add_argument("--data-location", type=str, default=os.path.expanduser('~/robust-ft'),
                         help="The root directory for the datasets.")
     parser.add_argument("--id", default=None, type=str)
     parser.add_argument("--num_id_examples", default=-1, type=int)

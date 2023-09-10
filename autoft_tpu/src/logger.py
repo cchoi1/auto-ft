@@ -27,6 +27,7 @@ def setup_logging(args):
     logging_path = os.path.join("logs", args.save)
     xm.master_print(f"\nMODEL SAVE PATH: {args.save}")
     xm.master_print(f"\nLOGGING PATH: {logging_path}\n")
+    os.makedirs(args.save, exist_ok=True)
     os.makedirs(logging_path, exist_ok=True)
     log_filename = logging_path + "/log.log"
     logging.basicConfig(filename=log_filename,

@@ -28,15 +28,8 @@ def initialize_model(args, rank=0):
 
 def get_datasets(args, preprocess_fn):
     id_dataset_class = getattr(datasets, args.id)
-    id_dataset = id_dataset_class(
-        preprocess_fn,
-        train=True,
-        n_examples=args.num_id_examples,
-        location=args.data_location,
-        batch_size=args.batch_size,
-        num_workers=args.workers,
-    )
-
+    id_dataset = id_dataset_class(preprocess_fn, train=True, n_examples=args.num_id_examples,
+                                  location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
     ood_dataset_class = getattr(datasets, args.ood)
     n_examples = -1 if args.num_ood_unlabeled_examples is not None else args.num_ood_hp_examples
     ood_dataset_kwargs = {"preprocess": preprocess_fn, "train": True, "n_examples": n_examples,
@@ -46,7 +39,6 @@ def get_datasets(args, preprocess_fn):
     else:
         if args.ood == "CIFAR10C":
             ood_dataset_kwargs["severity"] = args.severity
-
     ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
     if args.num_ood_unlabeled_examples is not None:
         ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
@@ -59,7 +51,6 @@ def get_datasets(args, preprocess_fn):
         ood_subset_for_hp = ood_dataset
 
     all_datasets = {"id": id_dataset, "ood_subset_for_hp": ood_subset_for_hp}
-
     return all_datasets
 
 
@@ -72,6 +63,7 @@ def train(args, model, preprocess_fn):
         print_every = 100
 
     all_datasets = get_datasets(args, preprocess_fn)
+    print("Fetched all datasets")
 
     params = [p for p in model.parameters() if p.requires_grad]
     if args.method == "ft-id":

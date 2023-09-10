@@ -17,14 +17,9 @@ cd ../..
 
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
-#python src/main.py --method ft-id-ood --plot --model ViT-L/14 --data-location /iris/u/cchoi1/Data \
-#--id CIFAR10 --ood CIFAR10C --eval-datasets CIFAR101,CIFAR102,CIFAR10,CIFAR10C \
-#--lr 3.75e-6 --wd 0.1 --batch-size 64 --warmup_length 4000 --workers 4 \
-#--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_openai_cifar10.pt \
-#--num_ood_hp_examples 100 --ft_epochs 10
-
-python src/main.py --method ft-id-ood --model ViT-L/14 --data-location /iris/u/cchoi1/Data \
+python src/main.py --method ft-id-ood --model ViT-L/14 \
+--data-location /home/carolinechoi/robust-ft \
 --id CIFAR10 --ood CIFAR10C --eval-datasets CIFAR101,CIFAR102,CIFAR10,CIFAR10C \
 --lr 3.75e-6 --wd 0.1 --batch-size 64 --warmup_length 4000 --workers 4 \
---load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_openai_cifar10.pt \
---num_ood_hp_examples 190 --num_ood_unlabeled_examples 190 --ft_epochs 10
+--load /home/carolinechoi/robust-ft/zeroshot/clip_vitl14_openai_cifar10.pt \
+--num_ood_hp_examples 190 --ft_epochs 10

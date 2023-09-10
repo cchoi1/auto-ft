@@ -1,6 +1,5 @@
 import os
 
-import torch
 from torch.utils.data import ConcatDataset
 
 from .common import ImageFolderWithPaths
@@ -25,6 +24,7 @@ class ImageNetC(ImageNet):
         classnames = 'openai',
         custom = False,
     ):
+        self.location = location
         self.severity = severity
         super(ImageNetC, self).__init__(
             preprocess,
@@ -47,7 +47,7 @@ class ImageNetC(ImageNet):
             if self.n_examples > -1:
                 # Use the total number of examples per corruption and then further divide by number of classes for class-balancing
                 num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                dataset = SampledDataset(dataset, num_samples_per_class=num_samples_per_class)
+                dataset = SampledDataset(dataset, num_samples_per_class=num_samples_per_class, save_dir=self.location)
             datasets.append(dataset)
         self.dataset = ConcatDataset(datasets)
 
@@ -58,7 +58,7 @@ class ImageNetC(ImageNet):
                 dataset = CustomDataset(root=traindir, transform=self.preprocess)
                 if self.n_examples > -1:
                     num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                    dataset = SampledDataset(dataset, num_samples_per_class=num_samples_per_class)
+                    dataset = SampledDataset(dataset, num_samples_per_class=num_samples_per_class, save_dir=self.location)
                 custom_datasets.append(dataset)
             self.dataset = ConcatDataset(custom_datasets)
 

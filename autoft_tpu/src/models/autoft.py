@@ -9,11 +9,12 @@ import numpy as np
 import optuna
 
 import torch_xla
-import torch_xla.distributed.xla_multiprocessing as xmp
+from src.models.utils import cosine_lr
 import src.losses as losses
 import torch
 import torch.nn.functional as F
 import torch_xla.core.xla_model as xm
+import torch_xla.distributed.xla_multiprocessing as xmp
 
 from src.datasets.common import get_dataloader
 from src.models.finetune import finetune_helper, finetune, inner_finetune
@@ -172,13 +173,13 @@ def get_loss_weights(hyperparams, loss_type, num_losses=None):
     return loss_weights
 
 
-def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, input_key):
+def evaluate_hparams(args, net, hyperparams, id_dataset, id_dataloader, ood_hp_dataloader, input_key):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
     all_val_results = []
     for _ in range(args.repeats):
         current_net = copy.deepcopy(net)
-        model_params = [p for p in current_net.parameters()]
-        print('evaluate hparams device', model_params[0].device.type)
+        # model_params = [p for p in current_net.parameters()]
+        # print('evaluate hparams device', model_params[0].device.type)
         set_seed(hyperparams["seed"])
         optimizer = create_optimizer(current_net, hyperparams, args.loss_type)
         initial_net_params = [p for p in net.parameters()]
@@ -186,9 +187,9 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
         loss_fn = getattr(losses, args.loss_type)(loss_weight_hparams, initial_net_params)
 
         start_time = time.time()
-        # device = xm.xla_device()
-        # current_net = finetune_helper(args, device, current_net, loss_fn, optimizer, id_dataloader, input_key, steps=args.inner_steps)
-        current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key)
+        device = xm.xla_device()
+        current_net = finetune_helper(args, device, current_net, loss_fn, optimizer, id_dataloader, input_key, steps=args.inner_steps)
+        # current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataset, input_key)
         print(f"Time to finetune: {time.time() - start_time:.3f}", flush=True)
 
         start_time = time.time()
@@ -200,18 +201,22 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
         val_results[f"ood_subset_for_hp_accuracy"] = accuracy
         all_val_results.append(val_results)
 
+        del current_net
+        gc.collect()
+
     return all_val_results
 
 
-def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
+def _mp_auto_ft(rank, args, study, model, id_dataset, ood_hp_dataset, max_evals, input_key):
     """Automated fine-tuning using Optuna."""
-    model_params = [p for p in model.parameters()]
-    print(model_params[0].device.type)
+    torch.manual_seed(args.seed + rank)
+    device = xm.xla_device()
+    model = model.to(device)
     id_dataloader = get_dataloader(id_dataset, is_train=True, args=args, image_encoder=None)
     ood_hp_dataloader = get_dataloader(ood_hp_dataset, is_train=True, args=args, image_encoder=None)
     def hp_objective_fn(trial):
         hparams = HyperparameterSpace(model, args.loss_type, args.num_losses).build_space(trial)
-        val_results = evaluate_hparams(args, model, hparams, id_dataloader, ood_hp_dataloader, input_key)
+        val_results = evaluate_hparams(args, model, hparams, id_dataset, id_dataloader, ood_hp_dataloader, input_key)
         return -np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results])  # maximize accuracy
 
     if args.load_hparams is not None:
@@ -232,7 +237,12 @@ def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
     optimizer = create_optimizer(ft_model, best_hparams, args.loss_type)
     ft_model = finetune(args, model, loss_fn, optimizer, id_dataset, input_key, spawn_required=False)
 
+def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
+    """Automated fine-tuning using Optuna."""
+    study = None
+    xmp.spawn(_mp_auto_ft, args=(args, study, model, id_dataset, ood_hp_dataset, max_evals, input_key,), nprocs=8, start_method='spawn')
 
-# def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
-#     """Automated fine-tuning using Optuna."""
-#     xmp.spawn(_mp_auto_ft, args=(model, id_dataset, ood_hp_dataset, max_evals, input_key,), nprocs=8, start_method='spawn'
+    # Connect to the shared Optuna study, which is stored in a MySQL database
+    # study_name = 'distributed_optuna'  # Unique identifier of the study.
+    # study_storage = 'mysql://USERNAME:PASSWORD@IP_ADDRESS/DATABASE_NAME'  # TODO: Update with your database credentials and details
+    # study = optuna.create_study(study_name=study_name, storage=study_storage, load_if_exists=True, direction="minimize")

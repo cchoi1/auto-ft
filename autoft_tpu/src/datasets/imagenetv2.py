@@ -1,3 +1,5 @@
+import os
+
 from PIL import Image
 
 from imagenetv2_pytorch import ImageNetV2Dataset
@@ -17,8 +19,8 @@ class ImageNetV2DatasetWithPaths(ImageNetV2Dataset):
 
 class ImageNetV2(ImageNet):
     def get_test_dataset(self):
-        # return ImageNetV2DatasetWithPaths(transform=self.preprocess, location=self.location)
-        return ImageNetV2DatasetWithPaths(transform=self.preprocess, location="/iris/u/cchoi1/Data/ImageNet-V2")
+        path = os.path.join(self.location, 'ImageNetV2')
+        return ImageNetV2DatasetWithPaths(transform=self.preprocess, location=path)
 
     def __str__(self):
         return "ImageNet-V2"
