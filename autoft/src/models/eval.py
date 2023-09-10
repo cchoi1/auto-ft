@@ -1,11 +1,9 @@
 import src.datasets as datasets
 import torch
-import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
 from src.datasets.common import get_dataloader, maybe_dictionarize
 from src.models import utils
 from src.models.utils import get_device, is_tpu_available
-
+from torchvision import transforms
 
 def eval_single_dataset(image_classifier, dataset, args):
     if args.freeze_encoder:
@@ -20,8 +18,6 @@ def eval_single_dataset(image_classifier, dataset, args):
     device = get_device()
     model.to(device).eval()
     dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
-    if is_tpu_available():
-        dataloader = pl.MpDeviceLoader(dataloader, device)
     batched_data = enumerate(dataloader)
 
     if hasattr(dataset, 'post_loop_metrics'):
@@ -33,6 +29,7 @@ def eval_single_dataset(image_classifier, dataset, args):
         for i, data in batched_data:
             data = maybe_dictionarize(data)
             x = data[input_key].to(device)
+            # print('x shape', x.shape)
             y = data['labels'].to(device)
 
             if 'image_paths' in data:
@@ -70,11 +67,9 @@ def eval_single_dataset(image_classifier, dataset, args):
                 metrics['top1'] = metrics['acc']
         else:
             metrics = {}
+        torch.cuda.empty_cache()
     if 'top1' not in metrics:
         metrics['top1'] = top1
-
-    if is_tpu_available():
-        metrics = xm.mesh_reduce('metrics_reduce', metrics, lambda x: {k: sum(v) for k, v in zip(x.keys(), x.values())})
 
     return metrics
 
@@ -82,19 +77,32 @@ def eval_single_dataset(image_classifier, dataset, args):
 def evaluate(image_classifier, args):
     if args.eval_datasets is None:
         return
+    if isinstance(image_classifier, torch.nn.DataParallel):
+        if args.model == "svhn":
+            preprocess_fn = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+                transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+            ])
+        else:
+            preprocess_fn = image_classifier.module.val_preprocess
+    else:
+        preprocess_fn = image_classifier.val_preprocess
     info = vars(args)
     eval_datasets = args.eval_datasets
     for i, dataset_name in enumerate(eval_datasets):
         print('Evaluating on', dataset_name)
         dataset_class = getattr(datasets, dataset_name)
         dataset = dataset_class(
-            image_classifier.val_preprocess,
+            preprocess_fn,
             train=False,
             n_examples=-1,
             location=args.data_location,
             batch_size=args.batch_size
         )
+        print('loaded dataset')
         results = eval_single_dataset(image_classifier, dataset, args)
+        torch.cuda.empty_cache()
         if 'top1' in results:
             print(f"{dataset_name} Top-1 accuracy: {results['top1']:.4f}")
         for key, val in results.items():

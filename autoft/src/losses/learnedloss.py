@@ -12,12 +12,13 @@ class LearnedLoss(nn.Module):
     def __init__(self, hyperparams, initial_net_params):
         super().__init__()
         self.initial_net_params = initial_net_params
-        self.hyperparams = hyperparams.cuda().float()
+        self.hyperparams = hyperparams.float()
 
     def forward(self, inputs, targets, net, use_contrastive_loss=False):
         outputs = net(inputs)
         if (targets == -1).any(): # if parts of the batch are unlabeled, replace them with their pseudolabels
             pseudo_labels = torch.argmax(outputs, dim=1)
+            print(pseudo_labels)
             mask = (targets == -1)
             targets[mask] = pseudo_labels[mask]
 
@@ -44,17 +45,17 @@ class LearnedLoss(nn.Module):
         losses.extend([ce_loss, hinge_loss, entropy, dcm_loss, l1_zero, l2_zero, l1_init, l2_init])
         # losses.extend([ce_loss, hinge_loss, entropy, l1_zero, l2_zero, l1_init, l2_init])
 
-        if use_contrastive_loss:
-            image_features = net.encode_image(inputs["image"])
-            text_features = net.encode_text(inputs["text"])
-            logits_per_image = torch.matmul(image_features, text_features.t()) / self.temperature
-            logits_per_text = torch.matmul(text_features, image_features.t()) / self.temperature
-            contrastive_loss = (F.cross_entropy(logits_per_image, torch.arange(len(logits_per_image), device=device)) +
-                                F.cross_entropy(logits_per_text, torch.arange(len(logits_per_text), device=device))) / 2
-            losses.append(contrastive_loss)
+        # if use_contrastive_loss:
+        #     image_features = net.encode_image(inputs["image"])
+        #     text_features = net.encode_text(inputs["text"])
+        #     logits_per_image = torch.matmul(image_features, text_features.t()) / self.temperature
+        #     logits_per_text = torch.matmul(text_features, image_features.t()) / self.temperature
+        #     contrastive_loss = (F.cross_entropy(logits_per_image, torch.arange(len(logits_per_image), device=device)) +
+        #                         F.cross_entropy(logits_per_text, torch.arange(len(logits_per_text), device=device))) / 2
+        #     losses.append(contrastive_loss)
 
         stacked_losses = torch.stack(losses)
-        loss = torch.dot(stacked_losses, self.hyperparams.detach())
+        loss = torch.dot(stacked_losses, self.hyperparams.to(stacked_losses.device).detach())
         del losses
 
         return loss, stacked_losses.detach()

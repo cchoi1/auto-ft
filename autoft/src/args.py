@@ -43,6 +43,8 @@ def parse_arguments():
     parser.add_argument("--wd", type=float, default=0.1, help="Weight decay")
     parser.add_argument("--workers", type=int, default=4, help="Number of dataloader workers per GPU.")
     parser.add_argument("--plot", action="store_true", help="Plot results.")
+    parser.add_argument("--distributed", action="store_true")
+    parser.add_argument("--eval_only", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

@@ -4,16 +4,17 @@ import random
 
 import numpy as np
 import torch
-import torch_xla.core.xla_model as xm
+# import torch_xla.core.xla_model as xm
 
 def is_tpu_available():
-    return len(xm.get_xla_supported_devices()) > 1
+    # return len(xm.get_xla_supported_devices()) >= 8
+    return False
 
 
 def get_device(rank=0):
-    if len(xm.get_xla_supported_devices()) > 1:
-        device = xm.xla_device()
-    elif torch.cuda.is_available():
+    # if len(xm.get_xla_supported_devices()) >= 8:
+    #     device = xm.xla_device()
+    if torch.cuda.is_available():
         device = torch.device(f'cuda:{rank}')
     else:
         device = torch.device('cpu')

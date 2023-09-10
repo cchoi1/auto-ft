@@ -1,74 +1,40 @@
-import logging
-import os
 import time
+import logging
 
-import src.datasets as datasets
 import torch
-import torch_xla.core.xla_model as xm
-import torch_xla.distributed.xla_multiprocessing as xmp
 from src.args import parse_arguments
 from src.datasets.common import get_dataloader
 from src.datasets.utils import get_ood_datasets
+from src.logger import setup_logging
 from src.models.autoft import auto_ft
+from src.models.eval import evaluate
 from src.models.finetune import finetune_final
 from src.models.modeling import ImageClassifier
-from src.models.utils import is_tpu_available
-
-devices = list(range(torch.cuda.device_count()))
-device = xm.xla_device()
-
-def setup_logging(args):
-    save_dir = os.path.join(args.save, args.id, args.method)
-    os.makedirs(save_dir, exist_ok=True)
-    if args.method == "autoft":
-        method_name = f"ood{args.ood}_{args.loss_type}"
-        if args.pointwise_loss:
-            method_name += "_pw"
-        if args.num_ood_unlabeled_examples is not None:
-            method_name += "_unlabeled"
-        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
-        args.save = os.path.join(save_dir, method_name, run_details)
-    elif args.method == "ft-id-ood":
-        method_name = f"ood{args.ood}"
-        if args.num_ood_unlabeled_examples is not None:
-            method_name += "_unlabeled"
-        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
-        args.save = os.path.join(save_dir, method_name, run_details)
-    elif args.method == "ft-id":
-        run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
-        args.save = os.path.join(save_dir, run_details)
-    logging_path = os.path.join("logs", args.save)
-    xm.master_print(f"\nMODEL SAVE PATH: {args.save}")
-    xm.master_print(f"\nLOGGING PATH: {logging_path}\n")
-    os.makedirs(logging_path, exist_ok=True)
-    log_filename = logging_path + "/log.log"
-    logging.basicConfig(filename=log_filename,
-                        format='%(asctime)s %(message)s',
-                        filemode='w')
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    return logger
+from src.models.networks import get_pretrained_net_fixed
+import src.datasets as datasets
+from torchvision import transforms
 
 def initialize_model(args):
-    image_classifier = ImageClassifier.load(args.load)
-    if args.freeze_encoder:
-        model = image_classifier.classification_head
-        preprocess_fn = image_classifier.val_preprocess
+    if args.model == "svhn":
+        model = get_pretrained_net_fixed(ckpt_path="/iris/u/cchoi1/robust-optimizer/mnist/ckpts", dataset_name="svhn", output_channels=3, train=True)
+        preprocess_fn = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+        ])
     else:
-        model = image_classifier
-        preprocess_fn = image_classifier.train_preprocess
-        image_classifier.process_images = True
+        image_classifier = ImageClassifier.load(args.load)
+        if args.freeze_encoder:
+            model = image_classifier.classification_head
+            preprocess_fn = image_classifier.val_preprocess
+        else:
+            model = image_classifier
+            preprocess_fn = image_classifier.train_preprocess
+            image_classifier.process_images = True
+    devices = list(range(torch.cuda.device_count()))
+    model = model.cuda()
+    model = torch.nn.DataParallel(model, device_ids=devices)
     return model, preprocess_fn
-
-def configure_device(model):
-    if is_tpu_available():
-        device = xm.xla_device()
-    else:
-        devices = list(range(torch.cuda.device_count()))
-        model = torch.nn.DataParallel(model, device_ids=devices)
-        xm.master_print('Using devices', devices)
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    return model.to(device), device
 
 def get_datasets(args, preprocess_fn):
     id_dataset_class = getattr(datasets, args.id)
@@ -80,60 +46,44 @@ def get_datasets(args, preprocess_fn):
         batch_size=args.batch_size,
         num_workers=args.workers,
     )
-    id_val_dataset = id_dataset_class(
-        preprocess_fn,
-        train=False,
-        n_examples=args.num_id_val_examples,
-        location=args.data_location,
-        batch_size=args.batch_size,
-        num_workers=args.workers,
-    )
 
     ood_dataset_class = getattr(datasets, args.ood)
-    n_examples = args.num_ood_hp_examples + args.num_ood_unlabeled_examples if args.num_ood_unlabeled_examples is not None else args.num_ood_hp_examples
+    n_examples = -1 if args.num_ood_unlabeled_examples is not None else args.num_ood_hp_examples
     ood_dataset_kwargs = {"preprocess": preprocess_fn, "train": True, "n_examples": n_examples,
                           "location": args.data_location, "batch_size": args.batch_size, "num_workers": args.workers}
-    if args.ood == args.id:
-        ood_subset_for_hp = id_val_dataset
+    if args.ood == args.id: # Use the test split of the ID distribution as OOD
+        ood_dataset_kwargs["train"] = False
     else:
         if args.ood == "CIFAR10C":
             ood_dataset_kwargs["severity"] = args.severity
-        ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
-        if args.num_ood_unlabeled_examples is not None:
-            ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
-                ood_dataset.dataset,
-                args.num_ood_hp_examples,
-                args.num_ood_unlabeled_examples
-            )
-            ood_subset_for_hp = torch.utils.data.ConcatDataset([ood_labeled_dataset, ood_unlabeled_dataset])
-        else:
-            ood_subset_for_hp = ood_dataset
 
-    all_datasets = {"id": id_dataset, "id_val": id_val_dataset, "ood_subset_for_hp": ood_subset_for_hp}
-    for i, dataset_name in enumerate(args.eval_datasets):
-        test_dataset_class = getattr(datasets, dataset_name)
-        all_datasets[f"test{i}"] = test_dataset_class(
-            preprocess_fn,
-            train=False,
-            n_examples=-1,
-            location=args.data_location,
-            batch_size=args.batch_size,
-            num_workers=args.workers,
+    ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
+    if args.num_ood_unlabeled_examples is not None:
+        ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
+            ood_dataset.dataset,
+            args.num_ood_hp_examples,
+            args.num_ood_unlabeled_examples
         )
+        ood_subset_for_hp = torch.utils.data.ConcatDataset([ood_labeled_dataset, ood_unlabeled_dataset])
+    else:
+        ood_subset_for_hp = ood_dataset
+
+    all_datasets = {"id": id_dataset, "ood_subset_for_hp": ood_subset_for_hp}
 
     return all_datasets
 
 
 def run_method(args, model, preprocess_fn):
+    if args.eval_only:
+        return evaluate(model, args)
     if args.freeze_encoder:
         input_key = 'features'
         print_every = 1000
     else:
         input_key = 'images'
         print_every = 100
-
     all_datasets = get_datasets(args, preprocess_fn)
-
+    print("Got datasets")
     params = [p for p in model.parameters() if p.requires_grad]
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
@@ -157,11 +107,11 @@ def run_method(args, model, preprocess_fn):
     else:
         raise ValueError("Invalid method")
 
-def main(args, rank=None):
-    logger = setup_logging(args)
+def main(args, rank=0):
+    logger = logging.getLogger('main')
+    logger = setup_logging(args, logger)
     logger.info(args)
     model, preprocess_fn = initialize_model(args)
-    model, device = configure_device(model)
     run_method(args, model, preprocess_fn)
 
 
@@ -169,10 +119,6 @@ if __name__ == '__main__':
     args = parse_arguments()
     start_time = time.time()
 
-    if is_tpu_available():
-        print("TPU AVAILABLE")
-        xmp.spawn(main, args=(args,), nprocs=8, start_method='fork')
-    else:
-        main(args)
+    main(args)
 
     print(f"\nRUN TIME: {time.time() - start_time:.3f}", flush=True)
