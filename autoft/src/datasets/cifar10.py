@@ -6,8 +6,7 @@ import torch
 import torchvision
 from PIL import Image
 from src.datasets.utils import SampledDataset
-from torch.utils.data import Dataset
-from torch.utils.data import random_split
+from torch.utils.data import Dataset, random_split
 from torchvision.datasets import CIFAR10 as PyTorchCIFAR10
 from torchvision.datasets import VisionDataset
 
@@ -47,7 +46,8 @@ def convert(x):
 class BasicVisionDataset(VisionDataset):
     def __init__(self, images, targets, transform=None, target_transform=None):
         if transform is not None:
-            transform.transforms.insert(0, convert)
+            if transform.transforms[0] is not convert:
+                transform.transforms.insert(0, convert)
         super(BasicVisionDataset, self).__init__(root=None, transform=transform, target_transform=target_transform)
         assert len(images) == len(targets)
         self.images = images
@@ -173,14 +173,12 @@ class CINIC:
             class_path = os.path.join(self.data_root, cls)
             for img_name in os.listdir(class_path):
                 img_path = os.path.join(class_path, img_name)
-                img = np.array(Image.open(img_path))
-                if img.shape != (32, 32, 3): # skip the one image that is (32,32)
-                    continue
-                images.append(img)
-                labels.append(class_idx)
+                with Image.open(img_path) as img:
+                    images.append(img.copy())
+                    labels.append(class_idx)
 
         self.dataset = BasicVisionDataset(
-            images=np.array(images), targets=torch.Tensor(labels).long(),
+            images=images, targets=torch.Tensor(labels).long(),
             transform=preprocess,
         )
 
@@ -201,7 +199,6 @@ class CIFAR101:
                  num_workers=16,
                  classnames=None):
 
-        assert train is False, "CIFAR-10.1 only has a test set."
         self.train = train
         self.num_classes = 10
         data_root = os.path.join(location, "CIFAR-10.1")

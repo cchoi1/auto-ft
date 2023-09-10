@@ -1,3 +1,6 @@
+import json
+import os
+
 import numpy as np
 from torch.utils.data import Dataset
 
@@ -37,15 +40,26 @@ def get_ood_datasets(dataset, n_ood_for_hp_examples, n_ood_unlabeled_examples):
 
     return subset_for_hp, subset_unlabeled
 
-
 class SampledDataset(Dataset):
     """
     Dataset class that samples a fixed number of instances from each class in the original dataset.
     """
 
-    def __init__(self, original_dataset, num_samples_per_class):
+    def __init__(self, original_dataset, num_samples_per_class, save_dir):
         self.original_dataset = original_dataset
-        self.indices = self.get_indices(num_samples_per_class)
+        indices_file = f"{str(original_dataset)}_sample_indices_{num_samples_per_class}.json"
+        self.save_path = os.path.join(save_dir, indices_file)
+
+        if os.path.exists(self.save_path):
+            with open(self.save_path, 'r') as f:
+                self.indices = json.load(f)
+            print("Loading class-balanced indices from file.")
+            self.indices = [int(index) for index in self.indices]
+        else:
+            print("Generating class-balanced indices.")
+            self.indices = self.get_indices(num_samples_per_class)
+            with open(self.save_path, 'w') as f:
+                json.dump(self.indices, f)
 
     def __getitem__(self, index):
         return self.original_dataset[self.indices[index]]
@@ -54,7 +68,17 @@ class SampledDataset(Dataset):
         return len(self.indices)
 
     def get_indices(self, num_samples_per_class):
-        targets = np.array([target for _, target in self.original_dataset])
+        # Check the format of the first item to determine how to extract labels
+        first_item = self.original_dataset[0]
+        if isinstance(first_item, tuple):
+            # Old format: Tuple format (image, label)
+            targets = np.array([label for _, label in self.original_dataset])
+        elif isinstance(first_item, dict) and 'labels' in first_item:
+            # New format: Dictionary with keys 'images' and 'labels'
+            targets = np.array([item['labels'] for item in self.original_dataset])
+        else:
+            raise ValueError("Unsupported dataset format.")
+
         unique_classes = np.unique(targets)
 
         sampled_indices = []
@@ -62,20 +86,18 @@ class SampledDataset(Dataset):
         for cls in unique_classes:
             class_indices = np.where(targets == cls)[0]
 
-            # Check if the number of samples per class is not greater than the available samples in the dataset
             if num_samples_per_class > len(class_indices):
                 raise ValueError(
                     f"Number of samples per class for class {cls} is greater than the available samples in the dataset.")
 
-            # Subsample the appropriate number of instances from the class
             sampled_indices_class = np.random.choice(class_indices, num_samples_per_class, replace=False)
             sampled_indices.append(sampled_indices_class)
 
-        # Combine the indices from each class and shuffle them
         indices = np.concatenate(sampled_indices)
         np.random.shuffle(indices)
 
         return indices.tolist()
+
 
 class UnlabeledDatasetWrapper(Dataset):
     def __init__(self, labeled_dataset):
