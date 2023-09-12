@@ -1,30 +1,18 @@
-import json
 import os
+import re
 import time
 
 import src.datasets as datasets
 import torch
+import torch_xla.core.xla_model as xm
 from src.args import parse_arguments
-from src.datasets.common import get_dataloader
 from src.datasets.utils import get_ood_datasets
 from src.logger import setup_logging
 from src.models.autoft import auto_ft
 from src.models.eval import evaluate
 from src.models.finetune import finetune
-from src.models.modeling import ImageClassifier
+from src.models.utils import initialize_model
 
-
-def initialize_model(args, rank=0):
-    image_classifier = ImageClassifier.load(args.load)
-    if args.freeze_encoder:
-        model = image_classifier.classification_head
-        preprocess_fn = image_classifier.val_preprocess
-    else:
-        model = image_classifier
-        preprocess_fn = image_classifier.train_preprocess
-        image_classifier.process_images = True
-
-    return model, preprocess_fn
 
 def get_datasets(args, preprocess_fn):
     id_dataset_class = getattr(datasets, args.id)
@@ -65,44 +53,59 @@ def train(args, model, preprocess_fn):
     all_datasets = get_datasets(args, preprocess_fn)
     print("Fetched all datasets")
 
-    params = [p for p in model.parameters() if p.requires_grad]
+    ft_eval_results = {}
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
+        params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        ft_model, ft_eval_results = finetune(args, model, loss_fn, optimizer, all_datasets["id"], input_key)
+        ft_eval_results = finetune(args, model, loss_fn, optimizer, all_datasets["id"], input_key)
     elif args.method == "ft-id-ood":
         loss_fn = torch.nn.CrossEntropyLoss()
         if hasattr(all_datasets["ood_subset_for_hp"], "dataset"):
             id_ood_dataset = torch.utils.data.ConcatDataset([all_datasets["id"].dataset, all_datasets["ood_subset_for_hp"].dataset])
         else:
             id_ood_dataset = torch.utils.data.ConcatDataset([all_datasets["id"].dataset, all_datasets["ood_subset_for_hp"]])
+        params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        ft_model, ft_eval_results = finetune(args, model, loss_fn, optimizer, id_ood_dataset, input_key)
+        ft_eval_results = finetune(args, model, loss_fn, optimizer, id_ood_dataset, input_key)
     elif args.method == "autoft":
-        auto_ft(args, model, all_datasets["id"], all_datasets["ood_subset_for_hp"], max_evals=args.autoft_epochs, input_key=input_key)
+        ft_eval_results = auto_ft(args, model, all_datasets["id"], all_datasets["ood_subset_for_hp"], max_evals=args.autoft_epochs, input_key=input_key)
     else:
         raise ValueError("Invalid method")
 
-    return ft_model, ft_eval_results
+    return ft_eval_results
+
+
+def test(model, ckpt_path, logger):
+    model.load(ckpt_path)
+    xm.master_print(f"Evaluating checkpoint at {ckpt_path}...")
+    logger.info(f"Evaluating checkpoint at {ckpt_path}...")
+    evaluate(model, args, spawn_required=True)
+
 
 def main(args, rank=0):
     logger = setup_logging(args)
     logger.info(args)
     model, preprocess_fn = initialize_model(args, rank)
     if args.eval_only:
-        model.load(args.load)
-        evaluate(model, args, spawn_required=True)
-    train(args, model, preprocess_fn)
+        return test(args, args.load, logger)
+    else:
+        ft_eval_results = train(args, model, preprocess_fn)
+        ckpts = [f for f in os.listdir(args.save) if re.match(r'checkpoint_\d+\.pt', f)]
+        if ckpts:
+            last_ckpt = max(ckpts, key=lambda x: int(re.search(r'(\d+)', x).group()))
+            ckpt_path = os.path.join(args.save, last_ckpt)
+        return test(model, ckpt_path, logger)
 
 
 if __name__ == '__main__':
     args = parse_arguments()
     start_time = time.time()
 
-    # if is_tpu_available():
-    #     print("TPU AVAILABLE, SPAWNING PROCESSES")
-    #     xmp.spawn(main, args=(args,), nprocs=8, start_method='spawn')
-    # else:
-    main(args)
+    os.environ["PYTHONPATH"] = "${PYTHONPATH}:/home/carolinechoi/robust-optimizer/autoft_tpu/"
+    os.environ['XRT_TPU_CONFIG'] = 'localservice;0;localhost:51011'
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
 
-    print(f"\nRUN TIME: {time.time() - start_time:.3f}", flush=True)
+    main(args)
+    xm.master_print("Run time: {:.3f} s".format(time.time() - start_time))

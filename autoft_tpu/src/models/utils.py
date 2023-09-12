@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
+from src.models.modeling import ImageClassifier
 
 def _get_device_spec(device):
   ordinal = xm.get_ordinal(defval=-1)
@@ -36,14 +37,17 @@ def print_train_update(device, tracker, loss, step, total_steps, epoch=None):
   ]
   xm.master_print('|', ' '.join(item for item in update_data if item), flush=True)
 
-def setup_net(net):
-    """Configure the model for multi-core TPU or multi-GPU if available."""
-    if is_tpu_available():
-        devices = xm.get_xla_supported_devices()
-        net = xm.replicate(net, devices=devices)
-    elif torch.cuda.device_count() > 1:
-        net = torch.nn.DataParallel(net)
-    return net
+def initialize_model(args, rank=0):
+    image_classifier = ImageClassifier.load(args.load)
+    if args.freeze_encoder:
+        model = image_classifier.classification_head
+        preprocess_fn = image_classifier.val_preprocess
+    else:
+        model = image_classifier
+        preprocess_fn = image_classifier.train_preprocess
+        image_classifier.process_images = True
+
+    return model, preprocess_fn
 
 def setup_dataloader(dataloader, device):
     """Configure the dataloader for multi-core TPU or multi-GPU if available."""

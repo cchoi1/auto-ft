@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import gc
 
 import torch
 import torch_xla.core.xla_model as xm
@@ -11,7 +12,6 @@ from src.losses.layerwiseloss import LayerwiseLoss
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import evaluate
 from src.models.utils import cosine_lr, print_train_update, now
-import torch_xla.debug.metrics as met
 
 logger = logging.getLogger('main')
 
@@ -32,10 +32,10 @@ def finetune_helper(args, device, model, loss_fn, optimizer, dataloader, input_k
     scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, args.inner_steps)
     total_steps = len(dataloader) if steps is None else steps
 
-    for step, batch in enumerate(dataloader):
+    step = 0
+    for batch in dataloader:
         if steps is not None and step >= steps:
             break
-
         scheduler(step)
         optimizer.zero_grad()
 
@@ -46,12 +46,19 @@ def finetune_helper(args, device, model, loss_fn, optimizer, dataloader, input_k
         loss = compute_loss(loss_fn, inputs, labels, model)
         loss.backward()
 
-        params = list(model.parameters())
-        torch.nn.utils.clip_grad_norm_(params, 1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         xm.optimizer_step(optimizer)
         tracker.add(args.batch_size)
-        if step % 100 == 0:
-            print_train_update(device, tracker, loss, step, total_steps, epoch=None)
+        # if step % 100 == 0:
+        #     # print_train_update(device, tracker, loss, step, total_steps, epoch=None)
+        #     memory_info = xm.get_memory_info(device)
+        #     xm.master_print(
+        #         f"TPU Memory Used (after print_train_update): {memory_info['kb_total'] - memory_info['kb_free']} KB")
+        step += 1
+        del batch; del inputs; del labels; del loss
+
+    del tracker; del loss_fn; del optimizer; del scheduler; del dataloader
+    gc.collect()
 
     return model
 
@@ -82,28 +89,31 @@ def _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
 
     # Resume training from the latest checkpoint if it exists
     start_epoch = 0
-    checkpoints = [f for f in os.listdir(args.save) if re.match(r'checkpoint_\d+\.pt', f)]
-    if checkpoints:
-        latest_checkpoint = max(checkpoints, key=lambda x: int(re.search(r'(\d+)', x).group()))
-        checkpoint_path = os.path.join(args.save, latest_checkpoint)
-        checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint['model_state'])
-        optimizer.load_state_dict(checkpoint['optimizer_state'])
-        scheduler.load_state_dict(checkpoint['scheduler_state'])
-        start_epoch = checkpoint['epoch'] + 1  # Start next epoch after the saved epoch
-        xm.master_print(f"Found checkpoint {checkpoint_path}. Resuming training from epoch {start_epoch}.")
+    ckpts = [f for f in os.listdir(args.save) if re.match(r'checkpoint_\d+\.pt', f)]
+    if ckpts:
+        last_ckpt = max(ckpts, key=lambda x: int(re.search(r'(\d+)', x).group()))
+        ckpt_path = os.path.join(args.save, last_ckpt)
+        ckpt = torch.load(ckpt_path)
+        model.load_state_dict(ckpt['model_state'])
+        optimizer.load_state_dict(ckpt['optimizer_state'])
+        scheduler.load_state_dict(ckpt['scheduler_state'])
+        start_epoch = ckpt['epoch'] + 1  # Start next epoch after the saved epoch
+        xm.master_print(f"Found checkpoint {ckpt_path}. Resuming training from epoch {start_epoch}.")
+        logger.info(f"Found checkpoint {ckpt_path}. Resuming training from epoch {start_epoch}.")
 
     for epoch in range(start_epoch, args.ft_epochs):
         xm.master_print(f"Epoch {epoch} train begin {now()}")
         model = finetune_helper(args, device, model, loss_fn, optimizer, dataloader, input_key, total_steps)
         xm.master_print(f"Epoch {epoch} train end {now()}")
+        logger.info(f"Epoch {epoch} train end {now()}")
 
         # Remove the checkpoint from the previous epoch if it exists
         if epoch > 0:
-            prev_checkpoint = os.path.join(args.save, f"checkpoint_{epoch - 1}.pt")
-            if xm.master_ordinal() and os.path.exists(prev_checkpoint):
-                os.remove(prev_checkpoint)
-                xm.master_print(f"Removed checkpoint {prev_checkpoint}")
+            prev_ckpt = os.path.join(args.save, f"checkpoint_{epoch - 1}.pt")
+            if xm.master_ordinal() and os.path.exists(prev_ckpt):
+                os.remove(prev_ckpt)
+                xm.master_print(f"Removed checkpoint {prev_ckpt}")
+                logger.info(f"Removed checkpoint {prev_ckpt}")
 
         # Save the current checkpoint along with optimizer and scheduler
         save_path = os.path.join(args.save, f"checkpoint_{epoch}.pt")
@@ -114,6 +124,7 @@ def _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
             'epoch': epoch
         }, save_path)
         xm.master_print(f"Saved model, optimizer, and scheduler to {save_path}")
+        logger.info(f"Saved model, optimizer, and scheduler to {save_path}")
 
         if args.plot or epoch == args.ft_epochs - 1:
             xm.rendezvous('update_barrier')
