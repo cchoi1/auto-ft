@@ -64,7 +64,7 @@ def parse_arguments():
     parser.add_argument(
         "--save",
         type=str,
-        default="./saved",
+        default="/home/carolinechoi/robust-ft/expts",
         help=
         "Directory to save models and results. If not provided, will not save anything.",
     )
