@@ -45,9 +45,10 @@ class SampledDataset(Dataset):
     Dataset class that samples a fixed number of instances from each class in the original dataset.
     """
 
-    def __init__(self, original_dataset, num_samples_per_class, save_dir):
-        self.original_dataset = original_dataset
-        indices_file = f"{str(original_dataset)}_sample_indices_{num_samples_per_class}.json"
+    def __init__(self, dataset, dataset_name, num_samples_per_class, save_dir):
+        self.dataset = dataset
+        os.makedirs(save_dir, exist_ok=True)
+        indices_file = f"{dataset_name}_sample_indices_{num_samples_per_class}.json"
         self.save_path = os.path.join(save_dir, indices_file)
 
         if os.path.exists(self.save_path):
@@ -62,20 +63,20 @@ class SampledDataset(Dataset):
                 json.dump(self.indices, f)
 
     def __getitem__(self, index):
-        return self.original_dataset[self.indices[index]]
+        return self.dataset[self.indices[index]]
 
     def __len__(self):
         return len(self.indices)
 
     def get_indices(self, num_samples_per_class):
         # Check the format of the first item to determine how to extract labels
-        first_item = self.original_dataset[0]
+        first_item = self.dataset[0]
         if isinstance(first_item, tuple):
             # Old format: Tuple format (image, label)
-            targets = np.array([label for _, label in self.original_dataset])
+            targets = np.array([label for _, label in self.dataset])
         elif isinstance(first_item, dict) and 'labels' in first_item:
             # New format: Dictionary with keys 'images' and 'labels'
-            targets = np.array([item['labels'] for item in self.original_dataset])
+            targets = np.array([item['labels'] for item in self.dataset])
         else:
             raise ValueError("Unsupported dataset format.")
 

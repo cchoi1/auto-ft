@@ -17,14 +17,8 @@ cd ../..
 
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
-#python src/main.py --method ft-id --model ViT-B/16 --data-location /iris/u/yoonho/data \
-#--id ImageNet --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet,ImageNetC \
-#--ft_epochs 10 --lr 3e-5 --wd 0.1 --batch-size 512 --warmup_length 500 --workers 2 \
-#--load ./zeroshot/clip_vitb16_imagenet.pt --save ft-id-ood- --exp_name ImageNet/FT \
-#--num_ood_examples 10000 --num_ood_hp_examples 100 --results-db ./results/ImageNet/ft-id
-
-python src/main.py --method ft-id --model ViT-B/16 --data-location /iris/u/yoonho/data \
+python3 src/main.py --method ft-id --model ViT-B/16 --data-location /home/carolinechoi/robust-ft \
 --id ImageNet --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet,ImageNetC \
---ft_epochs 10 --lr 1.5e-5 --wd 0.1 --batch-size 256 --workers 2 \
---load ./zeroshot/clip_vitb16_imagenet.pt --save ft-id- --exp_name ImageNet/FT \
---num_ood_examples 10000 --num_ood_hp_examples 100 --results-db ./results/ImageNet/ft-id --warmup_length 1000
+--ft_epochs 10 --lr 3e-5 --wd 0.1 --batch-size 16 \
+--load /home/carolinechoi/robust-ft/zeroshot/clip_vitb16_imagenet.pt \
+--num_ood_hp_examples 1000 --warmup_length 4000

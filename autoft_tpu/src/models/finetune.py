@@ -142,6 +142,6 @@ def finetune(args, model, loss_fn, optimizer, dataset, input_key, spawn_required
     if spawn_required:
         xmp.spawn(_mp_finetune, args=(args,model,loss_fn,optimizer,dataset,input_key,), nprocs=8, start_method='spawn')
     else:
-        rank = xm.get_ordinal()
+        rank = xm.xla_device()
         ft_results = _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key)
         return ft_results

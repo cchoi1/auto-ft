@@ -47,7 +47,7 @@ class ImageNetC(ImageNet):
             if self.n_examples > -1:
                 # Use the total number of examples per corruption and then further divide by number of classes for class-balancing
                 num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                dataset = SampledDataset(dataset, num_samples_per_class=num_samples_per_class, save_dir=self.location)
+                dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class, save_dir="./data")
             datasets.append(dataset)
         self.dataset = ConcatDataset(datasets)
 
@@ -58,7 +58,7 @@ class ImageNetC(ImageNet):
                 dataset = CustomDataset(root=traindir, transform=self.preprocess)
                 if self.n_examples > -1:
                     num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                    dataset = SampledDataset(dataset, num_samples_per_class=num_samples_per_class, save_dir=self.location)
+                    dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class, save_dir="./data")
                 custom_datasets.append(dataset)
             self.dataset = ConcatDataset(custom_datasets)
 

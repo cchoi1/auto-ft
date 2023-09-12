@@ -34,7 +34,7 @@ class MNIST:
         )
         self.num_classes = 10
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
 
         self.classnames = self.dataset.classes
 

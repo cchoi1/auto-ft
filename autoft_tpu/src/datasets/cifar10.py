@@ -31,7 +31,7 @@ class CIFAR10:
         )
         self.num_classes = 10
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
 
         self.classnames = self.dataset.classes
 
@@ -178,7 +178,7 @@ class CINIC:
         )
 
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
 
     def __str__(self):
         return "CINIC"
@@ -209,7 +209,7 @@ class CIFAR101:
             transform=preprocess,
         )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):
@@ -251,7 +251,7 @@ class CIFAR102:
                 transform=preprocess,
             )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes, save_dir=self.location)
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):

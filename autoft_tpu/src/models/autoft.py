@@ -241,7 +241,6 @@ def _mp_auto_ft(rank, args, model, id_dataset, ood_hp_dataset, storage_url, max_
         objective = -np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results])
         del val_results
         gc.collect()
-        # xm.mark_step()
         return objective
 
     if args.load_hparams is not None:
@@ -273,5 +272,5 @@ def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
     DATABASE_NAME = "optuna"
     storage_url = f"mysql+mysqlconnector://{USER}:{PASSWORD}@{IP_ADDRESS}/{DATABASE_NAME}"
     get_or_create_study(study_name=args.save, storage_url=storage_url, direction="minimize", load_existing_study=args.load_existing_study)
-    _mp_auto_ft(0, args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key)
-    # xmp.spawn(_mp_auto_ft, args=(args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key,), nprocs=8, start_method='spawn')
+    # _mp_auto_ft(0, args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key)
+    xmp.spawn(_mp_auto_ft, args=(args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key,), nprocs=8, start_method='spawn')
