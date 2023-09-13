@@ -3,41 +3,40 @@ import os
 import numpy as np
 from torch.utils.data import Dataset
 
-def get_ood_datasets(dataset, n_ood_for_hp_examples, n_ood_unlabeled_examples):
+def get_ood_datasets(dataset, num_labeled_examples, num_unlabeled_examples):
     targets = np.array([target for _, target in dataset])
     unique_classes = np.unique(targets)
 
-    n_ood_for_hp_per_class = n_ood_for_hp_examples // len(unique_classes)
-    n_ood_unlabeled_per_class = n_ood_unlabeled_examples // len(unique_classes)
+    num_labeled_per_class = num_labeled_examples // len(unique_classes)
+    if num_unlabeled_examples is not None:
+        num_unlabeled_per_class = num_unlabeled_examples // len(unique_classes)
+    else:
+        num_unlabeled_per_class = 0
 
-    sampled_indices_for_hp = []
+    sampled_indices_labeled = []
     sampled_indices_unlabeled = []
-
     for cls in unique_classes:
         class_indices = np.where(targets == cls)[0]
-        if n_ood_for_hp_per_class + n_ood_unlabeled_per_class > len(class_indices):
+        if num_labeled_per_class + num_unlabeled_per_class > len(class_indices):
             raise ValueError(f"Total number of required samples for class {cls} exceeds available samples.")
-        sampled_indices_class = np.random.choice(class_indices, n_ood_for_hp_per_class + n_ood_unlabeled_per_class,
-                                                     replace=False)
+        sampled_class_indices = np.random.choice(class_indices, num_labeled_per_class + num_unlabeled_per_class, replace=False)
 
-        sampled_indices_for_hp_class = sampled_indices_class[:n_ood_for_hp_per_class]
-        sampled_indices_unlabeled_class = sampled_indices_class[n_ood_for_hp_per_class:]
+        sampled_class_indices_labeled = sampled_class_indices[:num_labeled_per_class]
+        sampled_class_indices_unlabeled = sampled_class_indices[num_labeled_per_class:]
+        sampled_indices_labeled.append(sampled_class_indices_labeled)
+        sampled_indices_unlabeled.append(sampled_class_indices_unlabeled)
 
-        sampled_indices_for_hp.append(sampled_indices_for_hp_class)
-        sampled_indices_unlabeled.append(sampled_indices_unlabeled_class)
-
-    indices_for_hp = np.concatenate(sampled_indices_for_hp)
-    np.random.shuffle(indices_for_hp)
+    indices_labeled = np.concatenate(sampled_indices_labeled)
+    np.random.shuffle(indices_labeled)
     indices_unlabeled = np.concatenate(sampled_indices_unlabeled)
     np.random.shuffle(indices_unlabeled)
 
-    subset_for_hp = SampledDataset(dataset, num_samples_per_class=n_ood_for_hp_per_class)
-    subset_unlabeled = UnlabeledDatasetWrapper(SampledDataset(dataset, num_samples_per_class=n_ood_unlabeled_per_class))
-
-    subset_for_hp.indices = indices_for_hp.tolist()
+    subset_labeled = SampledDataset(dataset, num_samples_per_class=num_labeled_per_class)
+    subset_unlabeled = UnlabeledDatasetWrapper(SampledDataset(dataset, num_samples_per_class=num_unlabeled_per_class))
+    subset_labeled.indices = indices_labeled.tolist()
     subset_unlabeled.indices = indices_unlabeled.tolist()
 
-    return subset_for_hp, subset_unlabeled
+    return subset_labeled, subset_unlabeled
 
 
 class SampledDataset(Dataset):

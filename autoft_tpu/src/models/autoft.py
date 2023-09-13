@@ -34,22 +34,17 @@ def evaluate_net(net, dataloader):
 
         output = net(x)
         pred = output.max(1, keepdim=True)[1]
-        correct += pred.eq(y.view_as(pred)).sum()
+        correct += pred.eq(y.view_as(pred)).sum().item()
         total_samples += x.size()[0]
-        loss = F.cross_entropy(output, y)
-        losses.append(loss)
-
-        del batch; del x; del y; del output; del pred; del loss
+        losses.append(F.cross_entropy(output, y).item())
+        del batch; del x; del y; del output; del pred
         gc.collect()
 
-    xm.master_print('finished epoch in evaluate_net')
-    loss = xm.mesh_reduce("loss_mean", torch.stack(losses).mean().item(), np.mean)
-    accuracy = 100.0 * correct.item() / total_samples
-    accuracy = xm.mesh_reduce("ood_hp_accuracy", accuracy, np.mean)
-    del losses; del total_samples; del correct
+    avg_loss = np.mean(losses)
+    del losses
     gc.collect()
 
-    return loss, accuracy
+    return avg_loss, 100.0 * correct / total_samples
 
 
 def print_hparams(hparams):
@@ -82,37 +77,48 @@ class HyperparameterSpace:
         if loss_type == "LayerwiseLoss":
             assert num_losses is not None
 
-    def _base_space(self, trial, prefix):
-        return {
-            f"{prefix}lr": trial.suggest_float(f"{prefix}lr", 1e-5, 1e-2, log=True),
-            f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0),
-            **{f"{prefix}lossw_{i}": trial.suggest_float(f"{prefix}lossw_{i}", 1e-5, 1e-2, log=True) for i in range(self.num_losses)}
-        }
+    def _base_space(self, trial, prefix, use_none=False):
+        if use_none:
+            return {
+                f"{prefix}lr": None,
+                f"{prefix}wd": None,
+                **{f"{prefix}lossw_{i}": None for i in range(self.num_losses)}
+            }
+        else:
+            return {
+                f"{prefix}lr": trial.suggest_float(f"{prefix}lr", 1e-5, 1e-2, log=True),
+                f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0),
+                **{f"{prefix}lossw_{i}": trial.suggest_float(f"{prefix}lossw_{i}", 1e-5, 1e-2, log=True) for i in range(self.num_losses)}
+            }
 
-    def build_learned_loss_space(self, trial):
-        hparams = self._base_space(trial, "")
-        hparams["seed"] = trial.suggest_int("seed", 0, 100)
+    def build_learned_loss_space(self, trial, use_none=False):
+        hparams = self._base_space(trial, "", use_none)
+        if use_none:
+            hparams["seed"] = None
+        else:
+            hparams["seed"] = trial.suggest_int("seed", 0, 100)
         return hparams
 
-    def build_layerwise_loss_space(self, trial):
+    def build_layerwise_loss_space(self, trial, use_none=False):
+        #TODO add use_none for layerwise loss
         hparams = {}
         layer_idx = 0
         for name, module in self.model.image_encoder.named_children():
             if name == 'model':
                 for sub_module in [module.visual.conv1, module.visual.ln_pre, *module.visual.transformer.resblocks]:
-                    hparams.update(self._base_space(trial, f"{layer_idx}_"))
+                    hparams.update(self._base_space(trial, f"{layer_idx}_", use_none))
                     layer_idx += 1
                 # Classification head of the model
-                hparams.update(self._base_space(trial, f"{layer_idx}_"))
+                hparams.update(self._base_space(trial, f"{layer_idx}_", use_none))
         hparams["seed"] = trial.suggest_int("seed", 0, 100)
         return hparams
 
-    def build_space(self, trial):
+    def build_space(self, trial, use_none=False):
         if self.loss_type == "LayerwiseLoss":
-            return self.build_layerwise_loss_space(trial)
+            return self.build_layerwise_loss_space(trial, use_none)
         else:
             assert self.num_losses is not None
-            return self.build_learned_loss_space(trial)
+            return self.build_learned_loss_space(trial, use_none)
         del self.model
         gc.collect()
 
@@ -216,10 +222,11 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
         del id_dataloader; del optimizer; del loss_fn; del initial_net_params; del loss_weight_hparams
         gc.collect()
 
-        val_results = dict()
         loss, accuracy = evaluate_net(current_net, ood_hp_dataloader)
-        val_results[f"ood_subset_for_hp_loss"] = loss
-        val_results[f"ood_subset_for_hp_accuracy"] = accuracy
+        val_results = {
+            "ood_subset_for_hp_loss": loss,
+            "ood_subset_for_hp_accuracy": accuracy
+        }
         all_val_results.append(val_results)
         del ood_hp_dataloader; del current_net
         gc.collect()
@@ -230,18 +237,26 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
 def _mp_auto_ft(rank, args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key):
     """Automated fine-tuning using Optuna."""
     xm.master_print("Starting _mp_auto_ft")
-    torch.manual_seed(args.seed + rank)
     device = xm.xla_device()
     model = model.to(device)
     id_dataloader = get_dataloader(id_dataset, is_train=True, args=args, image_encoder=None)
     ood_hp_dataloader = get_dataloader(ood_hp_dataset, is_train=True, args=args, image_encoder=None)
     def hp_objective_fn(trial):
-        hparams = HyperparameterSpace(model, args.loss_type, args.num_losses).build_space(trial)
+        if xm.get_ordinal() == 0:
+            hparams = HyperparameterSpace(model, args.loss_type, args.num_losses).build_space(trial)
+        else:
+            hparams = None
+        hparams_str = json.dumps(hparams)
+        shared_hparams_strs = xm.rendezvous("share_hparams", hparams_str)
+        hparams = json.loads(shared_hparams_strs[0])  # Assuming the same hyperparams are returned from all cores
         val_results = evaluate_hparams(args, model, hparams, id_dataloader, ood_hp_dataloader, input_key)
-        objective = -np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results])
-        del val_results
+
+        loss_avg = xm.mesh_reduce("ood_loss", np.mean([r["ood_subset_for_hp_loss"] for r in val_results]), np.mean)
+        acc_avg = xm.mesh_reduce("ood_accuracy", np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results]), np.mean)
+        del val_results; del loss_avg
         gc.collect()
-        return objective
+
+        return -acc_avg
 
     if args.load_hparams is not None:
         with open(args.load_hparams, 'r') as f:
@@ -264,6 +279,7 @@ def _mp_auto_ft(rank, args, model, id_dataset, ood_hp_dataset, storage_url, max_
     optimizer = create_optimizer(ft_model, best_hparams, args.loss_type)
     finetune(args, model, loss_fn, optimizer, id_dataset, input_key, spawn_required=False)
 
+
 def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
     """Automated fine-tuning using Optuna."""
     PASSWORD = "robust-ft"
@@ -272,5 +288,4 @@ def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
     DATABASE_NAME = "optuna"
     storage_url = f"mysql+mysqlconnector://{USER}:{PASSWORD}@{IP_ADDRESS}/{DATABASE_NAME}"
     get_or_create_study(study_name=args.save, storage_url=storage_url, direction="minimize", load_existing_study=args.load_existing_study)
-    # _mp_auto_ft(0, args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key)
     xmp.spawn(_mp_auto_ft, args=(args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key,), nprocs=8, start_method='spawn')

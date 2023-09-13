@@ -13,6 +13,7 @@ CIFAR_CLASSNAMES = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'fro
 CIFAR10_CORRUPTIONS = ["brightness", "contrast", "defocus_blur", "elastic_transform", "fog", "frost", "gaussian_blur",
                        "gaussian_noise", "glass_blur", "impulse_noise", "jpeg_compression", "motion_blur", "pixelate",
                        "saturate", "shot_noise", "snow", "spatter", "speckle_noise", "zoom_blur"]
+SAVE_DIR = "/home/carolinechoi/robust-ft/data/"
 
 class CIFAR10:
     def __init__(self,
@@ -31,7 +32,7 @@ class CIFAR10:
         )
         self.num_classes = 10
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir=SAVE_DIR)
 
         self.classnames = self.dataset.classes
 
@@ -178,7 +179,7 @@ class CINIC:
         )
 
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir=SAVE_DIR)
 
     def __str__(self):
         return "CINIC"
@@ -209,7 +210,7 @@ class CIFAR101:
             transform=preprocess,
         )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir=SAVE_DIR)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):
@@ -251,7 +252,7 @@ class CIFAR102:
                 transform=preprocess,
             )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir="./data")
+            self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes, save_dir=SAVE_DIR)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):

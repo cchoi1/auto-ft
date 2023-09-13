@@ -6,12 +6,12 @@ import src.datasets as datasets
 import torch
 import torch_xla.core.xla_model as xm
 from src.args import parse_arguments
-from src.datasets.utils import get_ood_datasets
 from src.logger import setup_logging
 from src.models.autoft import auto_ft
 from src.models.eval import evaluate
 from src.models.finetune import finetune
 from src.models.utils import initialize_model
+from src.datasets.utils import UnlabeledDatasetWrapper
 
 
 def get_datasets(args, preprocess_fn):
@@ -29,12 +29,14 @@ def get_datasets(args, preprocess_fn):
             ood_dataset_kwargs["severity"] = args.severity
     ood_dataset = ood_dataset_class(**ood_dataset_kwargs)
     if args.num_ood_unlabeled_examples is not None:
-        ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
-            ood_dataset.dataset,
-            args.num_ood_hp_examples,
-            args.num_ood_unlabeled_examples
-        )
-        ood_subset_for_hp = torch.utils.data.ConcatDataset([ood_labeled_dataset, ood_unlabeled_dataset])
+        # ood_labeled_dataset, ood_unlabeled_dataset = get_ood_datasets(
+        #     ood_dataset.dataset,
+        #     args.num_ood_hp_examples,
+        #     args.num_ood_unlabeled_examples
+        # )
+        # ood_subset_for_hp = torch.utils.data.ConcatDataset([ood_labeled_dataset, ood_unlabeled_dataset])
+        ood_subset_for_hp = UnlabeledDatasetWrapper(ood_dataset)
+        xm.master_print("Using unlabeled OOD data...")
     else:
         ood_subset_for_hp = ood_dataset
 

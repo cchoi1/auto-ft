@@ -130,7 +130,7 @@ def _mp_evaluate(rank, image_classifier, args, spawn_required=True):
         logger.info(json.dumps(info, indent=4))
         os.makedirs(args.save, exist_ok=True)
         results_path = os.path.join(args.save, 'eval_results.json')
-        with open(results_path, 'wb') as f:
+        with open(results_path, 'w') as f:
             f.write(json.dumps(info))
         xm.master_print(f'\nSaved evaluation results to {results_path}.')
 

@@ -9,6 +9,7 @@ from .utils import SampledDataset
 IMAGENET_CORRUPTIONS = ["brightness", "contrast", "defocus_blur", "elastic_transform", "fog", "frost", "gaussian_noise",
                         "glass_blur", "impulse_noise", "jpeg_compression", "motion_blur", "pixelate", "shot_noise",
                         "snow", "zoom_blur"]
+SAVE_DIR = "/home/carolinechoi/robust-ft/data/"
 
 class ImageNetC(ImageNet):
 
@@ -47,7 +48,7 @@ class ImageNetC(ImageNet):
             if self.n_examples > -1:
                 # Use the total number of examples per corruption and then further divide by number of classes for class-balancing
                 num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class, save_dir="./data")
+                dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class, save_dir=SAVE_DIR)
             datasets.append(dataset)
         self.dataset = ConcatDataset(datasets)
 
@@ -58,7 +59,7 @@ class ImageNetC(ImageNet):
                 dataset = CustomDataset(root=traindir, transform=self.preprocess)
                 if self.n_examples > -1:
                     num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                    dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class, save_dir="./data")
+                    dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class, save_dir=SAVE_DIR)
                 custom_datasets.append(dataset)
             self.dataset = ConcatDataset(custom_datasets)
 

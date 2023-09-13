@@ -196,7 +196,6 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     Returns:
         DataLoader for the given dataset.
     """
-
     kwargs = {"batch_size": args.batch_size, "num_workers": args.workers, "persistent_workers": args.persistent_workers,
               "prefetch_factor": args.prefetch_factor}
     if sampler is not None:

@@ -49,11 +49,8 @@ def finetune_helper(args, device, model, loss_fn, optimizer, dataloader, input_k
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         xm.optimizer_step(optimizer)
         tracker.add(args.batch_size)
-        # if step % 100 == 0:
-        #     # print_train_update(device, tracker, loss, step, total_steps, epoch=None)
-        #     memory_info = xm.get_memory_info(device)
-        #     xm.master_print(
-        #         f"TPU Memory Used (after print_train_update): {memory_info['kb_total'] - memory_info['kb_free']} KB")
+        if step % 100 == 0:
+            print_train_update(device, tracker, loss, step, total_steps, epoch=None)
         step += 1
         del batch; del inputs; del labels; del loss
 
@@ -96,7 +93,9 @@ def _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
         ckpt = torch.load(ckpt_path)
         model.load_state_dict(ckpt['model_state'])
         optimizer.load_state_dict(ckpt['optimizer_state'])
-        scheduler.load_state_dict(ckpt['scheduler_state'])
+        scheduler_params = ckpt['scheduler_params']
+        scheduler = cosine_lr(optimizer, scheduler_params['base_lrs'], scheduler_params['warmup_length'],
+                              scheduler_params['steps'])
         start_epoch = ckpt['epoch'] + 1  # Start next epoch after the saved epoch
         xm.master_print(f"Found checkpoint {ckpt_path}. Resuming training from epoch {start_epoch}.")
         logger.info(f"Found checkpoint {ckpt_path}. Resuming training from epoch {start_epoch}.")
@@ -117,10 +116,16 @@ def _mp_finetune(rank, args, model, loss_fn, optimizer, dataset, input_key):
 
         # Save the current checkpoint along with optimizer and scheduler
         save_path = os.path.join(args.save, f"checkpoint_{epoch}.pt")
+        current_step = epoch * len(dataloader)
         xm.save({
             'model_state': model.state_dict(),
             'optimizer_state': optimizer.state_dict(),
-            'scheduler_state': scheduler.state_dict(),
+            'scheduler_params': {
+                'base_lrs': args.lr,
+                'warmup_length': args.warmup_length,
+                'steps': total_steps,
+                'current_step': current_step
+            },
             'epoch': epoch
         }, save_path)
         xm.master_print(f"Saved model, optimizer, and scheduler to {save_path}")
