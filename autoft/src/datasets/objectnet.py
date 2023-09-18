@@ -14,7 +14,7 @@ from .imagenet import ImageNet, ImageNetSubsampleValClasses
 
 
 def get_metadata():
-    metadata = Path(__file__).parent / 'objectnet_metadata'
+    metadata = Path(__file__).parent / 'mappings'
 
     with open(metadata / 'folder_to_objectnet_label.json', 'r') as f:
         folder_map = json.load(f)
@@ -102,7 +102,7 @@ class ObjectNetBase(ImageNet):
         pass
 
     def get_test_dataset(self):
-        subdir = 'objectnet-1.0/images'
+        subdir = 'ObjectNet/images'
         valdir = os.path.join(self.location, subdir)
         label_map = {name: idx for idx, name in enumerate(sorted(list(self.folders_to_ids.keys())))}
         return ObjectNetDataset(label_map, valdir, transform=self.preprocess)

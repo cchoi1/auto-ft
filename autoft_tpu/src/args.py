@@ -6,7 +6,7 @@ import torch
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", type=str, choices=["autoft", "ft-id", "ft-id-ood", "zeroshot", "flyp"])
+    parser.add_argument("--method", type=str, choices=["autoft", "autoft2", "ft-id", "ft-id-ood", "zeroshot", "flyp"])
 
     # Datasets
     parser.add_argument("--data-location", type=str, default=os.path.expanduser('~/robust-ft'),
@@ -50,7 +50,8 @@ def parse_arguments():
     parser.add_argument("--plot", action="store_true", help="Plot results.")
     parser.add_argument("--eval_only", action="store_true", help="Only evaluate.")
     parser.add_argument("--distributed", action="store_true", help="Use DDP.")
-    parser.add_argument("--load_existing_study", action="store_true", help="Resume hyperparameter optimization from an existing Optuna study.")
+    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--resume_study", action="store_true", help="Resume hyperparameter optimization from an existing Optuna study.")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

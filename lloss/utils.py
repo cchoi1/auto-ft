@@ -76,7 +76,7 @@ def save_hparams(best_hparams, args):
     ]
 
     filename = "_".join(filename_parts) + ".pkl"
-    filepath = os.path.join(args.root_dir, filename)
+    filepath = os.path.join(args.save_dir, filename)
 
     with open(filepath, 'wb') as file:
         pickle.dump(best_hparams, file)

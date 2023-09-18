@@ -1,14 +1,14 @@
+import glob
 import os
+
+import numpy as np
 import torch
+import torchvision
+from PIL import Image
 
 from .common import ImageFolderWithPaths, SubsetSampler
 from .imagenet_classnames import get_classnames
 from .utils import SampledDataset
-import numpy as np
-import torchvision
-import numpy as np
-from PIL import Image
-import glob
 
 
 class CustomDataset(torchvision.datasets.ImageFolder):
@@ -50,6 +50,7 @@ class ImageNet:
         preprocess,
         train,
         n_examples,
+        use_class_balanced=False,
         location=os.path.expanduser('~/data'),
         batch_size=32,
         num_workers=32,
@@ -60,6 +61,7 @@ class ImageNet:
         self.train = train
         self.num_classes = 1000
         self.n_examples = n_examples
+        self.use_class_balanced = use_class_balanced
         self.location = location
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -71,53 +73,31 @@ class ImageNet:
             self.populate_test()
 
     def populate_train(self):
-        # traindir = os.path.join(self.location, 'ILSVRC2012', 'train')
-        traindir = os.path.join(self.location, 'ImageNet', 'train')
-        # self.train_dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
+        traindir = os.path.join(self.location, 'ImageNet/ILSVRC/Data/CLS-LOC', 'train')
         self.dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
         if self.n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples//self.num_classes)
-        sampler = self.get_train_sampler()
-        kwargs = {'shuffle': True} if sampler is None else {}
-        # self.train_loader = torch.utils.data.DataLoader(
-        #     self.train_dataset,
-        #     sampler=sampler,
-        #     batch_size=self.batch_size,
-        #     num_workers=self.num_workers,
-        #     **kwargs,
-        # )
+            if self.use_class_balanced:
+                self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples//self.num_classes)
+            else:
+                rand_idxs = torch.randperm(len(self.dataset))[:self.n_examples]
+                self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)
 
         if self.custom:
-            # self.train_dataset_custom = CustomDataset(root=traindir, transform=self.preprocess)
             self.dataset = CustomDataset(root=traindir, transform=self.preprocess)
             if self.n_examples > -1:
-                self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples // self.num_classes)
-            # self.train_loader_custom = torch.utils.data.DataLoader(
-            #     self.train_dataset_custom,
-            #     batch_size=1,
-            #     shuffle=True,
-            #     num_workers=self.num_workers
-            # )
+                if self.use_class_balanced:
+                    self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples // self.num_classes)
+                else:
+                    rand_idxs = torch.randperm(len(self.dataset))[:self.n_examples]
+                    self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)
 
     def populate_test(self):
-        # self.test_dataset = self.get_test_dataset()
         self.dataset = self.get_test_dataset()
-        if self.n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples//self.num_classes)
-        # self.test_loader = torch.utils.data.DataLoader(
-        #     self.test_dataset,
-        #     batch_size=self.batch_size,
-        #     num_workers=self.num_workers,
-        #     sampler=self.get_test_sampler()
-        # )
 
     def get_test_path(self):
-        # test_path = os.path.join(self.location, 'ILSVRC2012', 'train_val_split_val')
-        # test_path = os.path.join(self.location, 'ILSVRC2012', 'val_dirs')
-        test_path = os.path.join(self.location, 'ImageNet', 'val')
+        test_path = os.path.join(self.location, 'ImageNet/ILSVRC/Data/CLS-LOC', 'val')
         if not os.path.exists(test_path):
-            # test_path = os.path.join(self.location, 'ILSVRC2012', 'val')
-            test_path = os.path.join(self.location, 'ImageNet', 'val')
+            test_path = os.path.join(self.location, 'ImageNet/ILSVRC/Data/CLS-LOC', 'val')
         return test_path
 
     def get_train_sampler(self):

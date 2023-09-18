@@ -151,7 +151,7 @@ class FeatureDataset(Dataset):
 
 def collate_fn_for_cifar(batch):
     data, labels = zip(*batch)
-    return torch.stack(data, 0), torch.tensor(labels).long()
+    return torch.stack(data, 0), torch.as_tensor(labels).long()
 
 def collate_fn_for_imagenet(batch):
     # Extract images, labels, features, and image_paths from the batch
@@ -162,12 +162,11 @@ def collate_fn_for_imagenet(batch):
     if "images" in keys:
         batch_dict["images"] = torch.stack(batch_dict["images"], 0)
     if "labels" in keys:
-        batch_dict["labels"] = torch.tensor(batch_dict["labels"]).long()
+        batch_dict["labels"] = torch.as_tensor(batch_dict["labels"]).long()
     if "features" in keys:
         batch_dict["features"] = torch.stack(batch_dict["features"], 0)
 
     return batch_dict
-
 
 def get_sampler(dataset, train):
     """Helper function to create a sampler."""
@@ -181,7 +180,6 @@ def get_sampler(dataset, train):
     else:
         sampler = None
     return sampler
-
 
 def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     """
@@ -197,7 +195,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
         DataLoader for the given dataset.
     """
     kwargs = {"batch_size": args.batch_size, "num_workers": args.workers, "persistent_workers": args.persistent_workers,
-              "prefetch_factor": args.prefetch_factor}
+              "prefetch_factor": args.prefetch_factor, "pin_memory": True}
     if sampler is not None:
         kwargs["sampler"] = sampler
     else:

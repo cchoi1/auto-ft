@@ -45,6 +45,9 @@ def parse_arguments():
     parser.add_argument("--plot", action="store_true", help="Plot results.")
     parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--eval_only", action="store_true")
+    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--use_class_balanced_ood", action="store_true")
+    parser.add_argument("--use_id_val", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

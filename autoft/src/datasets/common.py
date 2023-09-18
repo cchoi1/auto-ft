@@ -1,11 +1,8 @@
 import os
 import torch
-import json
 import glob
 import collections
 import random
-
-import numpy as np
 
 from tqdm import tqdm
 
@@ -215,6 +212,5 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
         inner_dataset = dataset
     else:
         inner_dataset = dataset
-        # raise ValueError("Unsupported dataset type.")
 
     return create_dataloader(inner_dataset, kwargs)

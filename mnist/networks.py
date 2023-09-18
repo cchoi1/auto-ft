@@ -87,7 +87,9 @@ def pretrain_net(dataset_name, data_dir, output_channels, seed=0, lr=1e-3, num_e
     opt = torch.optim.Adam(net.parameters(), lr=lr)
 
     print(f"Pretraining on {dataset_name} with {output_channels} output channels...")
-    train_loader, test_loader = get_dataloaders(root_dir=data_dir, dataset_names=[dataset_name], output_channels=output_channels, batch_size=64, meta_batch_size=None)
+    train_dataset, test_dataset = get_datasets(root_dir=data_dir, dataset_names=[dataset_name], output_channels=output_channels)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=128, shuffle=False)
 
     criterion = nn.CrossEntropyLoss()
     for epoch in range(num_epochs):

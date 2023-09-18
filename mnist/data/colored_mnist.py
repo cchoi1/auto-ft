@@ -134,11 +134,10 @@ def get_rotated_mnist(root_dir, transform, ratios=np.ones(NUM_COLORS)):
 
     train_images = torch.Tensor(np.concatenate([data[0] for data in rotated_train_data]))
     train_labels = torch.tensor(np.concatenate([data[1] for data in rotated_train_data]), dtype=torch.long)
+    train_dataset = torch.utils.data.TensorDataset(train_images, train_labels)
 
     test_images = torch.Tensor(np.concatenate([data[0] for data in rotated_test_data]))
     test_labels = torch.tensor(np.concatenate([data[1] for data in rotated_test_data]), dtype=torch.long)
-
-    train_dataset = torch.utils.data.TensorDataset(train_images, train_labels)
     test_dataset = torch.utils.data.TensorDataset(test_images, test_labels)
 
     return train_dataset, test_dataset

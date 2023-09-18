@@ -7,71 +7,56 @@ import time
 
 import numpy as np
 import optuna
-import src.losses as losses
 import torch
-import torch.nn.functional as F
+
+import src.losses as losses
 from src.datasets.common import get_dataloader
 from src.models.finetune import inner_finetune, finetune_final
 from src.models.modeling import ImageClassifier
-from src.models.utils import is_tpu_available, get_device, extract_from_data_parallel, set_seed
+from src.models.utils import extract_from_data_parallel, set_seed
 
 logger = logging.getLogger('main')
 
 @torch.no_grad()
 def evaluate_net(net, dataloader):
-    losses, predictions, targets = [], [], []
-
-    # if is_tpu_available():
-    #     devices = xm.get_xla_supported_devices()
-    #     net = xm.replicate(net, devices=devices)
-    #     dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
-    if torch.cuda.device_count() > 1:
-        net = torch.nn.DataParallel(net)
-
+    total_correct = 0
+    total_samples = 0
     net = net.cuda()
-
+    net.eval()
     for batch in dataloader:
         if isinstance(batch, dict):
-            x = batch["images"].cuda()
-            y = batch["labels"].cuda()
+            x = batch["images"].cuda(non_blocking=True)
+            y = batch["labels"].cuda(non_blocking=True)
         else:
             x, y = batch
-            x, y = x.cuda(), y.cuda()
+            x, y = x.cuda(non_blocking=True), y.cuda(non_blocking=True)
         outputs = net(x)
-        if (y == -1).any(): # if parts of the batch are unlabeled, replace them with their pseudolabels
+
+        if (y == -1).any():  # Handle unlabeled parts of the batch
             pseudo_labels = torch.argmax(outputs, dim=1)
             mask = (y == -1)
             y[mask] = pseudo_labels[mask]
-        loss = F.cross_entropy(outputs, y)
 
-        targets.append(y.cpu())
-        losses.append(loss.cpu())
-        predictions.append(outputs.argmax(dim=1).cpu())
+        predictions = outputs.argmax(dim=1)
+        correct = (predictions == y).sum().item()
+        total_correct += correct
+        total_samples += y.size(0)
 
-        # if is_tpu_available():
-        #     xm.mark_step()
+    accuracy = (total_correct / total_samples) * 100
+    torch.cuda.empty_cache()
+    return accuracy
 
-    # if is_tpu_available():
-    #     losses = xm.all_reduce("mean", torch.stack(losses)).mean()
-    #     predictions = torch.cat(xm.all_gather(predictions, dim=0))
-    #     targets = torch.cat(xm.all_gather(targets, dim=0))
-    # else:
-    losses = torch.stack(losses).mean()
-    predictions = torch.cat(predictions)
-    targets = torch.cat(targets)
-
-    accuracy = (predictions == targets).float().mean() * 100
-    return loss.item(), accuracy.item()
 
 def print_hparams(hparams):
     print("\nHyperparameters:")
     for key, value in hparams.items():
         if not "dataw" in key:
-            print(f"{key}: {value:.4f}")
+            print(f"{key}: {value}")
 
 def save_hparams(hparams, args):
     save_file = os.path.join(args.save, 'hparams.json')
     os.makedirs(args.save, exist_ok=True)
+    hparams["seed"] = int(hparams["seed"])
     with open(save_file, 'w') as f:
         json.dump(hparams, f)
 
@@ -86,7 +71,7 @@ class HyperparameterSpace:
 
     def _base_space(self, trial, prefix):
         return {
-            f"{prefix}lr": trial.suggest_loguniform(f"{prefix}lr", 1e-5, 1e-2),
+            f"{prefix}lr": trial.suggest_loguniform(f"{prefix}lr", 1e-7, 1e-3),
             f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0),
             **{f"{prefix}lossw_{i}": trial.suggest_loguniform(f"{prefix}lossw_{i}", 1e-5, 1e-2) for i in range(self.num_losses)}
         }
@@ -101,6 +86,7 @@ class HyperparameterSpace:
     def build_layerwise_loss_space(self, trial):
         hparams = {}
         layer_idx = 0
+        self.model = extract_from_data_parallel(self.model)
         for name, module in self.model.image_encoder.named_children():
             if name == 'model':
                 for sub_module in [module.visual.conv1, module.visual.ln_pre, *module.visual.transformer.resblocks]:
@@ -131,8 +117,8 @@ def create_optimizer(model, hyperparams, loss_type):
                 for sub_module in [module.visual.conv1, module.visual.ln_pre, *module.visual.transformer.resblocks]:
                     params_for_layer = {
                         'params': sub_module.parameters(),
-                        'lr': hyperparams[f"lr_{layer_idx}"],
-                        'weight_decay': hyperparams[f"wd_{layer_idx}"]
+                        'lr': hyperparams[f"{layer_idx}_lr"],
+                        'weight_decay': hyperparams[f"{layer_idx}_wd"]
                     }
                     layerwise_params.append(params_for_layer)
                     layer_idx += 1
@@ -140,8 +126,8 @@ def create_optimizer(model, hyperparams, loss_type):
         # Classification head of the model
         params_for_layer = {
             'params': model.classification_head.parameters(),
-            'lr': hyperparams[f"lr_{layer_idx}"],
-            'weight_decay': hyperparams[f"wd_{layer_idx}"]
+            'lr': hyperparams[f"{layer_idx}_lr"],
+            'weight_decay': hyperparams[f"{layer_idx}_wd"]
         }
         layerwise_params.append(params_for_layer)
         optimizer = torch.optim.AdamW(layerwise_params)
@@ -156,7 +142,7 @@ def get_loss_weights(hyperparams, loss_type, num_losses=None):
         layer_loss_weights = []
         loss_weights = []
         for k in loss_weight_keys:
-            if int(k.split("_")[1]) == layer_idx:
+            if int(k.split("_")[0]) == layer_idx:
                 layer_loss_weights.append(hyperparams[k])
             else:
                 loss_weights.append(torch.tensor(layer_loss_weights))
@@ -167,14 +153,12 @@ def get_loss_weights(hyperparams, loss_type, num_losses=None):
         loss_weights = torch.tensor([hyperparams[f"lossw_{i}"] for i in range(num_losses)])
     return loss_weights
 
-def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, input_key):
+def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, input_key, id_val_dataloader=None):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
     all_val_results = []
     for _ in range(args.repeats):
         current_net = copy.deepcopy(net)
-        set_seed(hyperparams["seed"])
         optimizer = create_optimizer(current_net, hyperparams, args.loss_type)
-
         initial_net_params = [p for p in net.parameters()]
         loss_weight_hparams = get_loss_weights(hyperparams, args.loss_type, args.num_losses)
         loss_fn = getattr(losses, args.loss_type)(loss_weight_hparams, initial_net_params)
@@ -184,15 +168,17 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
             data_weights = torch.tensor([hyperparams[f"dataw_{i}"] for i in range(len(id_dataloader.dataset))])
             sampler = torch.utils.data.WeightedRandomSampler(data_weights, len(id_dataloader.dataset))
             id_dataloader = get_dataloader(id_dataloader.dataset, is_train=True, args=args, sampler=sampler, image_encoder=None)
-        current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
-        print(f"Time to finetune: {time.time() - start_time:.3f}", flush=True)
+        set_seed(hyperparams["seed"])
+        if args.use_id_val:
+            current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key, print_every=None, id_val_acc_thresh=0.96, id_val_dataloader=id_val_dataloader)
+        else:
+            current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key, print_every=None)
+        # set_seed(args.seed)
+        # print(f"Time to finetune: {time.time() - start_time:.3f}", flush=True)
 
-        start_time = time.time()
         val_results = dict()
-        loss, accuracy = evaluate_net(current_net, ood_hp_dataloader)
-        print(f"Time to evaluate: {time.time() - start_time:.3f}", flush=True)
-        val_results[f"ood_subset_for_hp_loss"] = loss
-        val_results[f"ood_subset_for_hp_accuracy"] = accuracy
+        ood_accuracy = evaluate_net(current_net, ood_hp_dataloader)
+        val_results[f"ood_subset_for_hp_accuracy"] = ood_accuracy
         all_val_results.append(val_results)
 
     return all_val_results
@@ -200,24 +186,19 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
 def clear_memory(study: optuna.study.Study, trial: optuna.trial.Trial):
     gc.collect()
     torch.cuda.empty_cache()
-    # if is_tpu_available():
-    #     xm.rendezvous("clear_memory")
-    # elif torch.cuda.is_available():
-    #     torch.cuda.empty_cache()
 
-def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals, input_key, print_every=None):
+def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals, input_key, print_every=None, id_val_dataloader=None):
     """Automated fine-tuning process using Optuna."""
     def hp_objective_fn(trial):
         num_datapoints = len(id_dataloader.dataset) if args.pointwise_loss else None
         hparams = HyperparameterSpace(model, args.loss_type, args.num_losses, num_datapoints).build_space(trial)
         _net = copy.deepcopy(model).cuda()
-        val_results = evaluate_hparams(args, _net, hparams, id_dataloader, ood_hp_dataloader, input_key)
+        val_results = evaluate_hparams(args, _net, hparams, id_dataloader, ood_hp_dataloader, input_key, id_val_dataloader)
         return -np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results])  # maximize accuracy
 
     if args.load_hparams is not None:
-        best_hparams = {'lr': 0.0003346718593495406, 'wd': 0.14673977391378942, 'lossw_0': 0.001329526829540756, 'lossw_1': 0.0011243344178779576, 'lossw_2': 0.005482642750442648, 'lossw_3': 0.00029744536444529894, 'lossw_4': 0.00014671042169753747, 'lossw_5': 0.0008619723162629578, 'lossw_6': 0.007541877621248935, 'lossw_7': 1.001953995491285e-05, 'seed': 135}
-        # with open(args.load_hparams, 'r') as f:
-        #     best_hparams = json.load(f)
+        with open(args.load_hparams, 'r') as f:
+            best_hparams = json.load(f)
     else:
         if args.pointwise_loss:
             optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -225,18 +206,16 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals, input_key,
         study.optimize(hp_objective_fn, n_trials=max_evals, callbacks=[clear_memory])
         best_hparams = study.best_params
 
-    ft_model = copy.deepcopy(model).cuda()
-    set_seed(best_hparams["seed"])
     loss_weights = get_loss_weights(best_hparams, args.loss_type, args.num_losses)
-    model_params = [p for p in model.parameters()]
-    loss_fn = getattr(losses, args.loss_type)(loss_weights, model_params)
-    optimizer = create_optimizer(ft_model, best_hparams, args.loss_type)
-    datapoint_weights = None
-    if args.pointwise_loss:
-        datapoint_weights = torch.tensor([best_hparams[f"dataw_{i}"] for i in range(len(id_dataloader.dataset))])
+    initial_params = [p for p in model.parameters()]
+    loss_fn = getattr(losses, args.loss_type)(loss_weights, initial_params)
+    optimizer = create_optimizer(model, best_hparams, args.loss_type)
     print_hparams(best_hparams)
     save_hparams(best_hparams, args)
-    if args.id != "ImageNet":
-        ft_model = finetune_final(args, ft_model, loss_fn, optimizer, id_dataloader.dataset, input_key, print_every=100, datapoint_weights=datapoint_weights)
+    print_every = 100 if args.plot else None
+    id_dataset = id_dataloader.dataset
+    del id_dataloader; torch.cuda.empty_cache()
+    set_seed(best_hparams["seed"])
+    ft_model = finetune_final(args, model, loss_fn, optimizer, id_dataset, input_key, print_every=print_every)
 
-    return best_hparams
+    return ft_model

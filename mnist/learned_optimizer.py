@@ -9,10 +9,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from data.dataloaders import get_dataloaders
-from losses.layerloss import LayerLoss
+from lloss.losses.layerloss import LayerLoss
 from networks import get_pretrained_net_fixed
 from utils import get_lopt_info, get_lloss_info
 

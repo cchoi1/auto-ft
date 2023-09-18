@@ -77,7 +77,7 @@ def evaluate_hparams(net, hyperparams, datasets, args, repeats=1, full_eval=Fals
         optimizer = torch.optim.SGD(
             current_net.parameters(), lr=hyperparams["lr"], momentum=hyperparams["momentum"]
         )
-        loss_weight_hparams = torch.tensor([hyperparams[f"lossw_{i}"] for i in range(NUM_LOSSES)]).to(args.device)
+        loss_weight_hparams = torch.tensor([hyperparams[f"lossw_{i}"] for i in range(NUM_LOSSES)]).to(args.local_rank)
         loss_fn = LayerLoss(loss_weight_hparams)
 
         sampler = DistributedSampler(datasets["id"])
@@ -85,7 +85,6 @@ def evaluate_hparams(net, hyperparams, datasets, args, repeats=1, full_eval=Fals
             datasets["id"], batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
             sampler=sampler, drop_last=True
         )
-
         finetune(current_net, initial_net, optimizer, loss_fn, train_loader, args.max_iters)
 
         val_results = dict()
@@ -106,38 +105,33 @@ def evaluate_hparams(net, hyperparams, datasets, args, repeats=1, full_eval=Fals
             val_results[f"{name}_accuracy"] = accuracy
             all_val_results.append(val_results)
 
-        del current_net
-        torch.cuda.empty_cache()  # Frees up some GPU memory
+    all_val_results = [{k: np.mean([r[k] for r in all_val_results]) for k in all_val_results[0]}]
 
-    # This can be used to gather results from all processes, for now, we'll just use local_rank==0
-    if args.local_rank == 0:
-        all_val_results = [{k: np.mean([r[k] for r in all_val_results]) for k in all_val_results[0]}]
+    test_accs = []
+    if full_eval:
+        current_net = finetune(current_net, initial_net, optimizer, loss_fn, train_loader).to(args.local_rank)
+        x, y = next(iter(train_loader))
+        _, individual_losses = loss_fn(x.to(args.local_rank), y.to(args.local_rank), current_net, initial_net)
+        individual_losses = individual_losses.detach().cpu().numpy()
+        print("individual losses", individual_losses)
 
-        test_accs = []
-        if full_eval:
-            current_net = finetune(current_net, initial_net, optimizer, loss_fn, train_loader).to(args.device)
-            x, y = next(iter(train_loader))
-            _, individual_losses = loss_fn(x, y, current_net, initial_net)
-            individual_losses = individual_losses.detach().cpu().numpy()
-            print("individual losses", individual_losses)
+        for name in eval_datasets:
+            if name not in datasets.keys():
+                continue
+            losses = [r[f"{name}_loss"] for r in all_val_results]
+            accs = [r[f"{name}_accuracy"] for r in all_val_results]
+            if "test" in name:
+                test_accs.append(np.mean([r[f"{name}_accuracy"] for r in all_val_results]))
+            print(
+                f"{name:10s} loss: {np.mean(losses):.3f} +- {np.std(losses):.3f}  acc: {np.mean(accs):.2f} +- {np.std(accs):.2f}")
 
-            for name in eval_datasets:
-                if name not in datasets.keys():
-                    continue
-                losses = [r[f"{name}_loss"] for r in all_val_results]
-                accs = [r[f"{name}_accuracy"] for r in all_val_results]
-                if "test" in name:
-                    test_accs.append(np.mean([r[f"{name}_accuracy"] for r in all_val_results]))
-                print(
-                    f"{name:10s} loss: {np.mean(losses):.3f} +- {np.std(losses):.3f}  acc: {np.mean(accs):.2f} +- {np.std(accs):.2f}")
-
-            print(f"Average Test Accuracy: {np.mean(test_accs):.2f} +- {np.std(test_accs):.2f}")
-            print()
+        print(f"Average Test Accuracy: {np.mean(test_accs):.2f} +- {np.std(test_accs):.2f}")
+        print()
 
     return all_val_results
 
 
-def run_hyperopt_optimization(net, all_datasets, args, repeats, max_evals_range, default_hparams, num_losses):
+def run_hyperopt_optimization(net, all_datasets, args, repeats, max_evals_range, num_losses):
     def hp_objective_fn(hparams):
         _net = copy.deepcopy(net)
         val_results = evaluate_hparams(_net, hparams, all_datasets, args, repeats)
@@ -157,10 +151,8 @@ def run_hyperopt_optimization(net, all_datasets, args, repeats, max_evals_range,
         )
         results = evaluate_hparams(net, best_hparams, all_datasets, args, repeats, full_eval=True)
 
-        for i in range(num_losses):
-            best_hparams[f"lossw_{i}"] = np.exp(best_hparams[f"lossw_{i}"])
-        best_hparams["lr"] = np.exp(best_hparams["lr"])
-        print_hyperparams(best_hparams)
+        if args.local_rank == 0:
+            print_hyperparams(best_hparams)
 
     return results, best_hparams
 
@@ -190,7 +182,7 @@ def run_ood_for_hopt_ablation(all_datasets, net, args):
         all_results["FT"].append(np.mean([results[-1][f"{eval_dataset}_accuracy"] for eval_dataset in eval_datasets]))
 
         results, _ = run_hyperopt_optimization(net, all_datasets, args.batch_size, args.max_iters, args.num_workers,
-                                               range(10, 100, 10), default_hparams, NUM_LOSSES)
+                                               range(10, 100, 10), NUM_LOSSES)
         all_results["Ours"].append(np.mean([results[-1][f"{eval_dataset}_accuracy"] for eval_dataset in eval_datasets]))
 
     plot_accuracies(all_results, num_ood_for_hp_list)
@@ -244,7 +236,7 @@ def main(args):
         evaluate_hparams(net, default_hparams, all_datasets, args)
 
         if args.load_hparams is None:
-            results, best_hparams = run_hyperopt_optimization(net, all_datasets, args)
+            results, best_hparams = run_hyperopt_optimization(net, all_datasets, args, args.repeats, range(10, 100, 10), NUM_LOSSES)
             if args.save:
                 save_hparams(best_hparams, args)
         else:
@@ -258,7 +250,9 @@ if __name__ == "__main__":
     # parser.add_argument('--method', type=str, choices=['ours', 'ft'])
     parser.add_argument('--root_dir', type=str, default='/iris/u/cchoi1/Data')
     parser.add_argument('--save', action='store_true')
+    parser.add_argument('--save_dir', type=str, default='/iris/u/cchoi1/robust-optimizer/lloss/hparams')
     parser.add_argument('--load_hparams', type=str, default=None, help='Path to hparams file to load')
+
     parser.add_argument('--pretrain', type=str, default='svhn', choices=['svhn', 'clip'])
     parser.add_argument('--num_pretrain_examples', type=int, default=10000)
     parser.add_argument('--id', type=str, default='mnist', choices=['mnist', 'cifar10'])

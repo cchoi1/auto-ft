@@ -11,6 +11,7 @@ from data.colored_mnist import get_colored_mnist, get_rotated_mnist
 from data.mnist_c import MNISTC, MNIST_CORRUPTIONS
 from data.utils import SampledDataset
 from data.cifar_c import CIFAR10C, CIFAR10_CORRUPTIONS
+from utils import set_seed
 
 cifar10_corruptions = [f"cifar10c-{corruption}" for corruption in CIFAR10_CORRUPTIONS]
 mnist_corruptions = [f"mnistc-{corruption}" for corruption in MNIST_CORRUPTIONS]
@@ -26,6 +27,7 @@ class GrayscaleToRGB(nn.Module):
         return rgb_tensor
 
 def get_subset(dataset, num_datapoints):
+    set_seed()
     rand_idxs = torch.randperm(len(dataset))[:num_datapoints]
     subset = torch.utils.data.Subset(dataset, rand_idxs)
     return subset
@@ -205,6 +207,7 @@ def get_all_datasets(
     all_datasets["id_val"] = get_subset(id_val_data, num_examples["id_val"])
 
     ood_name = [ood] if type(ood) != list else ood
+    print('ood_name', ood_name)
     ood_data, _ = get_datasets(root_dir=root, dataset_names=ood_name, output_channels=3, transform=transform)
     if num_examples["ood_unlabeled"] > 0:
         ood_unlabeled_name = [ood_unlabeled] if type(ood_unlabeled) != list else ood_unlabeled

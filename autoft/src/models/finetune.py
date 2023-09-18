@@ -9,7 +9,7 @@ from src.datasets.common import maybe_dictionarize
 from src.losses.layerwiseloss import LayerwiseLoss
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import evaluate
-from src.models.utils import cosine_lr, get_device, is_tpu_available
+from src.models.utils import cosine_lr, get_device
 
 logger = logging.getLogger('main')
 
@@ -22,46 +22,49 @@ def print_train_update(logger, print_every, total_steps, step, loss, batch_time,
         logger.info(f"Train Iter: {step}/{total_steps} [{percent_complete:.0f}% ]\t"
                     f"Loss: {loss.item():.6f}\tData (t) {data_time:.3f}\tBatch (t) {batch_time:.3f}")
 
-def test_finetuned_model(args, model, all_eval_results, total_steps):
-    """Evaluate the model on the test set and save the results."""
-    print('test_finetuned_model')
-    should_eval = True
-    if should_eval:
-        args.current_epoch = args.ft_epochs
-        eval_results = evaluate(model.module, args)
-        print(eval_results)
-        logger.info(json.dumps(eval_results, indent=4))
-        all_eval_results[total_steps] = eval_results
-        os.makedirs(args.save, exist_ok=True)
-        results_path = os.path.join(args.save, 'eval_results.json')
-        with open(results_path, 'w') as f:
-            f.write(json.dumps(all_eval_results))
-        print(f'\nSaved evaluation results to {results_path}.')
-
 def save_finetuned_model(args, model, optimizer, logger):
-    should_save = True
-    if should_save:
-        os.makedirs(args.save, exist_ok=True)
-        model_path = os.path.join(args.save, f'checkpoint_{args.ft_epochs}.pt')
-        print('Saving model to', model_path)
-        logger.info(f"Saving model to {model_path}")
-        model.module.save(model_path)
-        optim_path = os.path.join(args.save, f'optim_{args.ft_epochs}.pt')
-        torch.save(optimizer.state_dict(), optim_path)
-        print('Saving optimizer to', optim_path)
-        logger.info(f"Saving optimizer to {optim_path}")
-        return model_path
+    os.makedirs(args.save, exist_ok=True)
+    model_path = os.path.join(args.save, f'checkpoint_{args.ft_epochs}.pt')
+    print('Saving model to', model_path)
+    logger.info(f"Saving model to {model_path}")
+    model.save(model_path)
+    optim_path = os.path.join(args.save, f'optim_{args.ft_epochs}.pt')
+    torch.save(optimizer.state_dict(), optim_path)
+    print('Saving optimizer to', optim_path)
+    logger.info(f"Saving optimizer to {optim_path}")
+    return model_path
 
-def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, print_every):
+
+def compute_accuracy(model, dataloader, input_key):
+    model.eval()  # Set the model to evaluation mode
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for batch in dataloader:
+            batch = maybe_dictionarize(batch)
+            inputs = batch[input_key].cuda()
+            labels = batch['labels'].cuda()
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    model.train()  # Set the model back to train mode
+    return correct / total
+
+
+def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, print_every, id_val_acc_thresh=None, id_val_dataloader=None):
     model.train()
 
     params = list(model.parameters())
-    scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, args.inner_steps)
+    warmup_steps = args.warmup_length * args.accumulation_steps
+    scheduler = cosine_lr(optimizer, args.lr, warmup_steps, args.inner_steps)
+    num_steps = args.inner_steps * args.accumulation_steps
 
-    for step in range(args.inner_steps):
+    for step in range(num_steps):
         batch = next(iter(dataloader))
         scheduler(step)
-        optimizer.zero_grad()
+        if step % args.accumulation_steps == 0:
+            optimizer.zero_grad()
 
         start_time = time.time()
         batch = maybe_dictionarize(batch)
@@ -70,36 +73,51 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, print
         data_time = time.time() - start_time
 
         if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
-            loss, _ = loss_fn(inputs, labels, model)
+            loss = loss_fn(inputs, labels, model)
         else:
             outputs = model(inputs)
             loss = loss_fn(outputs, labels)
+        loss = loss / args.accumulation_steps
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(params, 1.0)
-        optimizer.step()
-        batch_time = time.time() - start_time
+        if (step + 1) % args.accumulation_steps == 0:
+            torch.nn.utils.clip_grad_norm_(params, 1.0)
+            optimizer.step()
 
+        batch_time = time.time() - start_time
         print_train_update(logger, print_every, args.inner_steps, step, loss, batch_time, data_time)
+
+        # Check accuracy for early stopping
+        if (step + 1) % args.accumulation_steps == 0 and id_val_acc_thresh is not None:
+            acc = compute_accuracy(model, id_val_dataloader, input_key)
+            if acc >= id_val_acc_thresh:
+                print(f"Early stopping at step {step} with accuracy {acc:.2f}")
+                break
+
+    torch.cuda.empty_cache()
 
     return model
 
-def finetune_final(args, model, loss_fn, optimizer, dataset, input_key, print_every, datapoint_weights=None):
+
+def finetune_final(args, model, loss_fn, optimizer, dataset, input_key, print_every):
     assert args.load is not None, "Please provide the patch to a checkpoint through --load."
-    model.train()
-    params = list(model.parameters())
+
     dataloader = get_dataloader(dataset, is_train=True, args=args, image_encoder=None, sampler=None)
     num_batches = len(dataloader)
     total_steps = args.ft_epochs * num_batches
-    scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, total_steps)
+    warmup_length = args.warmup_length * args.accumulation_steps
+    scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
     all_eval_results = {}
 
     for epoch in range(args.ft_epochs):
+        print(f"Starting epoch {epoch}...", flush=True)
+        epoch_start_time = time.time()
         model.train()
+        dataloader = get_dataloader(dataset, is_train=True, args=args, image_encoder=None, sampler=None)
+        print("Got dataloader")
 
         for i, batch in enumerate(dataloader):
             step = i + epoch * num_batches
             scheduler(step)
-            optimizer.zero_grad()
 
             start_time = time.time()
             batch = maybe_dictionarize(batch)
@@ -108,27 +126,29 @@ def finetune_final(args, model, loss_fn, optimizer, dataset, input_key, print_ev
             data_time = time.time() - start_time
 
             if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
-                loss, _ = loss_fn(inputs, labels, model)
+                loss = loss_fn(inputs, labels, model)
             else:
                 outputs = model(inputs)
                 loss = loss_fn(outputs, labels)
+                # del outputs  # free up some memory
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(params, 1.0)
-            optimizer.step()
+            torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
+            if (i + 1) % args.accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
             batch_time = time.time() - start_time
-
             print_train_update(logger, print_every, total_steps, step, loss, batch_time, data_time)
-            if args.plot:
+            # del inputs, labels, loss
+
+        if args.plot and args.id != "ImageNet":
+            with torch.no_grad():  # Evaluation doesn't require gradient computation
                 eval_results = evaluate(model.module, args)
-                all_eval_results[step] = eval_results
+            all_eval_results[step] = eval_results
+        print(f"Epoch time: {time.time() - epoch_start_time:.3f}", flush=True)
 
-    del dataloader
-    del dataset
+    del dataloader, dataset
+    torch.cuda.empty_cache()
 
-    # Save finetuned model
-    save_finetuned_model(args, model, optimizer, logger)
+    # save_finetuned_model(args, model, optimizer, logger)
 
-    # Test finetuned model
-    test_finetuned_model(args, model, all_eval_results, total_steps)
-
-    return model.module
+    return model

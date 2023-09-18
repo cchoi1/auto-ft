@@ -2,13 +2,13 @@ import json
 import logging
 import os
 
+import numpy as np
 import src.datasets as datasets
 import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.xla_multiprocessing as xmp
 from src.datasets.common import get_dataloader, maybe_dictionarize
 from src.models import utils
-from src.models.utils import is_tpu_available
 
 logger = logging.getLogger('main')
 
@@ -37,14 +37,14 @@ def _calculate_accuracy(dataset, logits, y, image_paths, args):
 
 def _process_batch(data, dataset, model, input_key, args):
     """Process batch and return results."""
-    x = data[input_key]
-    y = data['labels']
+    device = xm.xla_device()
+    x = data[input_key].to(device)
+    y = data['labels'].to(device)
 
     image_paths = data.get('image_paths', None)
     logits = utils.get_logits(x, model)
 
     projection_fn = getattr(dataset, 'project_logits', None)
-    device = xm.xla_device()
     if projection_fn:
         logits = projection_fn(logits, device)
     if hasattr(dataset, 'project_labels'):
@@ -69,9 +69,8 @@ def eval_single_dataset(image_classifier, dataset, args):
 
     top1, correct, n = 0., 0., 0.
     all_labels, all_preds, all_metadata = [], [], []
-
-    with torch.no_grad():
-        for _, data in enumerate(dataloader):
+    for _, data in enumerate(dataloader):
+        with torch.no_grad():
             data = maybe_dictionarize(data)
             acc1, batch_size, labels, preds, metadata = _process_batch(data, dataset, model, input_key, args)
             correct += acc1
@@ -82,26 +81,24 @@ def eval_single_dataset(image_classifier, dataset, args):
                 all_preds.append(preds)
                 all_metadata.extend(metadata)
 
-
     top1 = correct / n
-
     metrics = {}
     if hasattr(dataset, 'post_loop_metrics'):
         all_labels = torch.cat(all_labels)
         all_preds = torch.cat(all_preds)
         metrics = dataset.post_loop_metrics(all_labels, all_preds, all_metadata, args)
+
         if 'acc' in metrics:
             metrics['top1'] = metrics['acc']
     if 'top1' not in metrics:
         metrics['top1'] = top1
-
-    if is_tpu_available():
-        metrics = xm.mesh_reduce('metrics_reduce', metrics, lambda x: {k: sum(v) for k, v in zip(x.keys(), x.values())})
+    for k,v in metrics.items():
+        metrics[k] = xm.mesh_reduce(f"{k}", v, np.mean)
 
     return metrics
 
 
-def _mp_evaluate(rank, image_classifier, args, spawn_required=True):
+def _mp_evaluate(rank, image_classifier, args):
     """Evaluate on multiple datasets and print results."""
     if args.eval_datasets is None:
         return

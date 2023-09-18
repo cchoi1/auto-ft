@@ -1,10 +1,6 @@
 import os
-import torch
-import torchvision.datasets as datasets
 
 from .imagenet import ImageNetSubsample, ImageNetSubsampleValClasses
-import numpy as np
-
 
 CLASS_SUBLIST = [
     6, 11, 13, 15, 17, 22, 23, 27, 30, 37, 39, 42, 47, 50, 57, 70, 71, 76, 79, 89, 90, 94, 96, 97, 99, 105, 107,
@@ -44,8 +40,7 @@ class ImageNetA(ImageNetSubsample):
         return CLASS_SUBLIST, CLASS_SUBLIST_MASK
 
     def get_test_path(self):
-        # return os.path.join(self.location, 'ImageNet-A')
-        return "/iris/u/cchoi1/Data/ImageNet-A"
+        return os.path.join(self.location, 'ImageNet-A')
 
     def __str__(self):
         return "ImageNetA"

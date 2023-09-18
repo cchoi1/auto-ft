@@ -101,7 +101,10 @@ class ImageClassifier(torch.nn.Module):
     @classmethod
     def load(cls, filename):
         print(f'Loading image classifier from {filename}')
-        return utils.torch_load(filename)
+        if "expts" in filename:
+            return torch.load(filename, map_location='cpu')["model_state"]
+        else:
+            return utils.torch_load(filename)
 
 
 class ImageClassifier_Norm(torch.nn.Module):

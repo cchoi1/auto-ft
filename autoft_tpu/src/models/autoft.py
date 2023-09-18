@@ -1,8 +1,9 @@
-import copy
 import gc
 import json
 import logging
 import os
+from contextlib import contextmanager
+from functools import partial
 
 import numpy as np
 import optuna
@@ -11,40 +12,35 @@ import torch
 import torch.nn.functional as F
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.xla_multiprocessing as xmp
-from src.datasets.common import get_dataloader
-from src.models.finetune import finetune_helper, finetune
+from src.datasets.common import get_dataloader, maybe_dictionarize
+from src.losses.layerwiseloss import LayerwiseLoss
+from src.losses.learnedloss import LearnedLoss
+from src.models.finetune import finetune
 from src.models.modeling import ImageClassifier
-from src.models.utils import set_seed, initialize_model
+from src.models.utils import set_seed
 
 logger = logging.getLogger('main')
 
 @torch.no_grad()
 def evaluate_net(net, dataloader):
-    """Evaluate the given model on a dataloader."""
-    losses = []
-    total_samples, correct = 0, 0
-    i = 0
+    net.eval()
+    predictions, targets = [], []
+
     for batch in dataloader:
-        i += 1
         if isinstance(batch, dict):
             x = batch["images"]
             y = batch["labels"]
         else:
             x, y = batch
+        outputs = net(x)
+        predictions.append(outputs.argmax(dim=1).cpu().detach().numpy())
+        targets.append(y.cpu().detach().numpy())
 
-        output = net(x)
-        pred = output.max(1, keepdim=True)[1]
-        correct += pred.eq(y.view_as(pred)).sum().item()
-        total_samples += x.size()[0]
-        losses.append(F.cross_entropy(output, y).item())
-        del batch; del x; del y; del output; del pred
-        gc.collect()
+    predictions = np.concatenate(predictions)
+    targets = np.concatenate(targets)
 
-    avg_loss = np.mean(losses)
-    del losses
-    gc.collect()
-
-    return avg_loss, 100.0 * correct / total_samples
+    accuracy = (predictions == targets).mean() * 100
+    return accuracy
 
 
 def print_hparams(hparams):
@@ -86,7 +82,7 @@ class HyperparameterSpace:
             }
         else:
             return {
-                f"{prefix}lr": trial.suggest_float(f"{prefix}lr", 1e-5, 1e-2, log=True),
+                f"{prefix}lr": trial.suggest_float(f"{prefix}lr", 1e-8, 1e-2, log=True),
                 f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0),
                 **{f"{prefix}lossw_{i}": trial.suggest_float(f"{prefix}lossw_{i}", 1e-5, 1e-2, log=True) for i in range(self.num_losses)}
             }
@@ -172,7 +168,16 @@ def get_loss_weights(hyperparams, loss_type, num_losses=None):
     return loss_weights
 
 
-def get_or_create_study(study_name, storage_url, direction="minimize", load_existing_study=False):
+@contextmanager
+def managed_storage(storage_url):
+    storage = optuna.storages.get_storage(storage_url)
+    try:
+        yield storage
+    finally:
+        storage._backend.engine.dispose()
+
+
+def get_or_create_study(study_name, storage_url, direction="minimize", resume_study=False):
     """
     Load a study if it exists, otherwise create a new one.
 
@@ -184,100 +189,134 @@ def get_or_create_study(study_name, storage_url, direction="minimize", load_exis
     Returns:
     - study: An Optuna study object.
     """
-    all_study_summaries = optuna.study.get_all_study_summaries(storage=storage_url)
-    existing_study_names = [summary.study_name for summary in all_study_summaries]
-    if study_name in existing_study_names:
-        if not load_existing_study:
-            msg = f"Found existing study {study_name}. Deleting it and creating a new one."
-            xm.master_print(msg)
-            logger.info(msg)
-            optuna.delete_study(study_name=study_name, storage=storage_url)
-            study = optuna.create_study(study_name=study_name, storage=storage_url, direction=direction)
+    with managed_storage(storage_url) as storage:
+        all_study_summaries = optuna.study.get_all_study_summaries(storage=storage_url)
+        pruner = optuna.pruners.MedianPruner()
+        existing_study_names = [summary.study_name for summary in all_study_summaries]
+        if study_name in existing_study_names:
+            if not resume_study:
+                msg = f"Found existing study {study_name}. Deleting it and creating a new one."
+                xm.master_print(msg)
+                logger.info(msg)
+                optuna.delete_study(study_name=study_name, storage=storage_url)
+                study = optuna.create_study(study_name=study_name, storage=storage_url, direction=direction, pruner=pruner)
+            else:
+                msg = f"Found existing study {study_name}. Loading it."
+                xm.master_print(msg)
+                logger.info(msg)
+                study = optuna.load_study(study_name=study_name, storage=storage_url, pruner=pruner)
         else:
-            msg = f"Found existing study {study_name}. Loading it."
+            msg = f"Could not find existing study {study_name}. Creating a new one."
             xm.master_print(msg)
             logger.info(msg)
-            study = optuna.load_study(study_name=study_name, storage=storage_url)
-    else:
-        msg = f"Could not find existing study {study_name}. Creating a new one."
-        xm.master_print(msg)
-        logger.info(msg)
-        study = optuna.create_study(study_name=study_name, storage=storage_url, direction=direction)
-    return
+            study = optuna.create_study(study_name=study_name, storage=storage_url, direction=direction, pruner=pruner)
+
+    return study
 
 
+def compute_loss(loss_fn, inputs, labels, model):
+    """Computes the loss using either LearnedLoss, LayerwiseLoss, or default method."""
+    outputs = model(inputs)
+    if isinstance(loss_fn, (LearnedLoss, LayerwiseLoss)):
+        return loss_fn(outputs, labels, model)
+    return loss_fn(outputs, labels)
+
+# @profile
 def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, input_key):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
     all_val_results = []
-    device = xm.xla_device()
+    net_weights = net.state_dict()
+    initial_net_params = [p for p in net.parameters()]
+    optimizer = create_optimizer(net, hyperparams, args.loss_type)
+    loss_weight_hparams = get_loss_weights(hyperparams, args.loss_type, args.num_losses)
     for _ in range(args.repeats):
-        current_net = copy.deepcopy(net)
+        net.load_state_dict(net_weights)
         set_seed(hyperparams["seed"])
-        optimizer = create_optimizer(current_net, hyperparams, args.loss_type)
-        initial_net_params = [p for p in net.parameters()]
-        loss_weight_hparams = get_loss_weights(hyperparams, args.loss_type, args.num_losses)
         loss_fn = getattr(losses, args.loss_type)(loss_weight_hparams, initial_net_params)
 
-        current_net = finetune_helper(args, device, current_net, loss_fn, optimizer, id_dataloader, input_key, steps=args.inner_steps)
-        del id_dataloader; del optimizer; del loss_fn; del initial_net_params; del loss_weight_hparams
-        gc.collect()
+        # net = finetune_helper(args, net, loss_fn, optimizer, id_dataloader, input_key, steps=args.inner_steps, accumulation_steps=args.accumulation_steps)
+        net.train()
 
-        loss, accuracy = evaluate_net(current_net, ood_hp_dataloader)
-        val_results = {
-            "ood_subset_for_hp_loss": loss,
-            "ood_subset_for_hp_accuracy": accuracy
-        }
+        effective_step = 0
+        for step, batch in enumerate(id_dataloader):
+            if step >= args.inner_steps:
+                break
+            batch = maybe_dictionarize(batch)
+            inputs = batch[input_key]
+            labels = batch['labels']
+            if (step + 1) % args.accumulation_steps == 0:
+                effective_step += 1
+                optimizer.zero_grad()
+            loss = compute_loss(loss_fn, inputs, labels, net) / args.accumulation_steps
+            loss.backward()
+            if (step + 1) % args.accumulation_steps == 0:
+                torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                xm.optimizer_step(optimizer)
+            step += 1
+
+        with torch.no_grad():
+            accuracy = evaluate_net(net, ood_hp_dataloader)
+        val_results = {"ood_subset_for_hp_loss": loss, "ood_subset_for_hp_acc": accuracy}
         all_val_results.append(val_results)
-        del ood_hp_dataloader; del current_net
-        gc.collect()
+        del loss_fn, loss, accuracy
 
+    del net_weights, net, optimizer, initial_net_params, loss_weight_hparams, id_dataloader, ood_hp_dataloader
+    gc.collect()
     return all_val_results
+
+@contextmanager
+def optuna_study_context(study_name, storage_url):
+    study = optuna.load_study(study_name=study_name, storage=storage_url)
+    try:
+        yield study
+    finally:
+        if hasattr(study._storage, "_backend") and hasattr(study._storage._backend, "engine"):
+            study._storage._backend.engine.dispose()
+
+
+def hp_objective_fn(trial, args, model, id_dataloader, ood_hp_dataloader, input_key):
+    hspace = HyperparameterSpace(model, args.loss_type, args.num_losses)
+    hparams = hspace.build_space(trial)
+    del hspace
+    val_results = evaluate_hparams(args, model, hparams, id_dataloader, ood_hp_dataloader, input_key)
+    acc_on_this_core = torch.tensor(np.mean([r["ood_subset_for_hp_acc"] for r in val_results])).to(xm.xla_device())
+    summed_acc = xm.all_reduce("sum", acc_on_this_core)
+    avg_acc = summed_acc / xm.xrt_world_size()
+    del hparams, val_results
+    gc.collect()
+    return -avg_acc
 
 
 def _mp_auto_ft(rank, args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key):
     """Automated fine-tuning using Optuna."""
+    torch.manual_seed(args.seed + rank)
     xm.master_print("Starting _mp_auto_ft")
-    device = xm.xla_device()
-    model = model.to(device)
     id_dataloader = get_dataloader(id_dataset, is_train=True, args=args, image_encoder=None)
     ood_hp_dataloader = get_dataloader(ood_hp_dataset, is_train=True, args=args, image_encoder=None)
-    def hp_objective_fn(trial):
-        if xm.get_ordinal() == 0:
-            hparams = HyperparameterSpace(model, args.loss_type, args.num_losses).build_space(trial)
-        else:
-            hparams = None
-        hparams_str = json.dumps(hparams)
-        shared_hparams_strs = xm.rendezvous("share_hparams", hparams_str)
-        hparams = json.loads(shared_hparams_strs[0])  # Assuming the same hyperparams are returned from all cores
-        val_results = evaluate_hparams(args, model, hparams, id_dataloader, ood_hp_dataloader, input_key)
+    device = xm.xla_device()
+    model = model.to(device)
 
-        loss_avg = xm.mesh_reduce("ood_loss", np.mean([r["ood_subset_for_hp_loss"] for r in val_results]), np.mean)
-        acc_avg = xm.mesh_reduce("ood_accuracy", np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results]), np.mean)
-        del val_results; del loss_avg
-        gc.collect()
-
-        return -acc_avg
-
+    objective = partial(hp_objective_fn, args=args, model=model, id_dataloader=id_dataloader, ood_hp_dataloader=ood_hp_dataloader, input_key=input_key)
     if args.load_hparams is not None:
         with open(args.load_hparams, 'r') as f:
             best_hparams = json.load(f)
     else:
-        xm.master_print("Starting hyperparameter optimization")
-        study = optuna.load_study(study_name=args.save, storage=storage_url)
-        xm.master_print("Loaded study")
-        study.optimize(hp_objective_fn, n_trials=max_evals, callbacks=[clear_memory])
-        xm.master_print("Finished hyperparameter optimization")
-        best_hparams = study.best_params
+        with optuna_study_context(args.save, storage_url) as study:
+            xm.master_print("Loaded study")
+            study.optimize(objective, n_trials=max_evals, timeout=None, gc_after_trial=True)
+            best_trial = study.best_trial
+            xm.master_print(f"\nBest trial {best_trial.number} with value {best_trial.value}")
+            best_hparams = best_trial.params
+    if xm.is_master_ordinal():
         print_hparams(best_hparams)
         save_hparams(args, best_hparams)
-
-    ft_model = copy.deepcopy(model)
     set_seed(best_hparams["seed"])
     loss_weights = get_loss_weights(best_hparams, args.loss_type, args.num_losses)
     model_params = [p for p in model.parameters()]
     loss_fn = getattr(losses, args.loss_type)(loss_weights, model_params)
-    optimizer = create_optimizer(ft_model, best_hparams, args.loss_type)
+    optimizer = create_optimizer(model, best_hparams, args.loss_type)
     finetune(args, model, loss_fn, optimizer, id_dataset, input_key, spawn_required=False)
+    return
 
 
 def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
@@ -287,5 +326,6 @@ def auto_ft(args, model, id_dataset, ood_hp_dataset, max_evals, input_key):
     USER = "root"
     DATABASE_NAME = "optuna"
     storage_url = f"mysql+mysqlconnector://{USER}:{PASSWORD}@{IP_ADDRESS}/{DATABASE_NAME}"
-    get_or_create_study(study_name=args.save, storage_url=storage_url, direction="minimize", load_existing_study=args.load_existing_study)
+    get_or_create_study(study_name=args.save, storage_url=storage_url, direction="minimize", resume_study=args.resume_study)
     xmp.spawn(_mp_auto_ft, args=(args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key,), nprocs=8, start_method='spawn')
+    # _mp_auto_ft(0, args, model, id_dataset, ood_hp_dataset, storage_url, max_evals, input_key)

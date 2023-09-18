@@ -19,6 +19,6 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
 python3 src/main.py --method ft-id --model ViT-B/16 --data-location /home/carolinechoi/robust-ft \
 --id ImageNet --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet,ImageNetC \
---ft_epochs 10 --lr 3e-5 --wd 0.1 --batch-size 16 \
+--ft_epochs 10 --lr 3e-5 --wd 0.1 --batch-size 16 --accumulation_steps 4 --warmup_length 1000 \
 --load /home/carolinechoi/robust-ft/zeroshot/clip_vitb16_imagenet.pt \
---num_ood_hp_examples 15000 --warmup_length 4000
+--num_ood_hp_examples 15000

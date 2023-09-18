@@ -2,7 +2,7 @@ import src.datasets as datasets
 import torch
 from src.datasets.common import get_dataloader, maybe_dictionarize
 from src.models import utils
-from src.models.utils import get_device, is_tpu_available
+from src.models.utils import get_device
 from torchvision import transforms
 
 def eval_single_dataset(image_classifier, dataset, args):

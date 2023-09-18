@@ -2,15 +2,17 @@ import os
 import re
 import time
 
+import src.losses as losses
 import src.datasets as datasets
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 from src.args import parse_arguments
 from src.logger import setup_logging
-from src.models.autoft import auto_ft
+from src.models.autoft import auto_ft, get_loss_weights, create_optimizer
 from src.models.eval import evaluate
 from src.models.finetune import finetune
-from src.models.utils import initialize_model
+from src.models.utils import initialize_model, set_seed
 from src.datasets.utils import UnlabeledDatasetWrapper
 
 
@@ -71,33 +73,50 @@ def train(args, model, preprocess_fn):
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
         ft_eval_results = finetune(args, model, loss_fn, optimizer, id_ood_dataset, input_key)
     elif args.method == "autoft":
-        ft_eval_results = auto_ft(args, model, all_datasets["id"], all_datasets["ood_subset_for_hp"], max_evals=args.autoft_epochs, input_key=input_key)
+        auto_ft(args, model, all_datasets["id"], all_datasets["ood_subset_for_hp"], max_evals=args.autoft_epochs, input_key=input_key)
+        xm.master_print('finished hopt')
+        # set_seed(best_hparams["seed"])
+        # loss_weights = get_loss_weights(best_hparams, args.loss_type, args.num_losses)
+        # model_params = [p for p in model.parameters()]
+        # loss_fn = getattr(losses, args.loss_type)(loss_weights, model_params)
+        # optimizer = create_optimizer(model, best_hparams, args.loss_type)
+        # print("finetuning stuff set up")
+        # ft_eval_results = finetune(args, model, loss_fn, optimizer, all_datasets["id"], input_key, spawn_required=True)
+    elif args.method == "autoft2":
+        best_hparams = {'lr': 0.003949811270232775, 'wd': 0.7374957120605531, 'lossw_0': 0.00023727858268308738, 'lossw_1': 1.1145837293709488e-05, 'lossw_2': 0.002881945296250744, 'lossw_3': 0.00024901241986242706, 'lossw_4': 0.00014320393406825227, 'lossw_5': 0.007688304383578586, 'lossw_6': 0.004321189737692444, 'lossw_7': 0.0018554443427917903, 'seed': 58}
+        set_seed(best_hparams["seed"])
+        loss_weights = get_loss_weights(best_hparams, args.loss_type, args.num_losses)
+        model_params = [p for p in model.parameters()]
+        loss_fn = getattr(losses, args.loss_type)(loss_weights, model_params)
+        optimizer = create_optimizer(model, best_hparams, args.loss_type)
+        ft_eval_results = finetune(args, model, loss_fn, optimizer, all_datasets["id"], input_key, spawn_required=True)
     else:
         raise ValueError("Invalid method")
 
     return ft_eval_results
 
 
-def test(model, ckpt_path, logger):
-    model.load(ckpt_path)
+def test(model, args, logger):
+    ckpts = [f for f in os.listdir(args.save) if re.match(r'checkpoint_\d+\.pt', f)]
+    if ckpts:
+        last_ckpt = max(ckpts, key=lambda x: int(re.search(r'(\d+)', x).group()))
+        ckpt_path = os.path.join(args.save, last_ckpt)
+    ckpt = torch.load(ckpt_path)
+    model.load_state_dict(ckpt['model_state'])
     xm.master_print(f"Evaluating checkpoint at {ckpt_path}...")
     logger.info(f"Evaluating checkpoint at {ckpt_path}...")
     evaluate(model, args, spawn_required=True)
 
 
-def main(args, rank=0):
+def main(args):
     logger = setup_logging(args)
     logger.info(args)
-    model, preprocess_fn = initialize_model(args, rank)
+    model, preprocess_fn = initialize_model(args)
     if args.eval_only:
         return test(args, args.load, logger)
     else:
         ft_eval_results = train(args, model, preprocess_fn)
-        ckpts = [f for f in os.listdir(args.save) if re.match(r'checkpoint_\d+\.pt', f)]
-        if ckpts:
-            last_ckpt = max(ckpts, key=lambda x: int(re.search(r'(\d+)', x).group()))
-            ckpt_path = os.path.join(args.save, last_ckpt)
-        return test(model, ckpt_path, logger)
+        return test(model, args, logger)
 
 
 if __name__ == '__main__':

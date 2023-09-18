@@ -1,14 +1,16 @@
 import os
+import random
 from pathlib import Path
 
 import numpy as np
 import torch
 import torchvision
 from PIL import Image
-from src.datasets.utils import SampledDataset
 from torch.utils.data import Dataset, random_split
 from torchvision.datasets import CIFAR10 as PyTorchCIFAR10
 from torchvision.datasets import VisionDataset
+
+from src.datasets.utils import SampledDataset
 
 CIFAR_CLASSNAMES = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 CIFAR10_CORRUPTIONS = ["brightness", "contrast", "defocus_blur", "elastic_transform", "fog", "frost", "gaussian_blur",
@@ -20,6 +22,7 @@ class CIFAR10:
                  preprocess,
                  train,
                  n_examples,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
                  num_workers=16,
@@ -31,9 +34,13 @@ class CIFAR10:
         )
         self.num_classes = 10
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            if use_class_balanced:
+                self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes)
+            else:
+                indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                self.dataset = torch.utils.data.Subset(self.dataset, indices)
 
-        self.classnames = self.dataset.classes
+        # self.classnames = self.dataset.classes
 
     def __str__(self):
         return "CIFAR10"
@@ -67,6 +74,7 @@ class CIFAR10C(Dataset):
                  preprocess,
                  train,
                  n_examples,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
                  num_workers=16,
@@ -93,7 +101,14 @@ class CIFAR10C(Dataset):
         if not os.path.isfile(labels_path):
             raise ValueError("Labels are missing, try to re-download them.")
         self.labels = np.load(labels_path)
-        data, targets = self.load_data()
+        if use_class_balanced:
+            data, targets = self.load_balanced_data()
+        else:
+            print("Using randomly sampled data (not class/corruption balanced)")
+            data, targets = self.load_data()
+            indices = np.random.choice(len(data), self.n_examples, replace=False)
+            data = data[indices]
+            targets = targets[indices]
 
         # Split into train and test
         n_train = int(len(data) * 0.8)
@@ -109,7 +124,7 @@ class CIFAR10C(Dataset):
             self.dataset = BasicVisionDataset(
                 images=test_data, targets=torch.Tensor(test_targets).long(), transform=preprocess,
             )
-    def load_data(self):
+    def load_balanced_data(self):
         x_list, y_list = [], []
         num_examples_per_class = self.n_examples // (len(self.corruptions) * self.num_classes)
 
@@ -141,6 +156,29 @@ class CIFAR10C(Dataset):
 
         return x, y
 
+    def load_data(self):
+        x_list, y_list = [], []
+
+        for corruption in self.corruptions:
+            corruption_file_path = self.root_dir / (corruption + '.npy')
+            if not corruption_file_path.is_file():
+                raise ValueError(f"{corruption} file is missing, try to re-download it.")
+
+            images_all = np.load(corruption_file_path)
+            start_idx = (self.severity - 1) * self.n_total_cifar
+            end_idx = self.severity * self.n_total_cifar
+            images = images_all[start_idx:end_idx]
+            labels_for_corruption = self.labels[start_idx:end_idx]
+
+            x_list.append(images)
+            y_list.append(labels_for_corruption)
+
+        x, y = np.concatenate(x_list), np.concatenate(y_list)
+        rand_idx = np.random.permutation(np.arange(len(x)))
+        x, y = x[rand_idx], y[rand_idx]
+
+        return x, y
+
     def __str__(self):
         return "CIFAR10C"
 
@@ -150,6 +188,7 @@ class CINIC:
             preprocess,
             train,
             n_examples,
+            use_class_balanced=False,
             location=os.path.expanduser('~/data'),
             batch_size=128,
             num_workers=16):
@@ -177,13 +216,21 @@ class CINIC:
                     images.append(img.copy())
                     labels.append(class_idx)
 
+        combined = list(zip(images, labels))
+        random.shuffle(combined)
+        images[:], labels[:] = zip(*combined)
+
         self.dataset = BasicVisionDataset(
             images=images, targets=torch.Tensor(labels).long(),
             transform=preprocess,
         )
 
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            if use_class_balanced:
+                self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes)
+            else:
+                indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                self.dataset = torch.utils.data.Subset(self.dataset, indices)
 
     def __str__(self):
         return "CINIC"
@@ -194,6 +241,7 @@ class CIFAR101:
                  preprocess,
                  train,
                  n_examples,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
                  num_workers=16,
@@ -210,7 +258,11 @@ class CIFAR101:
             transform=preprocess,
         )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            if use_class_balanced:
+                self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes)
+            else:
+                indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                self.dataset = torch.utils.data.Subset(self.dataset, indices)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):
@@ -221,6 +273,7 @@ class CIFAR102:
                  preprocess,
                  train,
                  n_examples,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
                  num_workers=16,
@@ -248,7 +301,11 @@ class CIFAR102:
                 transform=preprocess,
             )
         if n_examples > -1:
-            self.dataset = SampledDataset(self.dataset, num_samples_per_class=n_examples//self.num_classes)
+            if use_class_balanced:
+                self.dataset = SampledDataset(self.dataset, self.__str__(), num_samples_per_class=n_examples//self.num_classes)
+            else:
+                indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                self.dataset = torch.utils.data.Subset(self.dataset, indices)
         self.classnames = CIFAR_CLASSNAMES
 
     def __str__(self):

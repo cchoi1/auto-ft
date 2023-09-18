@@ -15,8 +15,7 @@ from networks import get_pretrained_net_fixed
 from utils import set_seed, evaluate, finetune, save_hparams
 from plots import plot_accuracies
 
-
-devices = list(range(torch.cuda.device_count()))
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 NUM_LOSSES = 7
 
@@ -31,16 +30,10 @@ def get_network(in_dist: str):
         transform = None
     elif in_dist == "cifar10":
         model, transform = clip.load("RN50", device="cuda")
-        net = model.visual.cuda()
-        if torch.cuda.device_count() > 1:
-            net = torch.nn.DataParallel(net, device_ids=devices)
-        print(f"Using {torch.cuda.device_count()} GPUs...")
+        net = model.visual
     elif in_dist == "imagenet":
         model, transform = clip.load("ViT-B/32", device="cuda")
-        net = model.visual.cuda()
-        if torch.cuda.device_count() > 1:
-            net = torch.nn.DataParallel(net, device_ids=devices)
-        print(f"Using {torch.cuda.device_count()} GPUs...")
+        net = model.visual
     else:
         raise ValueError(f"Unknown ID distribution: {in_dist}")
     return net, transform
@@ -56,23 +49,23 @@ def build_hparams_space(num_losses):
     return space
 
 
-def evaluate_hparams(net, hyperparams, datasets, batch_size, max_iters, num_workers, repeats=1, full_eval=False):
+def evaluate_hparams(net, hyperparams, datasets, args, repeats=1, full_eval=False):
+    net = net.to(device)
+
     all_val_results = []
     for _ in range(repeats):
-        initial_net = copy.deepcopy(net)
-        current_net = copy.deepcopy(net)
-        initial_net.cuda()
-        current_net.cuda()
+        initial_net = copy.deepcopy(net).to(device)
+        current_net = copy.deepcopy(net).to(device)
         optimizer = torch.optim.SGD(
             current_net.parameters(), lr=hyperparams["lr"], momentum=hyperparams["momentum"]
         )
-        loss_weight_hparams = torch.tensor([hyperparams[f"lossw_{i}"] for i in range(NUM_LOSSES)])
+        loss_weight_hparams = torch.tensor([hyperparams[f"lossw_{i}"] for i in range(NUM_LOSSES)]).to(device)
         loss_fn = LayerLoss(loss_weight_hparams)
         train_loader = DataLoader(
-            datasets["id"], batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True
+            datasets["id"], batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+            drop_last=True
         )
-        finetune(current_net, initial_net, optimizer, loss_fn, train_loader, max_iters)
-
+        finetune(current_net, initial_net, optimizer, loss_fn, train_loader, args.max_iters)
         val_results = dict()
         if full_eval:
             eval_datasets = ["source", "id_val", "ood", "test1", "test2", "test3", "test4", "test5"]
@@ -81,22 +74,22 @@ def evaluate_hparams(net, hyperparams, datasets, batch_size, max_iters, num_work
         for name in eval_datasets:
             if name not in datasets.keys():
                 continue
-            dataset = datasets[name]
-            loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+            loader = DataLoader(datasets[name], batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
             loss, accuracy = evaluate(current_net, loader)
-            del loader
             val_results[f"{name}_loss"] = loss
             val_results[f"{name}_accuracy"] = accuracy
             all_val_results.append(val_results)
+
     all_val_results = [{k: np.mean([r[k] for r in all_val_results]) for k in all_val_results[0]}]
 
     test_accs = []
     if full_eval:
-        current_net = finetune(current_net, initial_net, optimizer, loss_fn, train_loader)
+        current_net = finetune(current_net, initial_net, optimizer, loss_fn, train_loader).to(device)
         x, y = next(iter(train_loader))
-        _, individual_losses = loss_fn(torch.zeros_like(x).cuda(), torch.zeros_like(y).cuda(), current_net, initial_net)
+        _, individual_losses = loss_fn(x.to(device), y.to(device), current_net, initial_net)
         individual_losses = individual_losses.detach().cpu().numpy()
         print("individual losses", individual_losses)
+
         for name in eval_datasets:
             if name not in datasets.keys():
                 continue
@@ -104,16 +97,19 @@ def evaluate_hparams(net, hyperparams, datasets, batch_size, max_iters, num_work
             accs = [r[f"{name}_accuracy"] for r in all_val_results]
             if "test" in name:
                 test_accs.append(np.mean([r[f"{name}_accuracy"] for r in all_val_results]))
-            print(f"{name:10s} loss: {np.mean(losses):.3f} +- {np.std(losses):.3f}  acc: {np.mean(accs):.2f} +- {np.std(accs):.2f}")
+            print(
+                f"{name:10s} loss: {np.mean(losses):.3f} +- {np.std(losses):.3f}  acc: {np.mean(accs):.2f} +- {np.std(accs):.2f}")
+
         print(f"Average Test Accuracy: {np.mean(test_accs):.2f} +- {np.std(test_accs):.2f}")
         print()
+
     return all_val_results
 
 
-def run_hyperopt_optimization(net, all_datasets, batch_size, max_iters, num_workers, repeats, max_evals_range, default_hparams, num_losses):
+def run_hyperopt_optimization(net, all_datasets, args, repeats, max_evals_range, num_losses):
     def hp_objective_fn(hparams):
         _net = copy.deepcopy(net)
-        val_results = evaluate_hparams(_net, hparams, all_datasets, batch_size, max_iters, num_workers, repeats)
+        val_results = evaluate_hparams(_net, hparams, all_datasets, args, repeats)
         val_accs = [r["ood_subset_for_hp_accuracy"] for r in val_results]
         return -np.mean(val_accs)  # maximize accuracy
 
@@ -128,11 +124,8 @@ def run_hyperopt_optimization(net, all_datasets, batch_size, max_iters, num_work
             max_evals=max_evals,
             trials=trials,
         )
-        results = evaluate_hparams(net, best_hparams, all_datasets, batch_size, max_iters, args.num_workers, repeats, full_eval=True)
+        results = evaluate_hparams(net, best_hparams, all_datasets, args, repeats, full_eval=True)
 
-        for i in range(num_losses):
-            best_hparams[f"lossw_{i}"] = np.exp(best_hparams[f"lossw_{i}"])
-        best_hparams["lr"] = np.exp(best_hparams["lr"])
         print_hyperparams(best_hparams)
 
     return results, best_hparams
@@ -159,8 +152,7 @@ def run_ood_for_hopt_ablation(all_datasets, net, args):
         default_hparams["lr"] = args.lr
         default_hparams["momentum"] = 0.9
         print(f"\nID+OOD fine-tune baseline:")
-        results = evaluate_hparams(net, default_hparams, all_datasets_w_idood, args.batch_size, args.max_iters,
-                                   args.num_workers, args.repeats, full_eval=True)
+        results = evaluate_hparams(net, default_hparams, all_datasets_w_idood, args, args.repeats, full_eval=True)
         all_results["FT"].append(np.mean([results[-1][f"{eval_dataset}_accuracy"] for eval_dataset in eval_datasets]))
 
         results, _ = run_hyperopt_optimization(net, all_datasets, args.batch_size, args.max_iters, args.num_workers,
@@ -173,6 +165,8 @@ def run_ood_for_hopt_ablation(all_datasets, net, args):
 
 def main(args):
     net, transform = get_network(in_dist=args.id)
+    net = net.to(device)
+
     num_examples_per_dist = {
         "pretrain" : args.num_pretrain_examples,
         "id": args.num_id_examples,
@@ -196,24 +190,24 @@ def main(args):
     id_and_ood_data = torch.utils.data.ConcatDataset([all_datasets["id"], all_datasets["ood_subset_for_hp"]])
     all_datasets_w_idood = copy.deepcopy(all_datasets)
     all_datasets_w_idood["id"] = id_and_ood_data
-    print(f"\nID+OOD fine-tune baseline:")
     default_hparams = {f"lossw_{i}": 0.0 for i in range(NUM_LOSSES)}
     default_hparams["lossw_0"] = 1.0
     default_hparams["lr"] = args.lr
     default_hparams["momentum"] = 0.9
-    evaluate_hparams(net, default_hparams, all_datasets_w_idood, args.batch_size, args.max_iters, args.num_workers, args.repeats, full_eval=True)
+    print(f"\nID+OOD fine-tune baseline:")
+    evaluate_hparams(net, default_hparams, all_datasets_w_idood, args, full_eval=True)
     print(f"\nID fine-tune baseline:")
-    evaluate_hparams(net, default_hparams, all_datasets, args.batch_size, args.max_iters, args.num_workers, args.repeats, full_eval=True)
+    evaluate_hparams(net, default_hparams, all_datasets, args, full_eval=True)
 
     if args.load_hparams is None:
-        results, best_hparams = run_hyperopt_optimization(net, all_datasets, args.batch_size, args.max_iters, args.num_workers, args.repeats, range(10, 100, 10), default_hparams, NUM_LOSSES)
+        results, best_hparams = run_hyperopt_optimization(net, all_datasets, args, args.repeats, range(10, 100, 10), NUM_LOSSES)
         if args.save:
             save_hparams(best_hparams, args)
     else:
         with open(args.load_hparams, "rb") as f:
             best_hparams = pickle.load(f)
-        evaluate_hparams(net, best_hparams, all_datasets, args.batch_size, args.max_iters, args.num_workers, args.repeats, full_eval=True)
-
+        print_hyperparams(best_hparams)
+        evaluate_hparams(net, best_hparams, all_datasets, args, full_eval=True)
 
 
 if __name__ == "__main__":
@@ -221,7 +215,9 @@ if __name__ == "__main__":
     # parser.add_argument('--method', type=str, choices=['ours', 'ft'])
     parser.add_argument('--root_dir', type=str, default='/iris/u/cchoi1/Data')
     parser.add_argument('--save', action='store_true')
+    parser.add_argument('--save_dir', type=str, default='/iris/u/cchoi1/robust-optimizer/lloss/hparams')
     parser.add_argument('--load_hparams', type=str, default=None, help='Path to hparams file to load')
+
     parser.add_argument('--pretrain', type=str, default='svhn', choices=['svhn', 'clip'])
     parser.add_argument('--num_pretrain_examples', type=int, default=10000)
     parser.add_argument('--id', type=str, default='mnist', choices=['mnist', 'cifar10'])
@@ -240,12 +236,13 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-1)
     parser.add_argument('--max_iters', type=int, default=500)
     parser.add_argument('--plot', action='store_true')
-    parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--num_workers', type=int, default=2)
     parser.add_argument('--repeats', type=int, default=2)
+
     args = parser.parse_args()
 
-    print(args.test)
     # Sample command: python main.py --test mnistc-motion_blur mnistc-impulse_noise mnistc-canny_edges rotated_mnist colored_mnist --plot
     # assert args.id == "mnist" and args.test != ['motion_blur', 'impulse_noise', 'canny_edges', 'rotated_mnist', 'colored_mnist']
+
     set_seed()
     main(args)

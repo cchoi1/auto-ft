@@ -12,7 +12,7 @@
 
 # Now your Python or general experiment/job runner code
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
-cd ..
+cd ../..
 
 python main.py --pretrain clip --id cifar10 --ood cifar10c --test cinic10 \
  --lr 1e-4 --batch_size 64 --max_iters 12000 --num_workers 2 --repeats 1

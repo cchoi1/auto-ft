@@ -4,11 +4,6 @@ import random
 
 import numpy as np
 import torch
-# import torch_xla.core.xla_model as xm
-
-def is_tpu_available():
-    # return len(xm.get_xla_supported_devices()) >= 8
-    return False
 
 
 def get_device(rank=0):

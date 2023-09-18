@@ -27,17 +27,21 @@ def meta_batch_sampler(dataset, meta_batch_size, batch_size):
 
     return meta_batches
 
-def get_transform(dataset_name):
-    if dataset_name in ["cifar10", "cinic10"]:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        ])
-    elif dataset_name in ["cifar10c"]:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        ])
+def get_transform(dataset_name, augment=False):
+    augmentations = []
+    if augment:
+        augmentations = [
+            transforms.RandomRotation(15),
+            transforms.RandomCrop(28, padding=4),
+            transforms.RandomHorizontalFlip()
+        ]
+    common_transforms = [
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    ]
+
+    if dataset_name in ["cifar10", "cinic10", "cifar10c"]:
+        transform = transforms.Compose(common_transforms + augmentations)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
     return transform
@@ -48,6 +52,7 @@ def get_dataloaders(
     dataset_names: List[str],
     batch_size: int,
     num_samples_per_class: List[int],
+    augment=False,
     use_meta_batch=False,
     meta_batch_size=0,
     num_workers=0,
@@ -58,27 +63,28 @@ def get_dataloaders(
     collate_fn = None
 
     for i, dataset_name in enumerate(dataset_names):
-        transform = get_transform(dataset_name=dataset_name)
+        train_transform = get_transform(dataset_name=dataset_name, augment=augment)
+        test_transform = get_transform(dataset_name=dataset_name, augment=False)
         if dataset_name == "cifar10":
             train_dataset = datasets.CIFAR10(
-                root_dir, train=True, download=True, transform=transform
+                root_dir, train=True, download=True, transform=train_transform
             )
             test_dataset = datasets.CIFAR10(
-                root_dir, train=False, download=True, transform=transform
+                root_dir, train=False, download=True, transform=test_transform
             )
         elif dataset_name == "cifar10c":
             train_dataset = CIFAR10C(
-                root_dir, corruption_type="some_type", severity=1, transform=transform
+                root_dir, corruption_type="some_type", severity=1, transform=train_transform
             )
             test_dataset = CIFAR10C(
-                root_dir, corruption_type="some_type", severity=1, transform=transform  # similarly for test set
+                root_dir, corruption_type="some_type", severity=1, transform=test_transform
             )
         elif dataset_name == "cinic10":
             train_dataset = CINIC10(
-                root_dir, split='train', transform=transform
+                root_dir, split='train', transform=train_transform
             )
             test_dataset = CINIC10(
-                root_dir, split='test', transform=transform
+                root_dir, split='test', transform=test_transform
             )
         if num_samples_per_class[i] > 0:
             train_dataset = SampledDataset(train_dataset, num_samples_per_class[i])

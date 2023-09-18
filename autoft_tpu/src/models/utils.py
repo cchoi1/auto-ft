@@ -37,7 +37,7 @@ def print_train_update(device, tracker, loss, step, total_steps, epoch=None):
   ]
   xm.master_print('|', ' '.join(item for item in update_data if item), flush=True)
 
-def initialize_model(args, rank=0):
+def initialize_model(args):
     image_classifier = ImageClassifier.load(args.load)
     if args.freeze_encoder:
         model = image_classifier.classification_head

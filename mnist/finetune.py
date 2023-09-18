@@ -4,7 +4,7 @@ from collections import defaultdict
 import torch
 import torch.nn as nn
 
-from losses.layerloss import LayerLoss
+from lloss.losses.layerloss import LayerLoss
 from utils import get_lopt_info
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
