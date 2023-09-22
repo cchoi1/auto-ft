@@ -5,7 +5,7 @@ import torch_xla.core.xla_model as xm
 
 
 def setup_logging(args):
-    save_dir = os.path.join(args.save, args.id, args.method)
+    save_dir = os.path.join(args.save, args.id, args.method, args.model)
     os.makedirs(save_dir, exist_ok=True)
     if args.method == "autoft":
         method_name = f"ood{args.ood}_{args.loss_type}"

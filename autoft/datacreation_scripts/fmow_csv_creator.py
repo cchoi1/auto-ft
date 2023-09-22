@@ -14,7 +14,8 @@ import pytz
 
 template = getattr(templates, 'fmow_template')
 
-out = open(f"./datasets/csv/fmow.csv", "w")
+# out = open(f"./datasets/csv/fmow.csv", "w")
+out = open(f"/iris/u/cchoi1/Data/csv/fmow_v1.1/fmow.csv", "w")
 
 out.write("title\tfilepath\n")
 
@@ -37,7 +38,8 @@ categories = [
     "wind_farm", "zoo"
 ]
 
-metadata = pd.read_csv('./datasets/data/fmow_v1.1/rgb_metadata.csv')
+# metadata = pd.read_csv('./datasets/data/fmow_v1.1/rgb_metadata.csv')
+metadata = pd.read_csv('/iris/u/yoonho/data/wilds/fmow_v1.1/rgb_metadata.csv')
 ####Filtering out the Training ID samples from the meta data (Code borrowed from WILDS Github)
 split_array = np.zeros(len(metadata))
 year = 2016
@@ -56,7 +58,8 @@ seq_mask = np.asarray(metadata['split'] == 'seq')
 split_array = split_array[~seq_mask]
 train_idx = np.where(split_array)[0]
 
-root = './datasets/data/fmow_v1.1/images/'
+#root = './datasets/data/fmow_v1.1/images/'
+root = '/iris/u/yoonho/data/wilds/fmow_v1.1/images/'
 count = 0
 for idx in train_idx:
     img_file = f'rgb_img_{idx}.png'

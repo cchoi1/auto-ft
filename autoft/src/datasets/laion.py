@@ -77,9 +77,9 @@ class CsvDataset(Dataset):
         if self.return_label:
             label = self.labels[idx]
             if len(self.captions_list) > 0:
-                return images, texts, texts_list, label
+                return images, label, texts, texts_list
             else:
-                return images, texts, label
+                return images, label, texts
 
         if len(self.captions_list) > 0:
             return images, texts, texts_list
@@ -459,8 +459,7 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
     assert input_filename
 
     if args.get_labeled_csv:
-        label_key = args.supervised_label_key
-
+        label_key = "label"
     else:
         label_key = None
 

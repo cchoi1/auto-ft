@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=32GB # Request 16GB of memory
 #SBATCH --gres=gpu:2 # Request one GPU
-#SBATCH --job-name="imagenet-autoft-lr-100ex" # Name the job (for easier monitoring)
-#SBATCH --output=imagenet-autoft-lr-100ex.log  # Name of the output log file
+#SBATCH --job-name="imagenet-autoft-10is-1000evals-15000ex" # Name the job (for easier monitoring)
+#SBATCH --output=imagenet-autoft-10is-1000evals-15000ex.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -17,9 +17,17 @@ cd ../..
 
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
-python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoonho/data \
+#python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoonho/data \
+#--id ImageNet --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet,ImageNetC \
+#--ft_epochs 10 --inner_steps 10 --autoft_epochs 100 --val_freq 10 \
+#--lr 1e-5 --wd 0.1 --batch-size 512 --warmup_length 1000 --accumulation_steps 1 \
+#--load ./zeroshot/clip_vitb16_imagenet.pt \
+#--load_hparams ./hparams/ImageNet/is=10_evals=1000_ex=15000.json \
+#--num_ood_hp_examples 15000
+
+python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoonho/data \
 --id ImageNet --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet,ImageNetC \
---ft_epochs 10 --inner_steps 1 --autoft_epochs 1000 --val_freq 10 \
---lr 3e-5 --wd 0.1 --batch-size 512 --workers 2 --warmup_length 4000 \
+--ft_epochs 10 --inner_steps 500 --autoft_epochs 100 --val_freq 10 \
+--lr 1e-5 --wd 0.1 --batch-size 512 --warmup_length 500 --accumulation_steps 1 \
 --load ./zeroshot/clip_vitb16_imagenet.pt \
---num_ood_hp_examples 100
+--num_ood_hp_examples 150000

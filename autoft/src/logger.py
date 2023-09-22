@@ -8,18 +8,20 @@ def setup_logging(args, logger):
         method_name = f"ood{args.ood}_{args.loss_type}"
         if args.pointwise_loss:
             method_name += "_pw"
-        if args.num_ood_unlabeled_examples is not None:
+        if args.unlabeled_id is not None:
             method_name += "_unlabeled"
-        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        if args.ft_data is not None:
+            method_name += "_flyp"
+        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}_seed{args.seed}"
         args.save = os.path.join(save_dir, method_name, run_details)
     elif args.method == "ft-id-ood":
         method_name = f"ood{args.ood}"
         if args.num_ood_unlabeled_examples is not None:
             method_name += "_unlabeled"
-        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}_seed{args.seed}"
         args.save = os.path.join(save_dir, method_name, run_details)
     elif args.method == "ft-id":
-        run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}"
+        run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}_seed{args.seed}"
         args.save = os.path.join(save_dir, run_details)
     logging_path = os.path.join("logs", args.save)
     print(f"\nMODEL SAVE PATH: {args.save}")

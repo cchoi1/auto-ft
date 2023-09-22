@@ -13,6 +13,8 @@ def parse_arguments():
                         help="The root directory for the datasets.")
     parser.add_argument("--id", default=None, type=str)
     parser.add_argument("--num_id_examples", default=-1, type=int)
+    parser.add_argument("--unlabeled_id", default=None, type=str)
+    parser.add_argument("--num_id_unlabeled_examples", default=None, type=int)
     parser.add_argument("--num_id_val_examples", default=-1, type=int)
     parser.add_argument("--ood", default=None, type=str)
     parser.add_argument("--num_ood_hp_examples", default=-1, type=int)
@@ -48,6 +50,7 @@ def parse_arguments():
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--use_class_balanced_ood", action="store_true")
     parser.add_argument("--use_id_val", action="store_true")
+    parser.add_argument("--use_hyperopt", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)
@@ -70,7 +73,12 @@ def parse_arguments():
     parser.add_argument("--seed", type=int, default=0, help="Default random seed.")
     parser.add_argument("--run", type=int, default=1, help="Repeated run number")
 
-    # TODO other args from FLYP code that we don't need right now but might need later
+    parser.add_argument(
+        "--ft_data",
+        type=str,
+        default=None,
+        help="Path to csv filewith training data",
+    )
     parser.add_argument(
         "--template",
         type=str,

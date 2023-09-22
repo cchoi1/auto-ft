@@ -1,5 +1,4 @@
 import torch
-import copy
 
 import clip.clip as clip
 
@@ -32,7 +31,6 @@ class CLIPEncoder(torch.nn.Module):
     def save(self, filename):
         print(f'Saving clip encoder to {filename}')
         utils.torch_save(self, filename)
-        # torch.save(self.model, filename)
 
     @classmethod
     def load(cls, filename, logger=None):

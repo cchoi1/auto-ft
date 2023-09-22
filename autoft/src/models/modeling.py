@@ -149,9 +149,12 @@ class ImageEncoder(torch.nn.Module):
         if not keep_lang and hasattr(self.model, 'transformer'):
             delattr(self.model, 'transformer')
 
-    def forward(self, images):
+    def forward(self, images, text=None):
         assert self.model is not None
+        if text is not None:
+            return self.model(images, text)
         return self.model.encode_image(images)
+
 
     def save(self, filename):
         print(f'Saving image encoder to {filename}')

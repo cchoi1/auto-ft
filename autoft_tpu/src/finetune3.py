@@ -96,13 +96,51 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     dataloader = pl.MpDeviceLoader(dataloader, device, loader_prefetch_size=args.loader_prefetch_size, device_prefetch_size=args.device_prefetch_size)
     return dataloader
 
+def create_optimizer(model, hyperparams, loss_type):
+    if loss_type == "LayerwiseLoss":
+        layerwise_params = []
+        layer_idx = 0
+        # Extract layers from the image_encoder (CLIPEncoder) of the model
+        for name, module in model.image_encoder.named_children():
+            if name == 'model':
+                for sub_module in [module.visual.conv1, module.visual.ln_pre, *module.visual.transformer.resblocks]:
+                    params_for_layer = {
+                        'params': sub_module.parameters(),
+                        'lr': hyperparams[f"{layer_idx}_lr"],
+                        'weight_decay': hyperparams[f"{layer_idx}_wd"]
+                    }
+                    layerwise_params.append(params_for_layer)
+                    layer_idx += 1
+
+        # Classification head of the model
+        params_for_layer = {
+            'params': model.classification_head.parameters(),
+            'lr': hyperparams[f"{layer_idx}_lr"],
+            'weight_decay': hyperparams[f"{layer_idx}_wd"]
+        }
+        layerwise_params.append(params_for_layer)
+        optimizer = torch.optim.AdamW(layerwise_params)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=hyperparams["lr"], weight_decay=hyperparams["wd"])
+    return optimizer
+
+# def _run2(index, args):
+#     device = xm.xla_device()
+#     model, preprocess_fn = initialize_model(args)
+#     model = model.to(device)
+#     _mp_evaluate(index, model, args)
 
 def _run(index, args):
+    start_time = time.time()
     device = xm.xla_device()
     model, preprocess_fn = initialize_model(args)
     model = model.to(device)
+    if args.eval_only:
+        _mp_evaluate(index, model, args)
+        return
     if args.method in ["ft-id", "ft-id-ood"]:
         loss_fn = torch.nn.CrossEntropyLoss()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     elif args.method in ["autoft"]:
         assert args.load_hparams is not None
         with open(args.load_hparams, 'r') as f:
@@ -110,12 +148,12 @@ def _run(index, args):
         loss_weights = get_loss_weights(best_hparams, args.loss_type, args.num_losses)
         model_params = [p for p in model.parameters()]
         loss_fn = getattr(losses, args.loss_type)(loss_weights, model_params)
+        optimizer = create_optimizer(model, best_hparams, args.loss_type)
         del model_params, loss_weights; torch.cuda.empty_cache()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     all_datasets = get_datasets(args, preprocess_fn)
     train_loader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-    num_batches = len(train_loader)
-    total_steps = int(num_batches / args.accumulation_steps) * args.ft_epochs
+    num_batches = len(train_loader) / args.accumulation_steps
+    total_steps = num_batches * args.ft_epochs
     scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, total_steps)
     per_epoch_eval_results = {}
     if args.freeze_encoder:
@@ -123,8 +161,8 @@ def _run(index, args):
     else:
         input_key = 'images'
 
-    xm.master_print("Zeroshot accuracies...")
-    _mp_evaluate(index, model, args)
+    # xm.master_print("Zeroshot accuracies...")
+    # _mp_evaluate(index, model, args)
     # Resume training from the latest checkpoint if it exists
     start_epoch = 0
     model_epochs = [int(re.search(r'model_(\d+)\.pt', f).group(1)) for f in os.listdir(args.save) if
@@ -151,7 +189,7 @@ def _run(index, args):
             batch = maybe_dictionarize(batch)
             inputs = batch[input_key].to(device)
             labels = batch['labels'].to(device)
-            if (i + 1) % args.accumulation_steps == 0:
+            if i % args.accumulation_steps == args.accumulation_steps - 1:
                 scheduler_step = effective_step + epoch * num_batches
                 scheduler(scheduler_step)
                 optimizer.zero_grad()
@@ -162,30 +200,36 @@ def _run(index, args):
             else:
                 loss = loss_fn(outputs, labels) / args.accumulation_steps
             loss.backward()
-            if (i + 1) % args.accumulation_steps == 0:
+            if i % args.accumulation_steps == args.accumulation_steps - 1:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 xm.optimizer_step(optimizer)
 
             if i % 100 == 0:
                 xm.master_print(f"Epoch [{epoch + 1}/{args.ft_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {loss.item()}")
         # Save the current checkpoint along with optimizer and scheduler
-        model_save_path = os.path.join(args.save, f"model_{epoch}.pt")
-        model.save(model_save_path)
-        ckpt_save_path = os.path.join(args.save, f"opt_sched_{epoch}.pt")
-        xm.save({
-            'optimizer_state': optimizer.state_dict(),
-            'scheduler_params': {
-                'base_lrs': args.lr,
-                'warmup_length': args.warmup_length,
-                'steps': total_steps,
-                'current_step': effective_step + epoch * num_batches
-            },
-            'epoch': epoch
-        }, ckpt_save_path)
-        xm.master_print(f"Saved optimizer and scheduler to {ckpt_save_path}")
+        if epoch == args.ft_epochs - 1:
+            if xm.is_master_ordinal():
+                model_save_path = os.path.join(args.save, f"model_{epoch}.pt")
+                model = model.to('cpu')
+                model.save(model_save_path)
+                model = model.to(device)
+                print("Saved model to", model_save_path)
+            ckpt_save_path = os.path.join(args.save, f"opt_sched_{epoch}.pt")
+            xm.save({
+                'optimizer_state': optimizer.state_dict(),
+                'scheduler_params': {
+                    'base_lrs': args.lr,
+                    'warmup_length': args.warmup_length,
+                    'steps': total_steps,
+                    'current_step': effective_step + epoch * num_batches
+                },
+                'epoch': epoch
+            }, ckpt_save_path)
+            xm.master_print(f"Saved optimizer and scheduler to {ckpt_save_path}")
         # Evaluate
-        _mp_evaluate(index, model, args)
-        xm.master_print("Finished training epoch:", epoch + 1)
+        if args.id != "CIFAR10":
+            _mp_evaluate(index, model, args)
+        xm.master_print(f"Finished training epoch: {epoch + 1} | Time: {time.time() - start_time} s")
 
 
 def main(args):

@@ -10,7 +10,7 @@ import sys
 import src.templates as templates
 
 template = getattr(templates, 'openai_imagenet_template')
-out = open(f"./datasets/csv/imagenet.csv", "w")
+out = open(f"/iris/u/cchoi1/Data/csv/imagenet.csv", "w")
 out.write("title\tfilepath\n")
 
 openai_classnames = [
@@ -235,11 +235,14 @@ openai_classnames = [
     "bolete", "corn cob", "toilet paper"
 ]
 
-list_folders = os.listdir(f'./datasets/data/ILSVRC2012/train/')
+DATA_DIR = "/iris/u/yoonho/data/ImageNet/ILSVRC/Data/CLS-LOC/train"
+list_folders = os.listdir(DATA_DIR)
 list_folders = sorted(list_folders)
+#TODO change this later
+list_folders = list_folders[3:]
 for i in range(1000):
     folder_name, class_name = list_folders[i], openai_classnames[i]
-    curr_path = os.path.join(f'./datasets/data/ILSVRC2012/train', folder_name)
+    curr_path = os.path.join(DATA_DIR, folder_name)
     all_files = os.listdir(curr_path)
     tot_fils = 0
     for file in all_files:

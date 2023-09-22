@@ -41,30 +41,35 @@ def get_nonempty_subset(dataset, split, frac=1.0, transform=None):
 class IWildCam:
     def __init__(self,
                  preprocess,
+                 train,
+                 n_examples,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  remove_non_empty=False,
                  batch_size=128,
                  num_workers=16,
                  classnames=None,
                  subset='train'):
-        self.dataset = wilds.get_dataset(dataset='iwildcam', root_dir=location)
-        self.train_dataset = self.dataset.get_subset('train', transform=preprocess)
-        self.train_loader = get_train_loader("standard", self.train_dataset, num_workers=num_workers, batch_size=batch_size)
-
-        if remove_non_empty:
-            self.train_dataset = get_nonempty_subset(self.dataset, 'train', transform=preprocess)
-        else:
-            self.train_dataset = self.dataset.get_subset('train', transform=preprocess)
-
-        if remove_non_empty:
-            self.test_dataset = get_nonempty_subset(self.dataset, subset, transform=preprocess)
-        else:
-            self.test_dataset = self.dataset.get_subset(subset, transform=preprocess)
-
-        self.test_loader = get_eval_loader(
-            "standard", self.test_dataset,
-            num_workers=num_workers,
-            batch_size=batch_size)
+        dataset = wilds.get_dataset(dataset='iwildcam', root_dir=location)
+        if subset == 'train':
+            self.dataset = dataset.get_subset('train', transform=preprocess)
+            self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
+        elif "unlabeled" in subset:
+            dataset = wilds.get_dataset(dataset='iwildcam', unlabeled=True, root_dir=location)
+            self.dataset = dataset.get_subset('extra_unlabeled', transform=preprocess)
+            self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
+        elif subset == 'val':
+            self.dataset = dataset.get_subset('val', transform=preprocess)
+            self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
+        elif subset == 'id_val':
+            self.dataset = dataset.get_subset('id_val', transform=preprocess)
+            self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
+        elif subset == 'id_test':
+            self.dataset = dataset.get_subset('id_test', transform=preprocess)
+            self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
+        elif subset == 'test':
+            self.dataset = dataset.get_subset('test', transform=preprocess)
+            self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
 
         labels_csv = pathlib.Path(__file__).parent / 'iwildcam_metadata' / 'labels.csv'
         df = pd.read_csv(labels_csv)
@@ -72,40 +77,58 @@ class IWildCam:
         
         self.classnames = [s.lower() for s in list(df['english'])]
 
+    def __len__(self):
+        return len(self.dataset)
+
     def post_loop_metrics(self, labels, preds, metadata, args):
         preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
+
+class IWildCamTrain(IWildCam):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'train'
+        super().__init__(*args, **kwargs)
+
+class IWildCamUnlabeledTrain(IWildCam):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'unlabeled'
+        super().__init__(*args, **kwargs)
 
 class IWildCamIDVal(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'id_val'
         super().__init__(*args, **kwargs)
 
-class IWildCamID(IWildCam):
+class IWildCamIDTest(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'id_test'
         super().__init__(*args, **kwargs)
 
-class IWildCamOOD(IWildCam):
+class IWildCamOODVal(IWildCam):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'val'
+        super().__init__(*args, **kwargs)
+
+class IWildCamOODTest(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'test'
         super().__init__(*args, **kwargs)
 
 
-class IWildCamNonEmpty(IWildCam):
-    def __init__(self, *args, **kwargs):
-        kwargs['subset'] = 'train'
-        super().__init__(*args, **kwargs)
-
-
-class IWildCamIDNonEmpty(IWildCam):
-    def __init__(self, *args, **kwargs):
-        kwargs['subset'] = 'id_test'
-        super().__init__(*args, **kwargs)
-
-
-class IWildCamOODNonEmpty(IWildCam):
-    def __init__(self, *args, **kwargs):
-        kwargs['subset'] = 'test'
-        super().__init__(*args, **kwargs)
+# class IWildCamNonEmpty(IWildCam):
+#     def __init__(self, *args, **kwargs):
+#         kwargs['subset'] = 'train'
+#         super().__init__(*args, **kwargs)
+#
+#
+# class IWildCamIDNonEmpty(IWildCam):
+#     def __init__(self, *args, **kwargs):
+#         kwargs['subset'] = 'id_test'
+#         super().__init__(*args, **kwargs)
+#
+#
+# class IWildCamOODNonEmpty(IWildCam):
+#     def __init__(self, *args, **kwargs):
+#         kwargs['subset'] = 'test'
+#         super().__init__(*args, **kwargs)

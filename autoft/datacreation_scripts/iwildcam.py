@@ -16,9 +16,9 @@ def main(args):
 
     assert len(df) == 129809, 'number of samples incorrect'
 
-    label_to_name['prompt1'] = label_to_name['english'].map(
+    label_to_name['prompt1'] = label_to_name['name'].map(
         iwildcam_template[0])
-    label_to_name['prompt2'] = label_to_name['english'].map(
+    label_to_name['prompt2'] = label_to_name['name'].map(
         iwildcam_template[1])
 
     df1 = pd.merge(df, label_to_name[['y', 'prompt1']],
@@ -51,16 +51,25 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
+    # parser.add_argument('--save_file',
+    #                     default='./datasets/csv/iwildcam_v2.0/train.csv')
+    # parser.add_argument('--english_label_path',
+    #                     default='./src/datasets/iwildcam_metadata/labels.csv')
+    # parser.add_argument('--metadata',
+    #                     default='./datasets/data/iwildcam_v2.0/metadata.csv')
+    # parser.add_argument('--data_dir',
+    #                     default='./datasets/data/iwildcam_v2.0/train')
     parser.add_argument('--save_file',
-                        default='./datasets/csv/iwildcam_v2.0/train.csv')
+                        default='/iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv')
     parser.add_argument('--english_label_path',
-                        default='./src/datasets/iwildcam_metadata/labels.csv')
+                        default='/iris/u/cchoi1/Data/iwildcam_v2.0/categories.csv')
     parser.add_argument('--metadata',
-                        default='./datasets/data/iwildcam_v2.0/metadata.csv')
+                        default='/iris/u/cchoi1/Data/iwildcam_v2.0/metadata.csv')
     parser.add_argument('--data_dir',
-                        default='./datasets/data/iwildcam_v2.0/train')
+                        default='/iris/u/cchoi1/Data/iwildcam_v2.0/train')
     args = parser.parse_args()
 
-    os.makedirs('./datasets/csv/iwildcam_v2.0', exist_ok=True)
+    # os.makedirs('./datasets/csv/iwildcam_v2.0', exist_ok=True)
+    os.makedirs('/iris/u/cchoi1/Data/csv/iwildcam_v2.0', exist_ok=True)
 
     main(args)

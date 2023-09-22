@@ -29,7 +29,6 @@ def eval_single_dataset(image_classifier, dataset, args):
         for i, data in batched_data:
             data = maybe_dictionarize(data)
             x = data[input_key].to(device)
-            # print('x shape', x.shape)
             y = data['labels'].to(device)
 
             if 'image_paths' in data:

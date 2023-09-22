@@ -5,46 +5,43 @@ import torch_xla.core.xla_model as xm
 
 from .utils import compute_hinge_loss
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch_xla.core.xla_model as xm
-
-from .utils import compute_hinge_loss
-
 
 class LayerwiseLoss(nn.Module):
     def __init__(self, hyperparams, initial_net_params):
         super().__init__()
         self.device = xm.xla_device()
         self.initial_net_params = [param.clone().detach().to(self.device) for param in initial_net_params]
-        self.hyperparams = [hp.float().to(self.device) for hp in hyperparams]
+        self.hyperparams = torch.stack(hyperparams).to(self.device)
+        self.param_sum = sum(param.numel() for param in initial_net_params)
 
-    def forward(self, inputs, targets, net, use_contrastive_loss=False):
-        outputs = net(inputs)
-        if (targets == -1).any():
-            pseudo_labels = torch.argmax(outputs, dim=1)
-            mask = (targets == -1)
-            targets[mask] = pseudo_labels[mask]
-
+    def forward(self, outputs, targets, net, use_contrastive_loss=False):
         ce_loss = F.cross_entropy(outputs, targets)
         hinge_loss = compute_hinge_loss(outputs, targets)
-        log_softmax_outputs = F.log_softmax(outputs, dim=1)
-        entropy = -(torch.exp(log_softmax_outputs) * log_softmax_outputs).mean(dim=1)
-        is_wrong = (outputs.argmax(dim=1) != targets).float()
-        dcm_loss = (is_wrong * entropy).mean()
-        l1_zero_accum = 0.
-        l2_zero_accum = 0.
-        l1_init_accum = 0.
-        l2_init_accum = 0.
+        entropy_all = -(F.softmax(outputs, dim=1) * F.log_softmax(outputs, dim=1)).sum(dim=1)
+        dcm_loss = ((outputs.argmax(dim=1) != targets).float().detach() * entropy_all).mean()
+        entropy = entropy_all.mean()
+
+        l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum = 0, 0, 0, 0
         for param, init_param in zip(net.parameters(), self.initial_net_params):
-            l1_zero_accum += torch.abs(param).mean()
-            l2_zero_accum += (param ** 2).mean()
-            l1_init_accum += torch.abs(param - init_param).mean()
-            l2_init_accum += ((param - init_param)**2).mean()
+            l1_zero_accum += torch.abs(param).sum()
+            l2_zero_accum += (param ** 2).sum()
 
-        loss_components = [ce_loss, hinge_loss, entropy, dcm_loss, l1_zero_accum, l2_zero_accum, l1_init_accum,
-                           l2_init_accum]
-        layerwise_losses = [torch.dot(torch.stack(loss_components), hp) for hp in self.hyperparams]
+            diff = param - init_param
+            l1_init_accum += torch.abs(diff).sum()
+            l2_init_accum += (diff ** 2).sum()
 
-        return torch.stack(layerwise_losses).mean()
+        l1_zero_accum /= self.param_sum
+        l2_zero_accum /= self.param_sum
+        l1_init_accum /= self.param_sum
+        l2_init_accum /= self.param_sum
+
+        losses = torch.stack([
+            ce_loss, hinge_loss, entropy, dcm_loss,
+            l1_zero_accum,
+            l2_zero_accum,
+            l1_init_accum,
+            l2_init_accum
+        ])
+        layerwise_losses = torch.matmul(self.hyperparams, losses)
+
+        return torch.mean(layerwise_losses)

@@ -1,4 +1,4 @@
-from .fmow import FMOWIDVal, FMOWID, FMOWOOD, FMOW
+from .fmow import FMOWTrain, FMOWUnlabeledTrain, FMOWIDVal, FMOWOODVal, FMOWOODTest
 from .imagenet import *
 from .imagenetv2 import ImageNetV2
 from .imagenet_a import ImageNetAValClasses, ImageNetA
@@ -6,7 +6,7 @@ from .imagenet_c import ImageNetC
 from .imagenet_r import ImageNetRValClasses, ImageNetR
 from .imagenet_sketch import ImageNetSketch
 from .imagenet_vid_robust import ImageNetVidRobustValClasses, ImageNetVidRobust
-from .iwildcam import IWildCamIDVal, IWildCamID, IWildCamOOD, IWildCamIDNonEmpty, IWildCamOODNonEmpty, IWildCam
+from .iwildcam import IWildCam, IWildCamTrain, IWildCamUnlabeledTrain, IWildCamIDVal, IWildCamOODVal, IWildCamOODTest
 from .objectnet import ObjectNetValClasses, ObjectNet
 from .caltech101 import Caltech101Val, Caltech101Test
 from .stanfordcars import StanfordCarsVal, StanfordCarsTest

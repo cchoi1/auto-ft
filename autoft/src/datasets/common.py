@@ -185,6 +185,8 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     Returns:
         DataLoader for the given dataset.
     """
+    if args.id in ["iWildCam", "FMOW"]:
+        return dataset.train_loader if is_train else dataset.test_loader
 
     kwargs = {"num_workers": args.workers, "pin_memory": True} if torch.cuda.is_available() else {}
     kwargs["batch_size"] = args.batch_size
