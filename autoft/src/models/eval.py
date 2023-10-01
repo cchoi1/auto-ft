@@ -2,7 +2,6 @@ import src.datasets as datasets
 import torch
 from src.datasets.common import get_dataloader, maybe_dictionarize
 from src.models import utils
-from src.models.utils import get_device
 from torchvision import transforms
 
 def eval_single_dataset(image_classifier, dataset, args):
@@ -15,8 +14,8 @@ def eval_single_dataset(image_classifier, dataset, args):
         input_key = 'images'
         image_enc = None
 
-    device = get_device()
-    model.to(device).eval()
+    model = model.cuda()
+    model.eval()
     dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
     batched_data = enumerate(dataloader)
 
@@ -28,8 +27,9 @@ def eval_single_dataset(image_classifier, dataset, args):
         top1, correct, n = 0., 0., 0.
         for i, data in batched_data:
             data = maybe_dictionarize(data)
-            x = data[input_key].to(device)
-            y = data['labels'].to(device)
+            x = data[input_key].cuda()
+            y = data['labels'].cuda()
+            device = x.device
 
             if 'image_paths' in data:
                 image_paths = data['image_paths']
@@ -77,14 +77,7 @@ def evaluate(image_classifier, args):
     if args.eval_datasets is None:
         return
     if isinstance(image_classifier, torch.nn.DataParallel):
-        if args.model == "svhn":
-            preprocess_fn = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,)),
-                transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-            ])
-        else:
-            preprocess_fn = image_classifier.module.val_preprocess
+        preprocess_fn = image_classifier.module.val_preprocess
     else:
         preprocess_fn = image_classifier.val_preprocess
     info = vars(args)

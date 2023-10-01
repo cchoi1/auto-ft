@@ -4,7 +4,7 @@
 #SBATCH --exclude=iris1,iris2,iris3,iris4,iris7
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Only use one node (machine)
-#SBATCH --mem=32GB # Request 16GB of memory
+#SBATCH --mem=64GB # Request 16GB of memory
 #SBATCH --gres=gpu:2 # Request one GPU
 #SBATCH --job-name="imagenet4-autoft-10is-1000evals-15000ex" # Name the job (for easier monitoring)
 #SBATCH --output=imagenet4-autoft-10is-1000evals-15000ex.log  # Name of the output log file

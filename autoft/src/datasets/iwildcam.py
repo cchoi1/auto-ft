@@ -3,10 +3,13 @@ import pandas as pd
 import json
 import numpy as np
 import pathlib
+import torch
 
 import wilds
 from wilds.common.data_loaders import get_train_loader, get_eval_loader
 from wilds.datasets.wilds_dataset import WILDSSubset
+
+from src.datasets.utils import SampledDataset
 
 
 def get_mask_non_empty(dataset):
@@ -50,6 +53,7 @@ class IWildCam:
                  num_workers=16,
                  classnames=None,
                  subset='train'):
+        self.n_examples = n_examples
         dataset = wilds.get_dataset(dataset='iwildcam', root_dir=location)
         if subset == 'train':
             self.dataset = dataset.get_subset('train', transform=preprocess)
@@ -60,6 +64,15 @@ class IWildCam:
             self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif subset == 'val':
             self.dataset = dataset.get_subset('val', transform=preprocess)
+            if self.n_examples > -1:
+                collate_fn = self.dataset.collate
+                if use_class_balanced:
+                    self.dataset = SampledDataset(self.dataset, n_examples, dataset.class_balance)
+                    self.dataset.collate = collate_fn
+                else:
+                    indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                    self.dataset = torch.utils.data.Subset(self.dataset, indices)
+                    self.dataset.collate = collate_fn
             self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif subset == 'id_val':
             self.dataset = dataset.get_subset('id_val', transform=preprocess)
@@ -90,30 +103,63 @@ class IWildCamTrain(IWildCam):
         kwargs['subset'] = 'train'
         super().__init__(*args, **kwargs)
 
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
+
 class IWildCamUnlabeledTrain(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'unlabeled'
         super().__init__(*args, **kwargs)
+
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
 
 class IWildCamIDVal(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'id_val'
         super().__init__(*args, **kwargs)
 
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
+
 class IWildCamIDTest(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'id_test'
         super().__init__(*args, **kwargs)
+
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
 
 class IWildCamOODVal(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'val'
         super().__init__(*args, **kwargs)
 
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        if isinstance(self.dataset, SampledDataset) or isinstance(self.dataset, torch.utils.data.Subset):
+            results = self.dataset.dataset.eval(preds, labels, metadata)
+        else:
+            results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
+
 class IWildCamOODTest(IWildCam):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'test'
         super().__init__(*args, **kwargs)
+
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
 
 
 # class IWildCamNonEmpty(IWildCam):

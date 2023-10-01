@@ -19,11 +19,16 @@ from src.models.utils import extract_from_data_parallel, set_seed
 logger = logging.getLogger('main')
 
 @torch.no_grad()
-def evaluate_net(net, dataloader):
-    total_correct = 0
-    total_samples = 0
+def evaluate_net(net, dataloader, dataset, args):
     net = net.cuda()
     net.eval()
+
+    total_correct = 0
+    total_samples = 0
+
+    # Introducing variables to save predictions, labels, and metadata
+    all_labels, all_preds, all_metadata = [], [], []
+
     for batch in dataloader:
         data = maybe_dictionarize(batch)
         x = data['images'].cuda()
@@ -34,13 +39,34 @@ def evaluate_net(net, dataloader):
             pseudo_labels = torch.argmax(outputs, dim=1)
             mask = (y == -1)
             y[mask] = pseudo_labels[mask]
+
         predictions = outputs.argmax(dim=1)
         correct = (predictions == y).sum().item()
         total_correct += correct
         total_samples += y.size(0)
+
+        # Save labels, predictions, and metadata
+        all_labels.append(y.cpu().clone().detach())
+        all_preds.append(outputs.cpu().clone().detach())
+        if 'metadata' in data:
+            all_metadata.extend(data['metadata'])
+
     accuracy = (total_correct / total_samples) * 100
+
+    # Concatenate all saved tensors
+    all_labels = torch.cat(all_labels)
+    all_preds = torch.cat(all_preds)
+
+    # Calculate post loop metrics if available
+    if hasattr(dataset, 'post_loop_metrics'):
+        metrics = dataset.post_loop_metrics(all_labels, all_preds, all_metadata, args)
+        if 'acc' not in metrics:
+            metrics['acc'] = accuracy
+    else:
+        metrics = {'acc': accuracy}
+
     torch.cuda.empty_cache()
-    return accuracy
+    return metrics
 
 
 def print_hparams(hparams):
@@ -159,7 +185,7 @@ def get_loss_weights(hyperparams, loss_type, num_losses=None):
         loss_weights = torch.tensor([hyperparams[f"lossw_{i}"] for i in range(num_losses)])
     return loss_weights
 
-def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, input_key, unlabeled_dataloader=None, image_encoder=None):
+def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, ood_hp_dataset, input_key, unlabeled_dataloader=None, image_encoder=None):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
     evaluate_hparams_start_time = time.time()
     all_val_results = []
@@ -185,24 +211,31 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, i
 
         start_time = time.time()
         val_results = dict()
-        ood_accuracy = evaluate_net(current_net, ood_hp_dataloader)
+        metrics = evaluate_net(current_net, ood_hp_dataloader, ood_hp_dataset, args=args)  # Changed this line to use the new evaluate_net
         print(f"Time to evaluate: {time.time() - start_time:.3f}", flush=True)
-        val_results[f"ood_subset_for_hp_accuracy"] = ood_accuracy
+        if "IWildCam" in args.id:
+            val_results[f"ood_subset_for_hp_accuracy"] = metrics['F1-macro_all']
+            # val_results[f"ood_subset_for_hp_accuracy"] = metrics['acc']
+        elif "FMOW" in args.id:
+            val_results[f"ood_subset_for_hp_accuracy"] = metrics['acc_worst_region']
+        else:
+            val_results[f"ood_subset_for_hp_accuracy"] = metrics['acc']  # Using 'acc' from the metrics dict
         all_val_results.append(val_results)
     print(f"Time to evaluate hparams: {time.time() - evaluate_hparams_start_time:.3f}", flush=True)
 
     return all_val_results
 
+
 def clear_memory(study: optuna.study.Study, trial: optuna.trial.Trial):
     gc.collect()
     torch.cuda.empty_cache()
 
-def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals, input_key, unlabeled_dataloader=None, image_encoder=None):
+def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_evals, input_key, unlabeled_dataloader=None, image_encoder=None):
     """Automated fine-tuning process using Optuna."""
     def hp_objective_fn(trial, hspace):
         hparams = hspace.build_space(trial)
         _net = copy.deepcopy(model).cuda()
-        val_results = evaluate_hparams(args, _net, hparams, id_dataloader, ood_hp_dataloader, input_key, unlabeled_dataloader, image_encoder)
+        val_results = evaluate_hparams(args, _net, hparams, id_dataloader, ood_hp_dataloader, ood_hp_dataset, input_key, unlabeled_dataloader, image_encoder)
         return -np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results])  # maximize accuracy
 
     if args.load_hparams is not None:
@@ -223,6 +256,6 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, max_evals, input_key,
     print_hparams(best_hparams)
     save_hparams(best_hparams, args)
     set_seed(best_hparams["seed"])
-    ft_model = finetune_final(args, model, loss_fn, optimizer, id_dataloader, input_key, 100, unlabeled_dataloader)
+    ft_model = finetune_final(args, model, loss_fn, optimizer, id_dataloader, input_key, 100, unlabeled_dataloader, image_encoder)
 
     return ft_model

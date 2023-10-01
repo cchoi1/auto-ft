@@ -6,16 +6,6 @@ import numpy as np
 import torch
 
 
-def get_device(rank=0):
-    # if len(xm.get_xla_supported_devices()) >= 8:
-    #     device = xm.xla_device()
-    if torch.cuda.is_available():
-        device = torch.device(f'cuda:{rank}')
-    else:
-        device = torch.device('cpu')
-    return device
-
-
 def extract_from_data_parallel(model):
     if isinstance(model, torch.nn.DataParallel):
         return next(model.children())

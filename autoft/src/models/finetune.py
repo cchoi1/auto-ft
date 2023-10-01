@@ -7,9 +7,10 @@ import torch
 from src.datasets.common import maybe_dictionarize
 from src.losses.layerwiseloss import LayerwiseLoss
 from src.losses.learnedloss import LearnedLoss
+from src.losses.learnedloss2 import LearnedLoss2
 from src.models import utils
 from src.models.eval import evaluate
-from src.models.utils import cosine_lr
+from src.models.utils import cosine_lr, extract_from_data_parallel
 
 logger = logging.getLogger('main')
 
@@ -27,6 +28,7 @@ def save_finetuned_model(args, model, optimizer, logger):
     model_path = os.path.join(args.save, f'checkpoint_{args.ft_epochs}.pt')
     print('Saving model to', model_path)
     logger.info(f"Saving model to {model_path}")
+    model = extract_from_data_parallel(model)
     model.save(model_path)
     optim_path = os.path.join(args.save, f'optim_{args.ft_epochs}.pt')
     torch.save(optimizer.state_dict(), optim_path)
@@ -50,6 +52,7 @@ def compute_accuracy(model, dataloader, input_key):
             correct += (predicted == labels).sum().item()
     model.train()  # Set the model back to train mode
     return correct / total
+
 
 def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlabeled_dataloader=None, image_encoder=None):
     inner_finetune_start_time = time.time()
@@ -82,7 +85,7 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
                 image, text = inputs, batch['metadata']
                 image_features, text_features, logit_scale = image_encoder(image, text)
 
-            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
+            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss) or isinstance(loss_fn, LearnedLoss2):
                 loss = loss_fn(logits, labels, model, unlabeled_logits, pseudolabels, image_features, text_features, logit_scale)
             else:
                 loss = loss_fn(logits, labels)
@@ -110,6 +113,7 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
     all_eval_results = {}
     model.train()
     unlabeled_logits, pseudolabels = None, None
+    image_features, text_features, logit_scale = None, None, None
 
     for epoch in range(args.ft_epochs):
         print(f"Starting epoch {epoch}...", flush=True)
@@ -134,7 +138,7 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
                 image, text = inputs, batch['metadata']
                 image_features, text_features, logit_scale = image_encoder(image, text)
 
-            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
+            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss) or isinstance(loss_fn, LearnedLoss2):
                 loss = loss_fn(logits, labels, model, unlabeled_logits, pseudolabels, image_features, text_features, logit_scale)
             else:
                 loss = loss_fn(logits, labels)
@@ -148,14 +152,17 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
             batch_time = time.time() - start_time
             print_train_update(logger, print_every, total_steps, step, loss, batch_time, data_time)
 
-        if args.plot and args.id != "ImageNet":
-            with torch.no_grad():  # Evaluation doesn't require gradient computation
-                eval_results = evaluate(model.module, args)
+        if args.id != "ImageNet":
+            eval_results = evaluate(model.module, args)
             all_eval_results[step] = eval_results
         print(f"Epoch time: {time.time() - epoch_start_time:.3f}", flush=True)
+        temp_model = extract_from_data_parallel(model)
+        temp_model.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
+        print(f"Saved model to {args.save}", flush=True)
+        del temp_model; torch.cuda.empty_cache()
 
     del dataloader
     torch.cuda.empty_cache()
-    # save_finetuned_model(args, model, optimizer, logger)
+    save_finetuned_model(args, model, optimizer, logger)
 
     return model

@@ -68,28 +68,64 @@ class FMOWTrain(FMOW):
         kwargs['subset'] = 'train'
         super().__init__(*args, **kwargs)
 
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        metadata = torch.stack(metadata)
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
+
 class FMOWUnlabeledTrain(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'unlabeled'
         super().__init__(*args, **kwargs)
+
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        metadata = torch.stack(metadata)
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
 
 class FMOWIDVal(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs["subset"] = "id_val"
         super().__init__(*args, **kwargs)
 
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        metadata = torch.stack(metadata)
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
+
 class FMOWOODVal(FMOW):
     def __init__(self, *args, **kwargs):
         self.test_subset = 'val'
         super().__init__(*args, **kwargs)
+
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        metadata = torch.stack(metadata)
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
 
 class FMOWIDTest(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs["subset"] = "id_test"
         super().__init__(*args, **kwargs)
 
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        metadata = torch.stack(metadata)
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
+
 class FMOWOODTest(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs["subset"] = "test"
         super().__init__(*args, **kwargs)
+
+    def post_loop_metrics(self, labels, preds, metadata, args):
+        metadata = torch.stack(metadata)
+        preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
+        results = self.dataset.eval(preds, labels, metadata)
+        return results[0]
 

@@ -32,7 +32,7 @@ def parse_arguments():
     parser.add_argument("--model", type=str, default=None, help="The type of model (e.g. RN50, ViT-B/32).")
     parser.add_argument("--num_classes", type=int, default=1000)
     parser.add_argument("--num_losses", type=int, default=8)
-    parser.add_argument("--loss_type", type=str, choices=["LearnedLoss", "LayerwiseLoss"], default="LearnedLoss")
+    parser.add_argument("--loss_type", type=str, choices=["LearnedLoss", "LearnedLoss2", "LayerwiseLoss"], default="LearnedLoss")
     parser.add_argument("--pointwise_loss", action="store_true")
     parser.add_argument("--load_hparams", type=str, help="Path to hyperparameters to load.")
     parser.add_argument("--ft_epochs", type=int, default=10)

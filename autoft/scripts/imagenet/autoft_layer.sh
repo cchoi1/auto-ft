@@ -19,7 +19,7 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
 python src/main.py --method autoft --model ViT-B/16 --loss_type LayerwiseLoss --data-location /iris/u/yoonho/data \
 --id ImageNet --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet,ImageNetC \
---ft_epochs 10 --inner_steps 10 --autoft_epochs 10000 --val_freq 10 \
---lr 3e-5 --wd 0.1 --batch-size 128 --workers 4 --warmup_length 1000 --accumulation_steps 2 \
+--ft_epochs 10 --inner_steps 200 --autoft_epochs 1000 --val_freq 10 \
+--lr 1e-5 --wd 0.1 --batch-size 128 --warmup_length 1000 --accumulation_steps 4 \
 --load ./zeroshot/clip_vitb16_imagenet.pt \
---num_ood_hp_examples 15000
+--num_ood_hp_examples 30000

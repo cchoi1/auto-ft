@@ -17,7 +17,7 @@ template = getattr(templates, 'fmow_template')
 # out = open(f"./datasets/csv/fmow.csv", "w")
 out = open(f"/iris/u/cchoi1/Data/csv/fmow_v1.1/fmow.csv", "w")
 
-out.write("title\tfilepath\n")
+out.write("title\tfilepath\tlabel\n")
 
 categories = [
     "airport", "airport_hangar", "airport_terminal", "amusement_park",
@@ -69,4 +69,4 @@ for idx in train_idx:
     for t in template:
         count += 1
         caption = t(class_name)
-        out.write("%s\t%s\n" % (caption, fp))
+        out.write("%s\t%s\t%s\n" % (caption, fp, y))

@@ -86,7 +86,8 @@ def train(args, model, preprocess_fn):
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        model = finetune_final(args, model, loss_fn, optimizer, all_datasets["id"], input_key, print_every)
+        dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
+        model = finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
     elif args.method == "ft-id-ood":
         loss_fn = torch.nn.CrossEntropyLoss()
         if hasattr(all_datasets["ood_subset_for_hp"], "dataset"):
@@ -94,7 +95,8 @@ def train(args, model, preprocess_fn):
         else:
             id_ood_dataset = torch.utils.data.ConcatDataset([all_datasets["id"].dataset, all_datasets["ood_subset_for_hp"]])
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        model = finetune_final(args, model, loss_fn, optimizer, id_ood_dataset, input_key, print_every)
+        dataloader = get_dataloader(id_ood_dataset, is_train=True, args=args, image_encoder=None)
+        model = finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
     elif args.method == "autoft":
         if args.ft_data is not None:
             image_encoder = extract_from_data_parallel(model).image_encoder
@@ -115,7 +117,7 @@ def train(args, model, preprocess_fn):
         if args.use_hyperopt:
             model = auto_ft_hyperopt(args, model, id_dataloader, ood_hp_dataloader, max_evals=args.autoft_epochs, input_key=input_key, print_every=print_every, id_val_dataloader=id_val_dataloader)
         else:
-            model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, args.autoft_epochs, input_key, unlabeled_dataloader, image_encoder)
+            model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, unlabeled_dataloader, image_encoder)
         del id_dataloader, ood_hp_dataloader, unlabeled_dataloader
     else:
         raise ValueError("Invalid method")
