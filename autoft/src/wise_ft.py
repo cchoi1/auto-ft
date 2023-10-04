@@ -77,6 +77,8 @@ def wise_ft(args):
         fishers = fisher_0, fisher_1
 
     # make sure checkpoints are compatible
+    print(len(theta_0.keys()))
+    print(len(theta_1.keys()))
     assert set(theta_0.keys()) == set(theta_1.keys())
 
     alphas = args.alpha
