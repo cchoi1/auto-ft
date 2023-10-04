@@ -10,6 +10,7 @@ class LearnedLoss(nn.Module):
         self.initial_net_params = [param.detach().cuda() for param in initial_net_params]
         print("Num params", len(self.initial_net_params))
         self.hyperparams = hyperparams.cuda().float()
+        self.param_sum = sum(param.numel() for param in initial_net_params)
         self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=0, world_size=1, use_horovod=False)
 
     def forward(self, logits, labels, net, unlabeled_logits=None, pseudolabels=None, image_features=None, text_features=None, logit_scale=None):
@@ -20,13 +21,18 @@ class LearnedLoss(nn.Module):
         entropy = entropy_all.mean()
 
         # Memory efficient accumulation
-        param_sum = sum(param.numel() for param in net.parameters())
-        l1_zero_accum = sum(torch.abs(param).sum() for param in net.parameters()) / param_sum
-        l2_zero_accum = sum((param ** 2).sum() for param in net.parameters()) / param_sum
-        l1_init_accum = sum(torch.abs(param - init_param).sum() for param, init_param in
-                            zip(net.parameters(), self.initial_net_params)) / param_sum
-        l2_init_accum = sum(((param - init_param) ** 2).sum() for param, init_param in
-                            zip(net.parameters(), self.initial_net_params)) / param_sum
+        l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum = 0, 0, 0, 0
+        for param, init_param in zip(net.parameters(), self.initial_net_params):
+            l1_zero_accum += torch.abs(param).sum()
+            l2_zero_accum += (param ** 2).sum()
+
+            diff = param - init_param
+            l1_init_accum += torch.abs(diff).sum()
+            l2_init_accum += (diff ** 2).sum()
+        l1_zero_accum /= self.param_sum
+        l2_zero_accum /= self.param_sum
+        l1_init_accum /= self.param_sum
+        l2_init_accum /= self.param_sum
 
         losses = [ce_loss, hinge_loss, entropy, dcm_loss, l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum]
         if unlabeled_logits is not None and pseudolabels is not None:
