@@ -7,7 +7,6 @@ import torch
 from src.datasets.common import maybe_dictionarize
 from src.losses.layerwiseloss import LayerwiseLoss
 from src.losses.learnedloss import LearnedLoss
-from src.losses.learnedloss2 import LearnedLoss2
 from src.models import utils
 from src.models.eval import evaluate
 from src.models.utils import cosine_lr, extract_from_data_parallel
@@ -85,7 +84,7 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
                 image, text = inputs, batch['metadata']
                 image_features, text_features, logit_scale = image_encoder(image, text)
 
-            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss) or isinstance(loss_fn, LearnedLoss2):
+            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
                 loss = loss_fn(logits, labels, model, unlabeled_logits, pseudolabels, image_features, text_features, logit_scale)
             else:
                 loss = loss_fn(logits, labels)
@@ -138,7 +137,7 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
                 image, text = inputs, batch['metadata']
                 image_features, text_features, logit_scale = image_encoder(image, text)
 
-            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss) or isinstance(loss_fn, LearnedLoss2):
+            if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
                 loss = loss_fn(logits, labels, model, unlabeled_logits, pseudolabels, image_features, text_features, logit_scale)
             else:
                 loss = loss_fn(logits, labels)
