@@ -1,3 +1,31 @@
+# AutoFT
+
+
+## IWildCam Scripts
+
+Sample scripts are in `autoft/scripts/iwildcam`:
+
+- [Vanilla AutoFT](https://github.com/cchoi1/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_is10_ex1000.sh)
+- [Vanilla AutoFT with FLYP](https://github.com/cchoi1/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_flyp_is10.sh)
+- [Layerwise AutoFT](https://github.com/**cchoi1**/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_layer_is50.sh)
+- [Layerwise AutoFT with FLYP](https://github.com/cchoi1/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_layer_is10_flyp.sh)
+
+
+The `--inner_steps` and `--autoft_epochs` parameters control the number of inner steps and outer steps respectively.
+The `--num_ood_hp_examples` parameter controls the number of OOD val examples for hyperparameter optimization.
+The effective batch size is controlled by `--batch-size` and `--accumulation_steps`. 
+We use a batch size of 256 for all datasets except ImageNet.
+
+To run the scripts with FLYP, use the following additional arguments:
+
+```bash
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt \
+--ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
+--csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+--num_losses 9
+```
+
+---
 # FLYP: Finetune Like You Pretrain
 
 Code for the paper Finetune like you pretrain: Improved finetuning of zero-shot vision models.

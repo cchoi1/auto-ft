@@ -4,15 +4,15 @@ import json
 import logging
 import os
 import time
+from functools import partial
 
 import numpy as np
 import optuna
 import torch
-from functools import partial
 
 import src.losses as losses
 from src.datasets.common import get_dataloader, maybe_dictionarize
-from src.models.finetune import inner_finetune, finetune_final
+from src.models.finetune import finetune_final, inner_finetune
 from src.models.modeling import ImageClassifier
 from src.models.utils import extract_from_data_parallel, set_seed
 
@@ -29,11 +29,21 @@ def evaluate_net(net, dataloader, dataset, args):
     # Introducing variables to save predictions, labels, and metadata
     all_labels, all_preds, all_metadata = [], [], []
 
+    batch_prep_times, feedforward_times = [], []
     for batch in dataloader:
+        torch.cuda.synchronize()
+        start = time.time()
         data = maybe_dictionarize(batch)
         x = data['images'].cuda()
         y = data['labels'].cuda()
+        torch.cuda.synchronize()
+        batch_prep_times.append(time.time() - start)
+
+        torch.cuda.synchronize()
+        start = time.time()
         outputs = net(x)
+        torch.cuda.synchronize()
+        feedforward_times.append(time.time() - start)
 
         if (y == -1).any():  # Handle unlabeled parts of the batch
             pseudo_labels = torch.argmax(outputs, dim=1)
@@ -50,6 +60,9 @@ def evaluate_net(net, dataloader, dataset, args):
         all_preds.append(outputs.cpu().clone().detach())
         if 'metadata' in data:
             all_metadata.extend(data['metadata'])
+    
+    print(f"    Time per batch prep: {np.mean(batch_prep_times):.3f} x {len(batch_prep_times)} = {sum(batch_prep_times):.3f}", flush=True)
+    print(f"    Time per eval batch: {np.mean(feedforward_times):.3f} x {len(feedforward_times)} = {sum(feedforward_times):.3f}", flush=True)
 
     accuracy = (total_correct / total_samples) * 100
 
@@ -67,7 +80,6 @@ def evaluate_net(net, dataloader, dataset, args):
 
     torch.cuda.empty_cache()
     return metrics
-
 
 def print_hparams(hparams):
     print("\nHyperparameters:")
@@ -187,32 +199,37 @@ def get_loss_weights(hyperparams, loss_type, num_losses=None):
 
 def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, ood_hp_dataset, input_key, unlabeled_dataloader=None, image_encoder=None):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
-    evaluate_hparams_start_time = time.time()
     all_val_results = []
     for _ in range(args.repeats):
+        start_time = time.time()
         current_net = copy.deepcopy(net)
+        print(f"  Time to copy net: {time.time() - start_time:.3f}", flush=True)
+
         start_time = time.time()
         optimizer = create_optimizer(current_net, hyperparams, args.loss_type)
         initial_net_params = [p for p in net.parameters()]
         loss_weight_hparams = get_loss_weights(hyperparams, args.loss_type, args.num_losses)
         loss_fn = getattr(losses, args.loss_type)(loss_weight_hparams, initial_net_params)
-        print(f"Time to construct loss: {time.time() - start_time:.3f}", flush=True)
+        print(f"  Time to construct loss: {time.time() - start_time:.3f}", flush=True)
 
         start_time = time.time()
         if args.pointwise_loss and "dataw_0" in hyperparams.keys():
             data_weights = torch.tensor([hyperparams[f"dataw_{i}"] for i in range(len(id_dataloader.dataset))])
             sampler = torch.utils.data.WeightedRandomSampler(data_weights, len(id_dataloader.dataset))
             id_dataloader = get_dataloader(id_dataloader.dataset, is_train=True, args=args, sampler=sampler, image_encoder=None)
+        print(f"  Time for data prep: {time.time() - start_time:.3f}", flush=True)
+
         set_seed(hyperparams["seed"])
+        start_time = time.time()
         current_net = inner_finetune(args, current_net, loss_fn, optimizer, id_dataloader, input_key,
                                      unlabeled_dataloader=unlabeled_dataloader, image_encoder=image_encoder)
+        print(f"  Time to finetune: {time.time() - start_time:.3f}", flush=True)
         set_seed(args.seed)
-        print(f"Time to finetune: {time.time() - start_time:.3f}", flush=True)
 
-        start_time = time.time()
         val_results = dict()
+        start_time = time.time()
         metrics = evaluate_net(current_net, ood_hp_dataloader, ood_hp_dataset, args=args)  # Changed this line to use the new evaluate_net
-        print(f"Time to evaluate: {time.time() - start_time:.3f}", flush=True)
+        print(f"  Time to evaluate: {time.time() - start_time:.3f}", flush=True)
         if "IWildCam" in args.id:
             val_results[f"ood_subset_for_hp_accuracy"] = metrics['F1-macro_all']
             # val_results[f"ood_subset_for_hp_accuracy"] = metrics['acc']
@@ -221,7 +238,6 @@ def evaluate_hparams(args, net, hyperparams, id_dataloader, ood_hp_dataloader, o
         else:
             val_results[f"ood_subset_for_hp_accuracy"] = metrics['acc']  # Using 'acc' from the metrics dict
         all_val_results.append(val_results)
-    print(f"Time to evaluate hparams: {time.time() - evaluate_hparams_start_time:.3f}", flush=True)
 
     return all_val_results
 
@@ -233,9 +249,17 @@ def clear_memory(study: optuna.study.Study, trial: optuna.trial.Trial):
 def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_evals, input_key, unlabeled_dataloader=None, image_encoder=None):
     """Automated fine-tuning process using Optuna."""
     def hp_objective_fn(trial, hspace):
+        full_loop_start_time = time.time()
+        start = time.time()
         hparams = hspace.build_space(trial)
+        print(f"  Time to get hparams: {time.time() - start:.3f}", flush=True)
+
+        start = time.time()
         _net = copy.deepcopy(model).cuda()
+        print(f"  Time to copy model: {time.time() - start:.3f}", flush=True)
+
         val_results = evaluate_hparams(args, _net, hparams, id_dataloader, ood_hp_dataloader, ood_hp_dataset, input_key, unlabeled_dataloader, image_encoder)
+        print(f"Total time for autoft itreration: {time.time() - full_loop_start_time:.3f}", flush=True)
         return -np.mean([r["ood_subset_for_hp_accuracy"] for r in val_results])  # maximize accuracy
 
     if args.load_hparams is not None:
@@ -249,6 +273,7 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
         study.optimize(partial_hp_objective_fn, n_trials=max_evals, callbacks=[clear_memory])
         best_hparams = study.best_params
 
+    breakpoint()
     loss_weights = get_loss_weights(best_hparams, args.loss_type, args.num_losses)
     initial_params = [p for p in model.parameters()]
     loss_fn = getattr(losses, args.loss_type)(loss_weights, initial_params)

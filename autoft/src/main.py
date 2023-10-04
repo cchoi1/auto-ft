@@ -9,7 +9,7 @@ from src.datasets.common import get_dataloader
 from src.datasets.utils import get_ood_datasets
 from src.logger import setup_logging
 from src.models.autoft import auto_ft
-from src.models.autoft2 import auto_ft_hyperopt
+# from src.models.autoft2 import auto_ft_hyperopt
 from src.models.eval import evaluate
 from src.models.finetune import finetune_final
 from src.models.modeling import ImageClassifier
@@ -79,10 +79,16 @@ def train(args, model, preprocess_fn):
     else:
         input_key = 'images'
         print_every = 100
-    print("Got models")
-    all_datasets = get_datasets(args, preprocess_fn)
-    print("Got datasets")
+
     params = [p for p in model.parameters() if p.requires_grad]
+    num_parameters = sum([p.numel() for p in params])
+    gb_estimate = num_parameters * 4 / (1024 ** 3)
+    print(f"Got {args.model} model with {num_parameters:.1e} parameters; {gb_estimate:.3f} GB estimated memory usage")
+
+    all_datasets = get_datasets(args, preprocess_fn)
+    dataset_size_str = ", ".join([f"{k}: {len(all_datasets[k])}" for k in all_datasets])
+    print(f"Got datasets with size {dataset_size_str}")
+
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
@@ -114,7 +120,7 @@ def train(args, model, preprocess_fn):
         else:
             unlabeled_dataloader = None
         print_every = 100 if args.plot else None
-        if args.use_hyperopt:
+        if args.use_hyperopt:  # deprecated
             model = auto_ft_hyperopt(args, model, id_dataloader, ood_hp_dataloader, max_evals=args.autoft_epochs, input_key=input_key, print_every=print_every, id_val_dataloader=id_val_dataloader)
         else:
             model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, unlabeled_dataloader, image_encoder)
@@ -144,7 +150,9 @@ def test_finetuned_model(args, logger, model, all_eval_results, total_steps):
 def main(args):
     logger = logging.getLogger('main')
     logger = setup_logging(args, logger)
-    logger.info(args)
+    args_dict = dict(sorted(vars(args).items()))
+    args_str = "\n".join([f"{k:30s}: {v}" for k, v in args_dict.items()])
+    logger.info(f"args:\n{args_str}")
     model, preprocess_fn = initialize_model(args)
     if not args.eval_only:
         model = train(args, model, preprocess_fn)

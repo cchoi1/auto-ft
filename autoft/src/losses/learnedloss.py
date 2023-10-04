@@ -8,7 +8,7 @@ class LearnedLoss(nn.Module):
     def __init__(self, hyperparams, initial_net_params):
         super().__init__()
         self.initial_net_params = [param.detach().cuda() for param in initial_net_params]
-        print("Num params", len(self.initial_net_params))
+        # print("Num params", len(self.initial_net_params))
         self.hyperparams = hyperparams.cuda().float()
         self.param_sum = sum(param.numel() for param in initial_net_params)
         self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=0, world_size=1, use_horovod=False)
@@ -42,6 +42,7 @@ class LearnedLoss(nn.Module):
             clip_loss = self.clip_loss_fn(image_features, text_features, logit_scale)
             losses.append(clip_loss)
         loss = torch.dot(torch.stack(losses), self.hyperparams)
-        del losses; torch.cuda.empty_cache()
+        del losses 
+        torch.cuda.empty_cache()
 
         return loss

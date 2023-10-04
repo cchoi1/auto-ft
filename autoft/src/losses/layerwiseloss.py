@@ -42,7 +42,7 @@ class LayerwiseLoss(nn.Module):
             clip_loss = self.clip_loss_fn(image_features, text_features, logit_scale)
             losses.append(clip_loss)
         layerwise_losses = torch.matmul(self.hyperparams, torch.stack(losses))
-        del losses;
+        del losses
         torch.cuda.empty_cache()
 
         return layerwise_losses.mean()
