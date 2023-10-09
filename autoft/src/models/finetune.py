@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -54,7 +55,63 @@ def compute_accuracy(model, dataloader, input_key):
     return correct / total
 
 
-def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlabeled_dataloader=None, image_encoder=None):
+@torch.no_grad()
+def evaluate_net(net, dataloader, dataset, args):
+    net = net.cuda()
+    net.eval()
+
+    total_correct = 0
+    total_samples = 0
+
+    # Introducing variables to save predictions, labels, and metadata
+    all_labels, all_preds, all_metadata = [], [], []
+    for batch in dataloader:
+        data = maybe_dictionarize(batch)
+        x = data['images'].cuda()
+        y = data['labels'].cuda()
+
+        outputs = net(x)
+
+        if (y == -1).any():  # Handle unlabeled parts of the batch
+            pseudo_labels = torch.argmax(outputs, dim=1)
+            mask = (y == -1)
+            y[mask] = pseudo_labels[mask]
+
+        predictions = outputs.argmax(dim=1)
+        correct = (predictions == y).sum().item()
+        total_correct += correct
+        total_samples += y.size(0)
+
+        # Save labels, predictions, and metadata
+        all_labels.append(y.cpu().clone().detach())
+        all_preds.append(outputs.cpu().clone().detach())
+        if 'metadata' in data:
+            all_metadata.extend(data['metadata'])
+    
+    accuracy = (total_correct / total_samples) * 100
+
+    # Concatenate all saved tensors
+    all_labels = torch.cat(all_labels)
+    all_preds = torch.cat(all_preds)
+
+    xent_fn = torch.nn.CrossEntropyLoss(reduction='none')
+    xent = xent_fn(all_preds, all_labels).cpu().numpy().mean()
+    xent = float(xent)
+
+    # Calculate post loop metrics if available
+    if hasattr(dataset, 'post_loop_metrics'):
+        metrics = dataset.post_loop_metrics(all_labels, all_preds, all_metadata, args)
+        if 'acc' not in metrics:
+            metrics['acc'] = accuracy
+        if "xent" not in metrics:
+            metrics["xent"] = xent
+    else:
+        metrics = {'acc': accuracy, "xent": xent}
+
+    torch.cuda.empty_cache()
+    return metrics
+
+def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset, image_encoder=None):
     torch.cuda.synchronize()
     fn_start = time.time()
     model.train()
@@ -64,11 +121,9 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
     unlabeled_logits, pseudolabels = None, None
     image_features, text_features, logit_scale = None, None, None
 
-    batch_prep_times, inner_step_times = [], []
-    loss_times, backprop_times = [], []
-    for step, batch in enumerate(dataloader):
-        torch.cuda.synchronize()
-        start = time.time()
+    time_counter = defaultdict(list)
+    val_metrics = {}
+    for step, batch in enumerate(dataloaders["id"]):
         if step >= num_steps:
             break
         scheduler(step)
@@ -76,12 +131,12 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
         batch = maybe_dictionarize(batch)
         inputs = batch[input_key].cuda()
         labels = batch['labels'].cuda()
-        torch.cuda.synchronize()
-        batch_prep_times.append(time.time() - start)
 
         torch.cuda.synchronize()
         start = time.time()
         logits = utils.get_logits(inputs, model)
+
+        unlabeled_dataloader = dataloaders["unlabeled"]
         if unlabeled_dataloader is not None:
             unlabeled_batch = next(iter(unlabeled_dataloader))
             unlabeled_batch = maybe_dictionarize(unlabeled_batch)
@@ -91,10 +146,8 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
             image, text = inputs, batch['metadata']
             image_features, text_features, logit_scale = image_encoder(image, text)
         torch.cuda.synchronize()
-        inner_step_times.append(time.time() - start)
+        time_counter["inner_step"].append(time.time() - start)
 
-        torch.cuda.synchronize()
-        start = time.time()
         if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
             loss = loss_fn(logits, labels, model, unlabeled_logits, pseudolabels, image_features, text_features, logit_scale)
         else:
@@ -102,8 +155,6 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
             if args.unlabeled_id is not None:
                 loss += loss_fn(unlabeled_logits, pseudolabels)
         loss = loss / args.accumulation_steps
-        torch.cuda.synchronize()
-        loss_times.append(time.time() - start)
 
         torch.cuda.synchronize()
         start = time.time()
@@ -113,17 +164,26 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
             optimizer.step()
             optimizer.zero_grad()
         torch.cuda.synchronize()
-        backprop_times.append(time.time() - start)
-    print(f"    Time per batch prep: {np.mean(batch_prep_times):.3f} x {len(batch_prep_times)} = {sum(batch_prep_times):.3f}", flush=True)
-    print(f"    Time per inner step: {np.mean(inner_step_times):.3f} x {len(inner_step_times)} = {sum(inner_step_times):.3f}", flush=True)
-    print(f"    Time per loss calc: {np.mean(loss_times):.3f} x {len(loss_times)} = {sum(loss_times):.3f}", flush=True)
-    print(f"    Time per backprop: {np.mean(backprop_times):.3f} x {len(backprop_times)} = {sum(backprop_times):.3f}", flush=True)
+        time_counter["backprop"].append(time.time() - start)
 
+        if step + 1 in args.inner_loop_val_steps:
+            torch.cuda.synchronize()
+            start = time.time()
+            val_metrics[step + 1] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+            torch.cuda.synchronize()
+            time_counter["eval"].append(time.time() - start)
+
+    torch.cuda.synchronize()
     start = time.time()
-    torch.cuda.empty_cache()
-    print(f"    Time to empty cache: {time.time() - start:.3f}", flush=True)
-    print(f"    Total time before return: {time.time() - fn_start:.3f}", flush=True)
-    return model
+    val_metrics["last"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+    torch.cuda.synchronize()
+    time_counter["eval"].append(time.time() - start)
+
+    print(f"    Time per inner step: {np.mean(time_counter['inner_step']):.3f} x {len(time_counter['inner_step'])} = {sum(time_counter['inner_step']):.3f}", flush=True)
+    print(f"    Time per backprop: {np.mean(time_counter['backprop']):.3f} x {len(time_counter['backprop'])} = {sum(time_counter['backprop']):.3f}", flush=True)
+    print(f"    Time per eval: {np.mean(time_counter['eval']):.3f} x {len(time_counter['eval'])} = {sum(time_counter['eval']):.3f}", flush=True)
+    print(f"  Total time for inner loop: {time.time() - fn_start:.3f}", flush=True)
+    return model, val_metrics
 
 
 def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every, unlabeled_dataloader=None, image_encoder=None):

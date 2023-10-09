@@ -41,6 +41,9 @@ class CIFAR10:
                 self.dataset = torch.utils.data.Subset(self.dataset, indices)
 
         # self.classnames = self.dataset.classes
+    
+    def __len__(self):
+        return len(self.dataset)
 
     def __str__(self):
         return "CIFAR10"
@@ -179,6 +182,9 @@ class CIFAR10C(Dataset):
 
         return x, y
 
+    def __len__(self):
+        return len(self.dataset)
+
     def __str__(self):
         return "CIFAR10C"
 
@@ -232,6 +238,9 @@ class CINIC:
                 indices = np.random.choice(len(self.dataset), n_examples, replace=False)
                 self.dataset = torch.utils.data.Subset(self.dataset, indices)
 
+    def __len__(self):
+        return len(self.dataset)
+
     def __str__(self):
         return "CINIC"
 
@@ -264,6 +273,9 @@ class CIFAR101:
                 indices = np.random.choice(len(self.dataset), n_examples, replace=False)
                 self.dataset = torch.utils.data.Subset(self.dataset, indices)
         self.classnames = CIFAR_CLASSNAMES
+
+    def __len__(self):
+        return len(self.dataset)
 
     def __str__(self):
         return "CIFAR101"
@@ -307,6 +319,9 @@ class CIFAR102:
                 indices = np.random.choice(len(self.dataset), n_examples, replace=False)
                 self.dataset = torch.utils.data.Subset(self.dataset, indices)
         self.classnames = CIFAR_CLASSNAMES
+
+    def __len__(self):
+        return len(self.dataset)
 
     def __str__(self):
         return "CIFAR102"

@@ -51,6 +51,8 @@ def parse_arguments():
     parser.add_argument("--use_class_balanced_ood", action="store_true")
     parser.add_argument("--use_id_val", action="store_true")
     parser.add_argument("--use_hyperopt", action="store_true")
+    parser.add_argument("--optuna_sampler", type=str, default="TPESampler")
+    parser.add_argument("--inner_loop_val_steps", nargs="*", type=int, default=[])
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

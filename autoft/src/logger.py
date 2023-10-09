@@ -13,6 +13,8 @@ def setup_logging(args, logger):
             method_name += "_unlabeled"
         if args.ft_data is not None:
             method_name += "_flyp"
+        if args.optuna_sampler != "TPESampler":
+            method_name += f"_{args.optuna_sampler}"
         run_details = f"no{args.num_ood_hp_examples}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}_seed{args.seed}"
         args.save = os.path.join(save_dir, method_name, run_details)
     elif args.method == "ft-id-ood":
