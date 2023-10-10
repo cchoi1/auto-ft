@@ -7,7 +7,7 @@ from glob import glob
 import pandas as pd
 import seaborn as sns
 
-runs_dir = "logs/saved/IWildCamTrain/autoft/oodIWildCamOODVal_LearnedLoss_random/no64_nouNone_afep200_is30_ftep20_bs128_wd0.1_lr1e-05_run1_seed0"
+runs_dir = "logs/saved/IWildCamTrain/autoft/oodIWildCamOODVal_LearnedLoss_random/no64_nouNone_afep200_is300_ftep20_bs32_wd0.1_lr1e-05_run1_seed0"
 
 
 def flatten(d, parent_key="", sep="_"):
@@ -42,7 +42,7 @@ print(aggregated_metrics.keys())
 pd.DataFrame(aggregated_metrics)
 
 # %%
-Ns = [10, 30]
+Ns = [3, 10, 30, 100, 300]
 metrics = ["F1-macro_all"]
 selected_metrics = [f"{n}_{metric}" for n in Ns for metric in metrics]
 df_selected_metrics = pd.DataFrame(aggregated_metrics)[selected_metrics]
