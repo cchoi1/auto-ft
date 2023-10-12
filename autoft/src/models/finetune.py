@@ -1,8 +1,9 @@
 import logging
 import os
 import time
-import numpy as np
+from collections import defaultdict
 
+import numpy as np
 import torch
 
 from src.datasets.common import maybe_dictionarize
@@ -54,56 +55,63 @@ def compute_accuracy(model, dataloader, input_key):
     return correct / total
 
 
-# def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlabeled_dataloader=None):
-#     inner_finetune_start_time = time.time()
-#     warmup_steps = args.warmup_length * args.accumulation_steps
-#     scheduler = cosine_lr(optimizer, args.lr, warmup_steps, args.inner_steps)
-#
-#     model.train()
-#     unlabeled_logits, pseudolabels = None, None
-#
-#     num_steps = args.inner_steps * args.accumulation_steps
-#     step = 0
-#     while step < num_steps:
-#         for batch in dataloader:
-#             if step >= num_steps:
-#                 break
-#             scheduler(step)
-#             if step % args.accumulation_steps == 0:
-#                 optimizer.zero_grad()
-#
-#             batch = maybe_dictionarize(batch)
-#             inputs = batch[input_key].cuda()
-#             labels = batch['labels'].cuda()
-#             if unlabeled_dataloader is not None:
-#                 unlabeled_batch = next(iter(unlabeled_dataloader))
-#                 unlabeled_batch = maybe_dictionarize(unlabeled_batch)
-#                 pseudolabels = unlabeled_logits.argmax(dim=-1)
-#             if args.ft_data is not None:
-#                 image, text = inputs, batch['metadata']
-#                 image_features, text_features, logit_scale = model(image, text)
-#             # logits, image_features, text_features, logit_scale = model(image, text)
-#
-#             if isinstance(loss_fn, LearnedLoss):
-#                 loss = loss_fn(model, logits, labels, image_features, text_features, logit_scale)
-#             else:
-#                 loss = loss_fn(logits, labels)
-#                 if args.unlabeled_id is not None:
-#                     loss += loss_fn(unlabeled_logits, pseudolabels)
-#             loss = loss / args.accumulation_steps
-#             loss.backward()
-#             if (step + 1) % args.accumulation_steps == 0:
-#                 torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
-#                 optimizer.step()
-#             step += 1
-#
-#     torch.cuda.empty_cache()
-#     print(f"Time to finetune: {time.time() - inner_finetune_start_time:.3f}", flush=True)
-#
-#     return model
+@torch.no_grad()
+def evaluate_net(net, dataloader, dataset, args):
+    net = net.cuda()
+    net.eval()
 
+    total_correct = 0
+    total_samples = 0
 
-def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlabeled_dataloader=None, image_encoder=None):
+    # Introducing variables to save predictions, labels, and metadata
+    all_labels, all_preds, all_metadata = [], [], []
+    for batch in dataloader:
+        data = maybe_dictionarize(batch)
+        x = data['images'].cuda()
+        y = data['labels'].cuda()
+
+        outputs = net(x)
+
+        if (y == -1).any():  # Handle unlabeled parts of the batch
+            pseudo_labels = torch.argmax(outputs, dim=1)
+            mask = (y == -1)
+            y[mask] = pseudo_labels[mask]
+
+        predictions = outputs.argmax(dim=1)
+        correct = (predictions == y).sum().item()
+        total_correct += correct
+        total_samples += y.size(0)
+
+        # Save labels, predictions, and metadata
+        all_labels.append(y.cpu().clone().detach())
+        all_preds.append(outputs.cpu().clone().detach())
+        if 'metadata' in data:
+            all_metadata.extend(data['metadata'])
+
+    accuracy = (total_correct / total_samples) * 100
+
+    # Concatenate all saved tensors
+    all_labels = torch.cat(all_labels)
+    all_preds = torch.cat(all_preds)
+
+    xent_fn = torch.nn.CrossEntropyLoss(reduction='none')
+    xent = xent_fn(all_preds, all_labels).cpu().numpy().mean()
+    xent = float(xent)
+
+    # Calculate post loop metrics if available
+    if hasattr(dataset, 'post_loop_metrics'):
+        metrics = dataset.post_loop_metrics(all_labels, all_preds, all_metadata, args)
+        if 'acc' not in metrics:
+            metrics['acc'] = accuracy
+        if "xent" not in metrics:
+            metrics["xent"] = xent
+    else:
+        metrics = {'acc': accuracy, "xent": xent}
+
+    torch.cuda.empty_cache()
+    return metrics
+
+def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset, image_encoder=None):
     torch.cuda.synchronize()
     fn_start = time.time()
     model.train()
@@ -115,10 +123,16 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
 
     batch_prep_times, inner_step_times = [], []
     loss_times, backprop_times = [], []
-    print("num batches", len(dataloader))
-    for step, batch in enumerate(dataloader):
+    print("num batches", dataloaders["id"])
+    for step, batch in enumerate(dataloaders["id"]):
         torch.cuda.synchronize()
         start = time.time()
+        if step >= num_steps:
+            break
+        scheduler(step)
+    time_counter = defaultdict(list)
+    val_metrics = {}
+    for step, batch in enumerate(dataloaders["id"]):
         if step >= num_steps:
             break
         scheduler(step)
@@ -143,19 +157,33 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
         logits, image_features, text_features, logit_scale = model(image, text)
         torch.cuda.synchronize()
         inner_step_times.append(time.time() - start)
+        batch = maybe_dictionarize(batch)
+        inputs = batch[input_key].cuda()
+        labels = batch['labels'].cuda()
 
         torch.cuda.synchronize()
         start = time.time()
-        if isinstance(loss_fn, LearnedLoss):
-            # loss = loss_fn(logits, labels, model, unlabeled_logits, pseudolabels, image_features, text_features, logit_scale)
-            loss = loss_fn(model, logits, labels, image_features, text_features, logit_scale)
+        logits = utils.get_logits(inputs, model)
+
+        unlabeled_dataloader = dataloaders["unlabeled"]
+        if unlabeled_dataloader is not None:
+            unlabeled_batch = next(iter(unlabeled_dataloader))
+            unlabeled_batch = maybe_dictionarize(unlabeled_batch)
+            unlabeled_logits = utils.get_logits(unlabeled_batch[input_key].cuda(), model)
+            pseudolabels = unlabeled_logits.argmax(dim=-1)
+        if args.ft_data is not None:
+            image, text = inputs, batch['metadata']
+            image_features, text_features, logit_scale = image_encoder(image, text)
+        torch.cuda.synchronize()
+        time_counter["inner_step"].append(time.time() - start)
+
+        if isinstance(loss_fn, LearnedLoss) or isinstance(loss_fn, LayerwiseLoss):
+            loss = loss_fn(logits, labels, model, unlabeled_logits, pseudolabels, image_features, text_features, logit_scale)
         else:
             loss = loss_fn(logits, labels)
             if args.unlabeled_id is not None:
                 loss += loss_fn(unlabeled_logits, pseudolabels)
         loss = loss / args.accumulation_steps
-        torch.cuda.synchronize()
-        loss_times.append(time.time() - start)
 
         torch.cuda.synchronize()
         start = time.time()
@@ -165,17 +193,26 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloader, input_key, unlab
             optimizer.step()
             optimizer.zero_grad()
         torch.cuda.synchronize()
-        backprop_times.append(time.time() - start)
-    print(f"    Time per batch prep: {np.mean(batch_prep_times):.3f} x {len(batch_prep_times)} = {sum(batch_prep_times):.3f}", flush=True)
-    print(f"    Time per inner step: {np.mean(inner_step_times):.3f} x {len(inner_step_times)} = {sum(inner_step_times):.3f}", flush=True)
-    print(f"    Time per loss calc: {np.mean(loss_times):.3f} x {len(loss_times)} = {sum(loss_times):.3f}", flush=True)
-    print(f"    Time per backprop: {np.mean(backprop_times):.3f} x {len(backprop_times)} = {sum(backprop_times):.3f}", flush=True)
+        time_counter["backprop"].append(time.time() - start)
 
+        if step + 1 in args.inner_loop_val_steps:
+            torch.cuda.synchronize()
+            start = time.time()
+            val_metrics[step + 1] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+            torch.cuda.synchronize()
+            time_counter["eval"].append(time.time() - start)
+
+    torch.cuda.synchronize()
     start = time.time()
-    torch.cuda.empty_cache()
-    print(f"    Time to empty cache: {time.time() - start:.3f}", flush=True)
-    print(f"    Total time before return: {time.time() - fn_start:.3f}", flush=True)
-    return model
+    val_metrics["last"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+    torch.cuda.synchronize()
+    time_counter["eval"].append(time.time() - start)
+
+    print(f"    Time per inner step: {np.mean(time_counter['inner_step']):.3f} x {len(time_counter['inner_step'])} = {sum(time_counter['inner_step']):.3f}", flush=True)
+    print(f"    Time per backprop: {np.mean(time_counter['backprop']):.3f} x {len(time_counter['backprop'])} = {sum(time_counter['backprop']):.3f}", flush=True)
+    print(f"    Time per eval: {np.mean(time_counter['eval']):.3f} x {len(time_counter['eval'])} = {sum(time_counter['eval']):.3f}", flush=True)
+    print(f"  Total time for inner loop: {time.time() - fn_start:.3f}", flush=True)
+    return model, val_metrics
 
 
 def find_latest_checkpoint(save_dir):
@@ -256,23 +293,15 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
             batch_time = time.time() - start_time
             print_train_update(logger, print_every, total_steps, step, loss, batch_time, data_time)
 
-        # Save the checkpoint after each epoch
-        # checkpoint = {
-        #     'optimizer_state_dict': optimizer.state_dict(),
-        #     'scheduler_state_dict': scheduler.state_dict()
-        # }
-        # torch.save(checkpoint, os.path.join(args.save, f'opt_sched_checkpoint_{epoch}.pt'))
-        # print(f"Saved optimizer and scheduler to {args.save}/opt_sched_checkpoint_{epoch}.pt", flush=True)
-
-        eval_results = evaluate(model.module, args)
-        # eval_results = evaluate(encoder, classification_head, args)
-        all_eval_results[step] = eval_results
+        if args.id != "ImageNet":
+            eval_results = evaluate(model.module, args)
+            all_eval_results[step] = eval_results
         print(f"Epoch time: {time.time() - epoch_start_time:.3f}", flush=True)
         temp_model = extract_from_data_parallel(model)
-        # temp_model = ImageClassifier(encoder, classification_head)
         temp_model.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
         print(f"Saved model to {args.save}", flush=True)
-        del temp_model; torch.cuda.empty_cache()
+        del temp_model
+        torch.cuda.empty_cache()
 
         current_val_metric = eval_results['acc']
         if current_val_metric > best_val_metric:

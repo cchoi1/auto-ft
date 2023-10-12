@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from .utils import compute_hinge_loss
 from clip.loss import ClipLoss
 
+
 class LayerwiseLoss(nn.Module):
     def __init__(self, hyperparams, initial_net_params):
         super().__init__()
@@ -41,6 +42,7 @@ class LayerwiseLoss(nn.Module):
             clip_loss = self.clip_loss_fn(image_features, text_features, logit_scale)
             losses.append(clip_loss)
         layerwise_losses = torch.matmul(self.hyperparams, torch.stack(losses))
-        del losses; torch.cuda.empty_cache()
+        del losses
+        torch.cuda.empty_cache()
 
         return layerwise_losses.mean()

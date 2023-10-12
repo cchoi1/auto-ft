@@ -4,6 +4,7 @@ ckpts/
 **/results/
 **/wandb/
 mnist/data/**
+autoft/logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

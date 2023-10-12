@@ -7,3 +7,4 @@ pip install git+https://github.com/modestyachts/ImageNetV2_pytorch
 pip install braceexpand
 pip install webdataset
 pip install h5py
+pip install optuna
