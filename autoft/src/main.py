@@ -1,20 +1,22 @@
 import json
+import logging
 import os
 import time
-import logging
 
 import torch
+
+import src.datasets as datasets
 from src.args import parse_arguments
 from src.datasets.common import get_dataloader
+from src.datasets.laion import get_data
 from src.datasets.utils import get_ood_datasets
 from src.logger import setup_logging
 from src.models.autoft import auto_ft
 from src.models.eval import evaluate
 from src.models.finetune import finetune_final
-from src.models.modeling import ImageClassifier, ImageClassifierWithLanguage
+from src.models.modeling import ImageClassifier
 from src.models.utils import extract_from_data_parallel
-import src.datasets as datasets
-from src.datasets.laion import get_data
+
 
 def initialize_model(args):
     image_classifier = ImageClassifier.load(args.load)
@@ -108,16 +110,14 @@ def train(args, model, preprocess_fn):
             img_text_data = get_data(args, (temp_model.image_encoder.train_preprocess, temp_model.image_encoder.val_preprocess), epoch=0)
             id_dataloader = img_text_data['train_ft'].dataloader
             del temp_model; torch.cuda.empty_cache()
-            image_encoder = None
         else:
             id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-            image_encoder = None
         ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
         if args.unlabeled_id is not None:
             unlabeled_dataloader = all_datasets["id_unlabeled"].dataloader
         else:
             unlabeled_dataloader = None
-        model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, unlabeled_dataloader, image_encoder)
+        model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, unlabeled_dataloader)
         del id_dataloader, ood_hp_dataloader, unlabeled_dataloader
     else:
         raise ValueError("Invalid method")
@@ -158,4 +158,4 @@ if __name__ == '__main__':
 
     main(args)
 
-    print(f"\nRUN TIME: {time.time() - start_time:.3f}", flush=True)
+    print(f"\nRUN TIME: {time.time() - start_time:.3f}")

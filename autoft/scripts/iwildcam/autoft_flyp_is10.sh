@@ -24,4 +24,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt \
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---num_losses 9
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init

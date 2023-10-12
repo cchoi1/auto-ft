@@ -3,37 +3,36 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .utils import compute_hinge_loss
 from clip.loss import ClipLoss
-from src.models import utils
 
 class LearnedLoss(nn.Module):
-    def __init__(self, loss_terms, hyperparams, initial_net_params):
+    def __init__(self, losses, loss_weights, initial_params):
         super().__init__()
-        self.loss_terms = loss_terms
-        self.initial_net_params = [param.detach().cuda() for param in initial_net_params]
-        if isinstance(hyperparams, list):
-            hyperparams = torch.stack(hyperparams)
-        self.hyperparams = hyperparams.cuda().float()
-        self.param_sum = sum(param.numel() for param in initial_net_params)
+        self.losses = losses
+        self.initial_params = [param.detach().cuda() for param in initial_params]
+        if isinstance(loss_weights, list):
+            loss_weights = torch.stack(loss_weights)
+        self.loss_weights = loss_weights.cuda().float()
+        self.param_sum = sum(param.numel() for param in initial_params)
         self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=0, world_size=1, use_horovod=False)
 
     def forward(self, model, logits, labels, image_features, text_features=None, logit_scale=None, unlabeled_image_features=None, pseudolabels=None):
         losses = []
         entropy_all = -(F.softmax(logits, dim=1) * F.log_softmax(logits, dim=1)).sum(dim=1)
-        if "ce" in self.loss_terms:
+        if "ce" in self.losses:
             ce_loss = F.cross_entropy(logits, labels)
             losses.append(ce_loss)
-        if "hinge" in self.loss_terms:
+        if "hinge" in self.losses:
             hinge_loss = compute_hinge_loss(logits, labels)
             losses.append(hinge_loss)
-        if "entropy" in self.loss_terms:
+        if "entropy" in self.losses:
             entropy = entropy_all.mean()
             losses.append(entropy)
-        if "dcm" in self.loss_terms:
+        if "dcm" in self.losses:
             dcm_loss = ((logits.argmax(dim=1) != labels).float().detach() * entropy_all).mean()
             losses.append(dcm_loss)
 
         l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum = 0, 0, 0, 0
-        for param, init_param in zip(model.parameters(), self.initial_net_params):
+        for param, init_param in zip(model.parameters(), self.initial_params):
             l1_zero_accum += torch.abs(param).sum()
             l2_zero_accum += (param ** 2).sum()
             diff = param - init_param
@@ -43,13 +42,13 @@ class LearnedLoss(nn.Module):
         l2_zero_accum /= self.param_sum
         l1_init_accum /= self.param_sum
         l2_init_accum /= self.param_sum
-        if "l1zero" in self.loss_terms:
+        if "l1zero" in self.losses:
             losses.append(l1_zero_accum)
-        if "l2zero" in self.loss_terms:
+        if "l2zero" in self.losses:
             losses.append(l2_zero_accum)
-        if "l1init" in self.loss_terms:
+        if "l1init" in self.losses:
             losses.append(l1_init_accum)
-        if "l2init" in self.loss_terms:
+        if "l2init" in self.losses:
             losses.append(l2_init_accum)
         del l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum; torch.cuda.empty_cache()
 
@@ -57,11 +56,9 @@ class LearnedLoss(nn.Module):
             unlabeled_logits = model.classification_head(unlabeled_image_features)
             unlabeled_ce_loss = F.cross_entropy(unlabeled_logits, pseudolabels)
             losses.append(unlabeled_ce_loss)
-        if "flyp" in self.loss_terms:
+        if "flyp" in self.losses:
             clip_loss = self.clip_loss_fn(image_features, text_features, logit_scale)
             losses.append(clip_loss)
-        losses = torch.matmul(self.hyperparams, torch.stack(losses))
+        losses = torch.matmul(self.loss_weights, torch.stack(losses))
 
         return losses.mean()
-
-        return loss
