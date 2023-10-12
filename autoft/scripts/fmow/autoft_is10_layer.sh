@@ -22,4 +22,5 @@ python3 src/main.py --method autoft --loss_type LayerwiseLoss --model ViT-B/16 -
 --num_ood_hp_examples -1 --ft_epochs 20 \
 --autoft_epochs 100 --inner_steps 10 --lr 1e-5 --wd 0.1 \
 --batch-size 256 --warmup_length 500 \
---load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow.pt
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow.pt \
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init

@@ -17,12 +17,14 @@ cd ../..
 
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
-python3 src/main.py --method autoft --model ViT-B/16 --loss_type LayerwiseLoss --data-location /iris/u/cchoi1/Data \
+python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
 --id IWildCamTrain --ood IWildCamOODVal --eval-datasets IWildCamIDTest,IWildCamOODTest \
 --num_ood_hp_examples 1000 --ft_epochs 20 \
 --autoft_epochs 500 --inner_steps 10 --lr 1e-5 --wd 0.1 \
---batch-size 64 --accumulation_steps 4 --warmup_length 500 \
+--batch-size 128 --accumulation_steps 2 --warmup_length 500 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt \
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---num_losses 9
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init \
+--layerwise_opt --layerwise_loss \
+--workers 2 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/IWildCam/flyp_layer_is=10_evals=500_ex=1000.json

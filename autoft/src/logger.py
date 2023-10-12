@@ -5,9 +5,9 @@ def setup_logging(args, logger):
     save_dir = os.path.join(args.save, args.id, args.method)
     os.makedirs(save_dir, exist_ok=True)
     if args.method == "autoft":
-        method_name = f"ood{args.ood}_{args.loss_type}"
-        if args.pointwise_loss:
-            method_name += "_pw"
+        loss_type = "layerwiseloss" if args.layerwise_loss else ""
+        opt_type = "layerwiseopt" if args.layerwise_opt else ""
+        method_name = f"ood{args.ood}_{loss_type}_{opt_type}"
         if args.unlabeled_id is not None:
             method_name += "_unlabeled"
         if args.ft_data is not None:

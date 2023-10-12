@@ -31,9 +31,10 @@ def parse_arguments():
     # Training
     parser.add_argument("--model", type=str, default=None, help="The type of model (e.g. RN50, ViT-B/32).")
     parser.add_argument("--num_classes", type=int, default=1000)
-    parser.add_argument("--num_losses", type=int, default=8)
-    parser.add_argument("--loss_type", type=str, choices=["LearnedLoss", "LearnedLoss2", "LayerwiseLoss"], default="LearnedLoss")
-    parser.add_argument("--pointwise_loss", action="store_true")
+    parser.add_argument("--losses", type=str, nargs="+", help="list of losses to use",
+                        choices=["ce", "hinge", "entropy", "dcm", "flyp", "l1zero", "l2zero", "l1init", "l2init"])
+    parser.add_argument("--layerwise_loss", action="store_true")
+    parser.add_argument("--layerwise_opt", action="store_true")
     parser.add_argument("--load_hparams", type=str, help="Path to hyperparameters to load.")
     parser.add_argument("--ft_epochs", type=int, default=10)
     parser.add_argument("--autoft_epochs", type=int, default=10)
@@ -51,6 +52,7 @@ def parse_arguments():
     parser.add_argument("--use_class_balanced_ood", action="store_true")
     parser.add_argument("--use_id_val", action="store_true")
     parser.add_argument("--use_hyperopt", action="store_true")
+    parser.add_argument("--early_stopping_patience", type=int, default=1)
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

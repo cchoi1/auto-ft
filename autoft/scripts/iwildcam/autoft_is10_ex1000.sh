@@ -22,5 +22,6 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --num_ood_hp_examples 1000 --ft_epochs 20 \
 --autoft_epochs 200 --inner_steps 10 --lr 1e-5 --wd 0.1 \
 --batch-size 256 --warmup_length 500 \
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam.pt \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/IWildCam/is=10_evals=100_ex=1000.json

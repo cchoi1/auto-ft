@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="fmow-autoft-layer-flyp-10inner-100ep" # Name the job (for easier monitoring)
-#SBATCH --output=fmow-autoft-layer-flyp-10inner-100ep.log  # Name of the output log file
+#SBATCH --job-name="fmow-autoft-layer-flyp-10inner-500ep-1000ex" # Name the job (for easier monitoring)
+#SBATCH --output=fmow-autoft-layer-flyp-10inner-500ep-1000ex.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -19,10 +19,11 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
 python3 src/main.py --method autoft --loss_type LayerwiseLoss --model ViT-B/16 --data-location /iris/u/yoonho/data/wilds \
 --id FMOWTrain --ood FMOWOODVal --eval-datasets FMOWIDVal,FMOWIDTest,FMOWOODTest \
---num_ood_hp_examples -1 --ft_epochs 20 \
---autoft_epochs 100 --inner_steps 10 \
+--num_ood_hp_examples 1000 --ft_epochs 20 \
+--autoft_epochs 500 --inner_steps 10 \
 --lr 1e-5 --wd 0.1 --batch-size 32 --accumulation_steps 8 --warmup_length 500 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow2.pt \
 --ft_data /iris/u/cchoi1/Data/csv/fmow_v1.1/fmow.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---num_losses 9
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init \
+--layerwise_loss --layerwise_opt

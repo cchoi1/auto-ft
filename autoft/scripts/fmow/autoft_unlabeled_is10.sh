@@ -24,4 +24,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoo
 --batch-size 128 --warmup_length 500 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow.pt \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/FMOW/unlabeled_is=10_evals=100_ex=1000.json \
---num_losses 9
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init

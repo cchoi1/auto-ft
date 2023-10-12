@@ -162,19 +162,80 @@ class IWildCamOODTest(IWildCam):
         return results[0]
 
 
-# class IWildCamNonEmpty(IWildCam):
-#     def __init__(self, *args, **kwargs):
-#         kwargs['subset'] = 'train'
-#         super().__init__(*args, **kwargs)
-#
-#
-# class IWildCamIDNonEmpty(IWildCam):
-#     def __init__(self, *args, **kwargs):
-#         kwargs['subset'] = 'id_test'
-#         super().__init__(*args, **kwargs)
-#
-#
-# class IWildCamOODNonEmpty(IWildCam):
-#     def __init__(self, *args, **kwargs):
-#         kwargs['subset'] = 'test'
-#         super().__init__(*args, **kwargs)
+class IWildCamKTrain(IWildCamTrain):
+    def __init__(self, K, *args, **kwargs):
+        self.K = K
+        kwargs['subset'] = 'train'
+        super().__init__(*args, **kwargs)
+
+        # Overwrite dataset to be K-shot
+        k_shot_indices = self.get_k_shot_indices()
+        self.dataset = torch.utils.data.Subset(self.dataset, k_shot_indices)
+        self.dataloader = torch.utils.data.DataLoader(self.dataset, num_workers=2, batch_size=128)
+    def get_k_shot_indices(self):
+        # Extract labels from the dataset
+        labels = [self.dataset.dataset.y_array[idx] for idx in self.dataset.indices]
+
+        # Unique classes in the dataset
+        classes = np.unique(labels)
+
+        k_shot_indices = []
+        # For each class, randomly sample K examples
+        for c in classes:
+            class_indices = np.where(np.array(labels) == c)[0]
+            sampled_indices = np.random.choice(class_indices, self.K, replace=True)
+            k_shot_indices.extend(sampled_indices)
+        return np.array(k_shot_indices)
+
+
+# ks = [1, 2, 4, 8, 16]
+ks = [4]
+for k in ks:
+    cls_name = f"IWildCam{k}Train"
+    def dynamic_init(self, K=None, *args, **kwargs):
+        if K is None:
+            K = k  # Set to the default value specific to this class
+        super(self.__class__, self).__init__(K=K, *args, **kwargs)  # Call parent's init
+    dyn_cls = type(cls_name, (IWildCamKTrain,), {
+        "__init__": dynamic_init,
+    })
+    globals()[cls_name] = dyn_cls
+
+class IWildCamKIDVal(IWildCamIDVal):
+    def __init__(self, K, *args, **kwargs):
+        self.K = K
+        kwargs['subset'] = 'id_val'
+        super().__init__(*args, **kwargs)
+
+        # Overwrite dataset to be K-shot
+        k_shot_indices = self.get_k_shot_indices()
+        self.dataset = torch.utils.data.Subset(self.dataset, k_shot_indices)
+        self.dataloader = torch.utils.data.DataLoader(self.dataset, num_workers=2, batch_size=128)
+    def get_k_shot_indices(self):
+        # Extract labels from the dataset
+        labels = [self.dataset.dataset.y_array[idx] for idx in self.dataset.indices]
+
+        # Unique classes in the dataset
+        classes = np.unique(labels)
+
+        k_shot_indices = []
+        # For each class, randomly sample K examples
+        for c in classes:
+            class_indices = np.where(np.array(labels) == c)[0]
+            sampled_indices = np.random.choice(class_indices, self.K, replace=True)
+            k_shot_indices.extend(sampled_indices)
+        return np.array(k_shot_indices)
+
+
+# ks = [1, 2, 4, 8, 16]
+ks = [4]
+for k in ks:
+    cls_name = f"IWildCam{k}IDVal"
+    def dynamic_init(self, K=None, *args, **kwargs):
+        if K is None:
+            K = k  # Set to the default value specific to this class
+        super(self.__class__, self).__init__(K=K, *args, **kwargs)  # Call parent's init
+    dyn_cls = type(cls_name, (IWildCamKIDVal,), {
+        "__init__": dynamic_init,
+    })
+    globals()[cls_name] = dyn_cls

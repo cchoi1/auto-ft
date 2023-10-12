@@ -1,8 +1,10 @@
 import os
+
+import numpy as np
 import torch
 import wilds
-
 from wilds.common.data_loaders import get_train_loader, get_eval_loader
+
 
 class FMOW:
     test_subset = None
@@ -129,3 +131,69 @@ class FMOWOODTest(FMOW):
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
 
+class FMOWKTrain(FMOW):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.train_sampler = self.get_train_sampler()
+
+    def get_train_sampler(self):
+        if hasattr(self.dataset, 'targets'):
+            idxs = np.zeros(len(self.dataset.targets))
+            target_array = np.array(self.dataset.targets)
+            for c in range(len(self.classnames)):
+                m = target_array == c
+                n = len(idxs[m])
+                arr = np.zeros(n)
+                arr[:self.k()] = 1
+                np.random.shuffle(arr)
+                idxs[m] = arr
+
+            idxs = idxs.astype('int')
+            sampler = torch.utils.data.SubsetRandomSampler(np.where(idxs)[0])
+            return sampler
+        return None
+
+    def k(self):
+        return 1
+
+ks = [1, 2, 4, 8, 16, 25, 32, 50, 64, 128, 600]
+
+for k in ks:
+    cls_name = f"FMOW{k}Train"
+    dyn_cls = type(cls_name, (FMOWKTrain, ), {
+        "k": lambda self, num_samples=k: num_samples,
+    })
+    globals()[cls_name] = dyn_cls
+
+class FMOWKIDVal(FMOW):
+    def __init__(self, *args, **kwargs):
+        kwargs["subset"] = "id_val"
+        super().__init__(*args, **kwargs)
+        self.eval_sampler = self.get_eval_sampler()
+
+    def get_eval_sampler(self):
+        if hasattr(self.dataset, 'targets'):
+            idxs = np.zeros(len(self.dataset.targets))
+            target_array = np.array(self.dataset.targets)
+            for c in range(len(self.classnames)):
+                m = target_array == c
+                n = len(idxs[m])
+                arr = np.zeros(n)
+                arr[:self.k()] = 1
+                np.random.shuffle(arr)
+                idxs[m] = arr
+
+            idxs = idxs.astype('int')
+            sampler = torch.utils.data.SubsetRandomSampler(np.where(idxs)[0])
+            return sampler
+        return None
+
+    def k(self):
+        return 1
+
+for k in ks:
+    cls_name = f"FMOWK{k}IDVal"
+    dyn_cls = type(cls_name, (FMOWKIDVal, ), {
+        "k": lambda self, num_samples=k: num_samples,
+    })
+    globals()[cls_name] = dyn_cls

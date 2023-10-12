@@ -22,4 +22,6 @@ python3 src/main.py --method autoft --model ViT-B/16 --loss_type LayerwiseLoss -
 --num_ood_hp_examples -1 --ft_epochs 20 \
 --autoft_epochs 200 --inner_steps 100 --lr 1e-5 --wd 0.1 \
 --batch-size 256 --warmup_length 500 \
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init \
+--layerwise_loss --layerwise_opt \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam.pt

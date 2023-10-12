@@ -9,10 +9,9 @@ from src.datasets.common import get_dataloader
 from src.datasets.utils import get_ood_datasets
 from src.logger import setup_logging
 from src.models.autoft import auto_ft
-from src.models.autoft2 import auto_ft_hyperopt
 from src.models.eval import evaluate
 from src.models.finetune import finetune_final
-from src.models.modeling import ImageClassifier
+from src.models.modeling import ImageClassifier, ImageClassifierWithLanguage
 from src.models.utils import extract_from_data_parallel
 import src.datasets as datasets
 from src.datasets.laion import get_data
@@ -34,13 +33,13 @@ def initialize_model(args):
 
 def get_datasets(args, preprocess_fn):
     id_dataset_class = getattr(datasets, args.id)
-    id_dataset = id_dataset_class(preprocess_fn, train=True, n_examples=args.num_id_examples,
+    id_dataset = id_dataset_class(preprocess=preprocess_fn, train=True, n_examples=args.num_id_examples,
                                   location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
     if args.unlabeled_id is not None:
         id_unlabeled_dataset_class = getattr(datasets, args.unlabeled_id)
-        id_unlabeled_dataset = id_unlabeled_dataset_class(preprocess_fn, train=True, n_examples=args.num_id_unlabeled_examples,
+        id_unlabeled_dataset = id_unlabeled_dataset_class(preprocess=preprocess_fn, train=True, n_examples=args.num_id_unlabeled_examples,
                                   location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
-    id_val_dataset = id_dataset_class(preprocess_fn, train=False, n_examples=args.num_id_examples,
+    id_val_dataset = id_dataset_class(preprocess=preprocess_fn, train=False, n_examples=args.num_id_examples,
                                   location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
 
     ood_dataset_class = getattr(datasets, args.ood)
@@ -99,30 +98,24 @@ def train(args, model, preprocess_fn):
         model = finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
     elif args.method == "autoft":
         if args.ft_data is not None:
-            image_encoder = extract_from_data_parallel(model).image_encoder
-            img_text_data = get_data(args, (image_encoder.train_preprocess, image_encoder.val_preprocess), epoch=0)
+            temp_model = extract_from_data_parallel(model)
+            img_text_data = get_data(args, (temp_model.image_encoder.train_preprocess, temp_model.image_encoder.val_preprocess), epoch=0)
             id_dataloader = img_text_data['train_ft'].dataloader
-            image_encoder = image_encoder.cuda()
-            image_encoder = torch.nn.DataParallel(image_encoder, device_ids=list(range(torch.cuda.device_count())))
+            del temp_model; torch.cuda.empty_cache()
+            image_encoder = None
         else:
             id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
             image_encoder = None
-        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
         ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
         if args.unlabeled_id is not None:
             unlabeled_dataloader = all_datasets["id_unlabeled"].dataloader
         else:
             unlabeled_dataloader = None
-        print_every = 100 if args.plot else None
-        if args.use_hyperopt:
-            model = auto_ft_hyperopt(args, model, id_dataloader, ood_hp_dataloader, max_evals=args.autoft_epochs, input_key=input_key, print_every=print_every, id_val_dataloader=id_val_dataloader)
-        else:
-            model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, unlabeled_dataloader, image_encoder)
+        model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, unlabeled_dataloader, image_encoder)
         del id_dataloader, ood_hp_dataloader, unlabeled_dataloader
     else:
         raise ValueError("Invalid method")
-    del all_datasets
-    torch.cuda.empty_cache()
+    del all_datasets; torch.cuda.empty_cache()
 
     return model
 
