@@ -269,16 +269,24 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
         print(f"Epoch {epoch}, Time: {time.time() - epoch_start_time:.3f}")
 
         # Early stopping
-        print("eval resutls keys", eval_results.keys())
-        current_val_metric = eval_results['acc']
-        if current_val_metric > best_val_metric:
-            best_val_metric = current_val_metric
-            patience = 0
-        else:
-            patience += 1
-        if patience > args.early_stopping_patience:
-            print("Early stopping.")
-            break
+        # print("eval resutls keys", eval_results.keys())
+        # id_val_metrics = {k: eval_results[k] for k in eval_results.keys() if k.contains("IDVal")}
+        # assert len(id_val_metrics) > 0, "No IDVal metrics found in eval results."
+        # if "IWildCam" in args.id:
+        #     metric = "F1-macro_all"
+        # elif "FMOW" in args.id:
+        #     metric = "acc_worst_region"
+        # else:
+        #     metric = "top1"
+        # current_val_metric = id_val_metrics[f"{args.id}IDVal:{metric}"]
+        # if current_val_metric > best_val_metric:
+        #     best_val_metric = current_val_metric
+        #     patience = 0
+        # else:
+        #     patience += 1
+        # if patience > args.early_stopping_patience:
+        #     print("Early stopping.")
+        #     break
 
     del dataloader
     torch.cuda.empty_cache()
