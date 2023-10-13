@@ -31,26 +31,27 @@ class LearnedLoss(nn.Module):
             dcm_loss = ((logits.argmax(dim=1) != labels).float().detach() * entropy_all).mean()
             losses.append(dcm_loss)
 
-        l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum = 0, 0, 0, 0
-        for param, init_param in zip(model.parameters(), self.initial_params):
-            l1_zero_accum += torch.abs(param).sum()
-            l2_zero_accum += (param ** 2).sum()
-            diff = param - init_param
-            l1_init_accum += torch.abs(diff).sum()
-            l2_init_accum += (diff ** 2).sum()
-        l1_zero_accum /= self.param_sum
-        l2_zero_accum /= self.param_sum
-        l1_init_accum /= self.param_sum
-        l2_init_accum /= self.param_sum
-        if "l1zero" in self.losses:
-            losses.append(l1_zero_accum)
-        if "l2zero" in self.losses:
-            losses.append(l2_zero_accum)
-        if "l1init" in self.losses:
-            losses.append(l1_init_accum)
-        if "l2init" in self.losses:
-            losses.append(l2_init_accum)
-        del l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum; torch.cuda.empty_cache()
+        if "l1zero" in self.losses or "l2zero" in self.losses or "l1init" in self.losses or "l2init" in self.losses:
+            l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum = 0, 0, 0, 0
+            for param, init_param in zip(model.parameters(), self.initial_params):
+                l1_zero_accum += torch.abs(param).sum()
+                l2_zero_accum += (param ** 2).sum()
+                diff = param - init_param
+                l1_init_accum += torch.abs(diff).sum()
+                l2_init_accum += (diff ** 2).sum()
+            l1_zero_accum /= self.param_sum
+            l2_zero_accum /= self.param_sum
+            l1_init_accum /= self.param_sum
+            l2_init_accum /= self.param_sum
+            if "l1zero" in self.losses:
+                losses.append(l1_zero_accum)
+            if "l2zero" in self.losses:
+                losses.append(l2_zero_accum)
+            if "l1init" in self.losses:
+                losses.append(l1_init_accum)
+            if "l2init" in self.losses:
+                losses.append(l2_init_accum)
+            del l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum; torch.cuda.empty_cache()
 
         if unlabeled_image_features is not None and pseudolabels is not None:
             unlabeled_logits = model.classification_head(unlabeled_image_features)

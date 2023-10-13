@@ -13,24 +13,9 @@ import torch
 from src.losses import LearnedLoss
 from src.models.finetune import inner_finetune, finetune_final
 from src.models.modeling import ImageClassifier
-from src.models.utils import extract_from_data_parallel, set_seed
+from src.models.utils import extract_from_data_parallel, set_seed, print_hparams, save_hparams
 
 logger = logging.getLogger('main')
-
-def print_hparams(hparams):
-    print("\nHyperparameters:")
-    for key, value in hparams.items():
-        if not "dataw" in key:
-            print(f"{key}: {value}")
-
-
-def save_hparams(hparams, args):
-    save_file = os.path.join(args.save, 'hparams.json')
-    os.makedirs(args.save, exist_ok=True)
-    hparams["seed"] = int(hparams["seed"])
-    with open(save_file, 'w') as f:
-        json.dump(hparams, f)
-
 
 class HyperparameterSpace:
     def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False):
@@ -45,7 +30,7 @@ class HyperparameterSpace:
         return {
             **{f"{prefix}lossw_{loss_type}": trial.suggest_float(f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
                for loss_type in self.losses if loss_type in ["hinge", "entropy", "dcm", "flyp"]},
-            f"{prefix}lossw_ce": 1.0    # fix the cross-entropy loss weight to 1.0
+            f"{prefix}lossw_ce": 1.0    # set cross-entropy loss weight to 1.0
         }
 
     def _base_norm_space(self, trial, prefix):
@@ -63,9 +48,10 @@ class HyperparameterSpace:
         }
 
     def build_space(self, trial):
-        # Global hyperparameters: loss weights and random seed
+        # Global hyperparameters: loss weights, seed, batch size
         hparams = self._base_loss_weight_space(trial, "")
         hparams["seed"] = trial.suggest_int("seed", 0, 100)
+        # hparams["batch_size"] = trial.suggest_categorical("batch_size", [16, 32, 64, 128, 256, 512])
         if self.layerwise_loss: # per-layer LRs, WDs, L1/L2 norms
             layer_idx = 0
             self.model = extract_from_data_parallel(self.model)
@@ -193,7 +179,7 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
         print(f"  Time to copy model: {time.time() - start:.3f}")
 
         val_results = [evaluate_hparams(args, _net, hparams, id_dataloader, ood_hp_dataloader, ood_hp_dataset, input_key, unlabeled_dataloader) for _ in range(args.repeats)]
-        print(f"Total time for autoft iteration: {time.time() - full_loop_start_time:.3f}")
+        print(f"    Total time for autoft iteration: {time.time() - full_loop_start_time:.3f}")
 
         trial_file = os.path.join("logs", args.save, f"trial_{trial.number}.json")
         os.makedirs(args.save, exist_ok=True)
@@ -201,7 +187,7 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
             first_result = copy.deepcopy(val_results[0])
             first_result["hparams"] = hparams
             json.dump(first_result, f)
-        return -np.mean([r["meta_learning_objective"] for r in val_results])  # maximize accuracy
+        return -np.mean([r["meta_learning_objective"] for r in val_results])    # maximize performance metric
 
     if args.load_hparams is not None:
         with open(args.load_hparams, 'r') as f:

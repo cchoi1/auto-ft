@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 import random
@@ -5,6 +6,19 @@ import random
 import numpy as np
 import torch
 
+
+def print_hparams(hparams):
+    print("\nHyperparameters:")
+    for key, value in hparams.items():
+        if not "dataw" in key:
+            print(f"{key}: {value}")
+
+def save_hparams(hparams, args):
+    save_file = os.path.join(args.save, 'hparams.json')
+    os.makedirs(args.save, exist_ok=True)
+    hparams["seed"] = int(hparams["seed"])
+    with open(save_file, 'w') as f:
+        json.dump(hparams, f)
 
 def extract_from_data_parallel(model):
     if isinstance(model, torch.nn.DataParallel):

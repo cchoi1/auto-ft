@@ -182,15 +182,15 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
     return model, val_metrics
 
 
-def find_latest_checkpoint(save_dir):
-    """Returns the latest checkpoint file and its epoch number."""
-    checkpoints = [filename for filename in os.listdir(save_dir) if filename.startswith('checkpoint_')]
-    if not checkpoints:
-        return None, -1
-    checkpoints.sort(key=lambda x: int(x.split('_')[1].split('.pt')[0]))
-    latest_checkpoint = checkpoints[-1]
-    epoch_number = int(latest_checkpoint.split('_')[1].split('.pt')[0])
-    return os.path.join(save_dir, latest_checkpoint), epoch_number
+# def find_latest_checkpoint(save_dir, prefix="checkpoint_"):
+#     """Returns the latest checkpoint file and its epoch number based on the provided prefix."""
+#     checkpoints = [filename for filename in os.listdir(save_dir) if filename.startswith(prefix)]
+#     if not checkpoints:
+#         return None, -1
+#     checkpoints.sort(key=lambda x: int(x.split('_')[1].split('.pt')[0]))
+#     latest_checkpoint = checkpoints[-1]
+#     epoch_number = int(latest_checkpoint.split('_')[1].split('.pt')[0])
+#     return os.path.join(save_dir, latest_checkpoint), epoch_number
 
 
 def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every, unlabeled_dataloader=None):
@@ -207,15 +207,15 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
 
     # Find the latest checkpoint and resume fine-tuning from there
     start_epoch = 0
-    checkpoint_path, latest_epoch = find_latest_checkpoint(args.save)
-    if checkpoint_path:
-        checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if 'scheduler_state_dict' in checkpoint:
-            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        start_epoch = latest_epoch + 1
-        print(f"Resuming from epoch {start_epoch} using checkpoint {checkpoint_path}")
+    # model_ckpt_path, model_latest_epoch = find_latest_checkpoint(save_dir=args.save)
+    # opt_checkpoint, opt_latest_epoch = find_latest_checkpoint(save_dir=args.save, prefix="opt_")
+    # latest_epoch = min(model_latest_epoch, opt_latest_epoch)
+    # if model_ckpt_path:
+    #     model.torch_load(model_ckpt_path)
+    #     optimizer.load_state_dict(opt_checkpoint)
+    #     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
+    #     start_epoch = latest_epoch + 1
+    #     print(f"Resuming from epoch {start_epoch} using model checkpoint {model_ckpt_path} and optimizer checkpoint {opt_checkpoint}")
 
     for epoch in range(start_epoch, args.ft_epochs):
         epoch_start_time = time.time()
@@ -251,12 +251,12 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
             print_train_update(logger, print_every, total_steps, step, loss, batch_time)
 
         # Save checkpoints
-        opt_ckpt_path = os.path.join(args.save, f'opt_{epoch}.pt')
-        torch.save(optimizer.state_dict, opt_ckpt_path)
-        print(f"Saved optimizer to {opt_ckpt_path}")
-        sched_ckpt_path = os.path.join(args.save, f'sched_{epoch}.pt')
-        torch.save(scheduler.__dict__, sched_ckpt_path)
-        print(f"Saved scheduler to {sched_ckpt_path}")
+        # opt_ckpt_path = os.path.join(args.save, f'opt_{epoch}.pt')
+        # torch.save(optimizer.state_dict, opt_ckpt_path)
+        # print(f"Saved optimizer to {opt_ckpt_path}")
+        # sched_ckpt_path = os.path.join(args.save, f'sched_{epoch}.pt')
+        # torch.save(scheduler.__dict__, sched_ckpt_path)
+        # print(f"Saved scheduler to {sched_ckpt_path}")
         unwrapped_model = extract_from_data_parallel(model)
         unwrapped_model.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
         print(f"Saved model to {args.save}")
@@ -269,6 +269,7 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
         print(f"Epoch {epoch}, Time: {time.time() - epoch_start_time:.3f}")
 
         # Early stopping
+        print("eval resutls keys", eval_results.keys())
         current_val_metric = eval_results['acc']
         if current_val_metric > best_val_metric:
             best_val_metric = current_val_metric

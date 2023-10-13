@@ -95,9 +95,9 @@ class ImageClassifier(torch.nn.Module):
     #     return outputs
 
     def forward(self, images, text=None):
-        text_features, logit_scale = None, None
         if text is None:
             image_features = self.image_encoder(images)
+            text_features, logit_scale = None, None
         else:
             image_features, text_features, logit_scale = self.image_encoder(images, text)
         logits = self.classification_head(image_features)

@@ -27,4 +27,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init \
 --layerwise_opt --layerwise_loss \
---workers 2 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/IWildCam/flyp_layer_is=10_evals=500_ex=1000.json
+--workers 2
