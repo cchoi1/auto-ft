@@ -19,6 +19,7 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/yoonho/robust-optimizer/autoft/"
 python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
 --id IWildCamTrain --ood IWildCamOODVal --eval-datasets IWildCamIDVal,IWildCamIDTest,IWildCamOODTest \
 --num_ood_hp_examples 64 --ft_epochs 20 \
---autoft_epochs 200 --inner_steps 300 --inner_loop_val_steps 3 10 30 100 300 --lr 1e-5 --wd 0.1 \
+--autoft_epochs 200 --inner_steps 10 --inner_loop_val_steps 3 10 30 100 300 --lr 1e-5 --wd 0.1 \
 --batch-size 32 --warmup_length 500 --workers 2 \
+--losses ce hinge entropy dcm l1zero l2zero l1init l2init \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam.pt

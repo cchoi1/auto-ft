@@ -118,7 +118,11 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
     model.train()
     warmup_steps = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_steps, args.inner_steps)
-    num_steps = args.inner_steps * args.accumulation_steps
+    if len(args.inner_loop_val_steps) == 0:
+        num_steps = args.inner_steps * args.accumulation_steps
+    else:
+        # Do up to the biggest inner loop val step; no effect if args.inner_loop_val_steps is empty
+        num_steps = max(args.inner_steps, *args.inner_loop_val_steps) * args.accumulation_steps
     print("Num batches in ID dataloader: ", len(dataloaders["id"]))
     val_metrics = {}
     for step, batch in enumerate(dataloaders["id"]):

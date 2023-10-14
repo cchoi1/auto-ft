@@ -5,6 +5,7 @@ ckpts/
 **/wandb/
 mnist/data/**
 autoft/logs/
+hparams.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
