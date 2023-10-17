@@ -152,11 +152,11 @@ def evaluate_hparams(args, net, hparams, id_dataloader, ood_hp_dataloader, ood_h
     current_net, all_metrics = inner_finetune(args, current_net, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset)
     set_seed(args.seed)
     if "IWildCam" in args.id:
-        all_metrics[f"meta_learning_objective"] = all_metrics["last"]['F1-macro_all']
+        all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['F1-macro_all']
     elif "FMOW" in args.id:
-        all_metrics[f"meta_learning_objective"] = all_metrics["last"]['acc_worst_region']
+        all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc_worst_region']
     else:
-        all_metrics[f"meta_learning_objective"] = all_metrics["last"]['acc']
+        all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
 
     return all_metrics
 

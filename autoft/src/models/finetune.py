@@ -173,11 +173,12 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
             torch.cuda.synchronize()
             time_counter["eval"].append(time.time() - start)
 
-    torch.cuda.synchronize()
-    start = time.time()
-    val_metrics["last"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
-    torch.cuda.synchronize()
-    time_counter["eval"].append(time.time() - start)
+        if step + 1 == args.inner_steps:
+            torch.cuda.synchronize()
+            start = time.time()
+            val_metrics["meta_objective"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+            torch.cuda.synchronize()
+            time_counter["eval"].append(time.time() - start)
 
     print(f"    Time per inner step: {np.mean(time_counter['inner_step']):.3f} x {len(time_counter['inner_step'])} = {sum(time_counter['inner_step']):.3f}")
     print(f"    Time per backprop: {np.mean(time_counter['backprop']):.3f} x {len(time_counter['backprop'])} = {sum(time_counter['backprop']):.3f}")
