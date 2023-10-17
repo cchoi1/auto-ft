@@ -5,6 +5,7 @@ import os
 from glob import glob
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
@@ -61,28 +62,36 @@ def _plot_learning_curve(runs_dir):
         trials.append(trial)
 
     meta_learning_objectives = [t["meta_learning_objective"] for t in trials]
-    import numpy as np
     best_so_far = np.maximum.accumulate(meta_learning_objectives)
     N = len("oodIWildCamOODVal_")
     print(N)
     run_name = runs_dir.split("/")[-2][N:]
-    plt.plot(best_so_far, label=run_name, alpha=0.5)
-
-def plot_learning_curves(all_run_dirs):
-    for runs_dir in all_run_dirs:
-        try:
-            _plot_learning_curve(runs_dir)
-        except Exception as e:
-            print(e)
-    plt.legend()
-    plt.show()
+    name_dict = {
+        "lloss_chedllll": "Layerwise Loss",
+        "random_chedllll": "Loss (random)",
+        "chedllll": "Loss",
+    }
+    # plt.plot(meta_learning_objectives, label=run_name, alpha=0.5)
+    plt.plot(best_so_far, label=name_dict[run_name], alpha=0.5)
 
 all_run_dirs = glob("../../logs/saved/IWildCamTrain/autoft/*/*_is10_*")
 #%%
-plot_learning_curves(all_run_dirs)
+all_losses_run_dirs = glob("../../logs/saved/IWildCamTrain/autoft/*ched*/*_is10_*")
+all_losses_run_dirs = np.array(all_losses_run_dirs)[[2, 0, 1]]
+for runs_dir in all_losses_run_dirs:
+    try:
+        _plot_learning_curve(runs_dir)
+    except Exception as e:
+        print(e)
+plt.legend()
+plt.title("Hyperopt Learning Curves (IWildCam)")
+plt.show()
+
 #%%
 for runs_dir in all_run_dirs:
     try:
         plot_random_trials(runs_dir)
     except Exception as e:
         print(e)
+
+# %%
