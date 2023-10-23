@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=16G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="iwildcam-corr-300-rand" # Name the job (for easier monitoring)
-#SBATCH --output=iwildcam-corr-300-rand.log  # Name of the output log file
+#SBATCH --job-name="iwildcam-corr-300-small" # Name the job (for easier monitoring)
+#SBATCH --output=iwildcam-corr-300-small.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=yoonho@stanford.edu     # Where to send mail
 
@@ -18,7 +18,8 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/yoonho/robust-optimizer/autoft/"
 
 python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
 --id IWildCamTrain --ood IWildCamOODVal --eval-datasets IWildCamIDVal,IWildCamIDTest,IWildCamOODTest \
---num_ood_hp_examples 64 --ft_epochs 20 \
---autoft_epochs 200 --inner_steps 300 --inner_loop_val_steps 3 10 30 100 300 --lr 1e-5 --wd 0.1 \
---batch-size 32 --warmup_length 500 --workers 2 --optuna_sample random \
+--num_ood_hp_examples 512 --ft_epochs 20 \
+--autoft_epochs 200 --inner_steps 10 --inner_loop_val_steps 3 10 30 100 300 --lr 1e-5 --wd 0.1 \
+--batch-size 32 --warmup_length 500 --workers 2 \
+--losses ce l2zero \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam.pt

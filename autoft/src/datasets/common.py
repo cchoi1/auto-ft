@@ -239,8 +239,6 @@ def get_autoft_dataloaders(args, model, all_datasets):
         ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"].dataset, is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
     else:
         ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
-    print(next(iter(ood_hp_dataloader)))
-    print('ood_hp_dataloader', len(ood_hp_dataloader))
     if args.unlabeled_id is not None:
         unlabeled_dataloader = all_datasets["id_unlabeled"].dataloader
     else:

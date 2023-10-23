@@ -119,7 +119,11 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
     model.train()
     warmup_steps = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_steps, args.inner_steps)
-    num_steps = args.inner_steps * args.accumulation_steps
+    if len(args.inner_loop_val_steps) == 0:
+        num_steps = args.inner_steps * args.accumulation_steps
+    else:
+        # Do up to the biggest inner loop val step; no effect if args.inner_loop_val_steps is empty
+        num_steps = max(args.inner_steps, *args.inner_loop_val_steps) * args.accumulation_steps
     print("Num batches in ID dataloader: ", len(dataloaders["id"]))
     val_metrics = {}
     for step, batch in enumerate(dataloaders["id"]):
@@ -195,6 +199,13 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
 
         ood_hp_sampler = SubsetRandomSampler(sampled_indices)
         dataloaders["ood_hp"] = get_dataloader(ood_hp_dataset.dataset, is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
+
+    if step + 1 == args.inner_steps:
+        torch.cuda.synchronize()
+        start = time.time()
+        val_metrics["meta_objective"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+        torch.cuda.synchronize()
+        time_counter["eval"].append(time.time() - start)
 
     val_metrics["last"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
     torch.cuda.synchronize()
@@ -293,6 +304,7 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
         print(f"Saved scheduler to {sched_ckpt_path}")
         unwrapped_model = extract_from_data_parallel(model)
         unwrapped_model.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
+        print(f"Saved model to {args.save}")
         del unwrapped_model
         torch.cuda.empty_cache()
 
