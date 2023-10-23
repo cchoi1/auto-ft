@@ -21,5 +21,5 @@ python3 src/wise_ft.py --method autoft --model ViT-B/16 --data-location /iris/u/
 --id IWildCamTrain --ood IWildCamOODVal --eval-datasets IWildCamIDTest,IWildCamOODTest \
 --num_ood_hp_examples 1000 --autoft_epochs 200 --inner_steps 10 --ft_epochs 20 \
 --lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 500 --workers 2 \
---load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt,/iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamIDVal_LearnedLoss/no1000_nouNone_afep100_is10_ftep20_bs256_wd0.1_lr1e-05_run1_seed0/checkpoint_20.pt \
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt,/iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal___flyp/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.1_lr1e-05_run1_seed0/checkpoint_13.pt \
 --alpha 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.85 0.9 0.95

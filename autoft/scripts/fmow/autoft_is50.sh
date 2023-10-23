@@ -23,4 +23,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoo
 --autoft_epochs 500 --inner_steps 50 --lr 1e-5 --wd 0.1 \
 --batch-size 256 --warmup_length 500 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow.pt \
---losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init \
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init

@@ -10,6 +10,7 @@ import numpy as np
 import optuna
 import torch
 
+from src.datasets.common import get_autoft_dataloaders
 from src.losses import LearnedLoss
 from src.models.finetune import inner_finetune, finetune_final
 from src.models.modeling import ImageClassifier
@@ -18,13 +19,14 @@ from src.models.utils import extract_from_data_parallel, set_seed, print_hparams
 logger = logging.getLogger('main')
 
 class HyperparameterSpace:
-    def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False):
+    def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False, learn_batch_size=False):
         self.model = model
         self.losses = losses
         self.dataset_name = dataset_name
         self.orig_lr = orig_lr
         self.layerwise_loss = layerwise_loss
         self.layerwise_opt = layerwise_opt
+        self.learn_batch_size = learn_batch_size
 
     def _base_loss_weight_space(self, trial, prefix):
         return {
@@ -51,7 +53,8 @@ class HyperparameterSpace:
         # Global hyperparameters: loss weights, seed, batch size
         hparams = self._base_loss_weight_space(trial, "")
         hparams["seed"] = trial.suggest_int("seed", 0, 100)
-        # hparams["batch_size"] = trial.suggest_categorical("batch_size", [16, 32, 64, 128, 256, 512])
+        if self.learn_batch_size:
+            hparams["batch_size"] = trial.suggest_categorical("batch_size", [16, 32, 64, 128])
         if self.layerwise_loss: # per-layer LRs, WDs, L1/L2 norms
             layer_idx = 0
             self.model = extract_from_data_parallel(self.model)
@@ -111,11 +114,12 @@ def create_optimizer(model, hparams, layerwise=False):
 
 
 def get_loss_weights(hparams, layerwise):
-    global_loss_weight_keys = [k for k in hparams.keys() if "lossw" in k and "_lossw" not in k]
+    global_loss_weight_keys = [k for k in sorted(hparams.keys()) if "lossw" in k and "_lossw" not in k]
     global_loss_weights = torch.tensor([hparams[k] for k in global_loss_weight_keys])
     if layerwise:
         layerwise_loss_weight_keys = [k for k in hparams.keys() if "_lossw" in k]
-        layerwise_loss_weight_keys = sorted(layerwise_loss_weight_keys, key=lambda x: int(x.split("_")[0]))
+        layerwise_loss_weight_keys = sorted(layerwise_loss_weight_keys,
+                                            key=lambda x: (int(x.split("_")[0]), x.split("_")[2]))
         layer_idx = 0
         layer_loss_weights = []
         loss_weights = []
@@ -149,6 +153,14 @@ def evaluate_hparams(args, net, hparams, id_dataloader, ood_hp_dataloader, ood_h
 
     set_seed(hparams["seed"])
     dataloaders = {"id": id_dataloader, "ood_hp": ood_hp_dataloader, "unlabeled": unlabeled_dataloader}
+    if "batch_size" in hparams.keys():
+        start_time = time.time()
+        all_datasets = {"id": id_dataloader.dataset, "ood_subset_for_hp": ood_hp_dataloader.dataset}
+        if unlabeled_dataloader is not None:
+            all_datasets["unlabeled"] = unlabeled_dataloader.dataset
+        args.batch_size = hparams["batch_size"]
+        dataloaders = get_autoft_dataloaders(args=args, model=current_net, all_datasets=all_datasets)
+        print(f"  Time to get re-construct dataloaders: {time.time() - start_time:.3f}")
     current_net, all_metrics = inner_finetune(args, current_net, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset)
     set_seed(args.seed)
     if "IWildCam" in args.id:
@@ -194,7 +206,8 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
             best_hparams = json.load(f)
     else:
         hspace = HyperparameterSpace(model=model, losses=args.losses, dataset_name=args.id, orig_lr=args.lr,
-                                     layerwise_loss=args.layerwise_loss, layerwise_opt=args.layerwise_opt)
+                                     layerwise_loss=args.layerwise_loss, layerwise_opt=args.layerwise_opt,
+                                     learn_batch_size=args.learn_batch_size)
         partial_hp_objective_fn = partial(hp_objective_fn, hspace=hspace)
 
         if args.optuna_sampler == "random":
@@ -206,6 +219,8 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
         study.optimize(partial_hp_objective_fn, n_trials=max_evals, callbacks=[clear_memory])
         best_hparams = study.best_params
 
+    if "ce" in args.losses and "lossw_ce" not in best_hparams.keys():
+        best_hparams["lossw_ce"] = 1.0
     loss_weights = get_loss_weights(hparams=best_hparams, layerwise=args.layerwise_loss)
     initial_params = [p for p in model.parameters()]
     loss_fn = LearnedLoss(losses=args.losses, loss_weights=loss_weights, initial_params=initial_params)
@@ -213,6 +228,14 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
     print_hparams(hparams=best_hparams)
     save_hparams(hparams=best_hparams, args=args)
     set_seed(seed=best_hparams["seed"])
+    if "batch_size" in best_hparams.keys():
+        args.batch_size = best_hparams["batch_size"]
+        all_datasets = {"id": id_dataloader.dataset, "ood_subset_for_hp": ood_hp_dataloader.dataset}
+        if unlabeled_dataloader is not None:
+            all_datasets["unlabeled"] = unlabeled_dataloader.dataset
+        dataloaders = get_autoft_dataloaders(args=args, model=model, all_datasets=all_datasets)
+        id_dataloader = dataloaders["id"]
+        unlabeled_dataloader = dataloaders["unlabeled"]
     ft_model = finetune_final(args, model, loss_fn, optimizer, id_dataloader, input_key, 100, unlabeled_dataloader)
 
     return ft_model

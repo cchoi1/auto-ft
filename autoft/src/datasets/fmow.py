@@ -16,7 +16,7 @@ class FMOW:
                  use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
-                 num_workers=16,
+                 num_workers=2,
                  subset='train',
                  classnames=None,
                  **kwargs):
@@ -40,6 +40,15 @@ class FMOW:
         elif subset == 'test':
             self.dataset = dataset.get_subset('test', transform=preprocess)
             self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
+
+        if subset in ['id_val', 'val']:
+            self.class_to_indices = {}
+            indices = self.dataset.indices
+            for i in range(len(indices)):
+                label = int(self.dataset[i][1])
+                if label not in self.class_to_indices.keys():
+                    self.class_to_indices[label] = []
+                self.class_to_indices[label].append(i) # index relative to val set size for SubsetRandomSampler
 
         self.classnames = [
             "airport", "airport_hangar", "airport_terminal", "amusement_park", "aquaculture",
@@ -100,7 +109,7 @@ class FMOWIDVal(FMOW):
 
 class FMOWOODVal(FMOW):
     def __init__(self, *args, **kwargs):
-        self.test_subset = 'val'
+        kwargs["subset"] = "val"
         super().__init__(*args, **kwargs)
 
     def post_loop_metrics(self, labels, preds, metadata, args):

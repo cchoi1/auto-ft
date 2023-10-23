@@ -50,7 +50,7 @@ class IWildCam:
                  location=os.path.expanduser('~/data'),
                  remove_non_empty=False,
                  batch_size=128,
-                 num_workers=16,
+                 num_workers=2,
                  classnames=None,
                  subset='train'):
         self.n_examples = n_examples
@@ -83,6 +83,15 @@ class IWildCam:
         elif subset == 'test':
             self.dataset = dataset.get_subset('test', transform=preprocess)
             self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
+
+        if subset in ['id_val', 'val']:
+            self.class_to_indices = {}
+            indices = self.dataset.indices
+            for i in range(len(indices)):
+                label = int(self.dataset[i][1])
+                if label not in self.class_to_indices.keys():
+                    self.class_to_indices[label] = []
+                self.class_to_indices[label].append(i) # index relative to val set size for SubsetRandomSampler
 
         labels_csv = pathlib.Path(__file__).parent / 'iwildcam_metadata' / 'labels.csv'
         df = pd.read_csv(labels_csv)

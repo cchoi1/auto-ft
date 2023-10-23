@@ -1,14 +1,17 @@
-import os
-import torch
-import glob
 import collections
+import glob
+import os
 import random
 
+import numpy as np
+import torch
+import torchvision.datasets as datasets
+from torch.utils.data import Dataset, DataLoader, Sampler, SubsetRandomSampler
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
-import torchvision.datasets as datasets
-from torch.utils.data import Dataset, DataLoader, Sampler
-from torch.utils.data.distributed import DistributedSampler
+from src.datasets.laion import get_data
+from src.models.utils import extract_from_data_parallel
 
 
 class SubsetSampler(Sampler):
@@ -98,7 +101,6 @@ def get_features_helper(image_encoder, dataloader, device, noscale):
 def get_features(args, is_train, image_encoder, dataset, device, cache_dir, noscale):
     split = 'train' if is_train else 'val'
     dname = type(dataset).__name__
-    # import pdb;pdb.set_trace()
     if cache_dir is not None:
         cache_dir = f'{cache_dir}/{dname}/{split}'
         cached_files = glob.glob(f'{cache_dir}/*')
@@ -110,7 +112,6 @@ def get_features(args, is_train, image_encoder, dataset, device, cache_dir, nosc
             data[name] = torch.load(cached_file)
     else:
         print(f'Did not find cached features at {cache_dir}. Building from scratch.')
-        # loader = dataset.train_loader if is_train else dataset.test_loader
         loader = get_dataloader(dataset, is_train, args, image_encoder=None)
         data = get_features_helper(image_encoder, loader, device, noscale)
         if cache_dir is None:
@@ -134,19 +135,6 @@ class FeatureDataset(Dataset):
         data = {k: v[idx] for k, v in self.data.items()}
         data['features'] = torch.from_numpy(data['features']).float()
         return data
-
-
-# def get_dataloader(dataset, is_train, args, image_encoder=None):
-#     if image_encoder is not None:
-#         feature_dataset = FeatureDataset(is_train, image_encoder, dataset, args.device, args.cache_dir, args.noscale)
-#         dataloader = DataLoader(feature_dataset, batch_size=args.batch_size, shuffle=is_train)
-#     else:
-#         if isinstance(dataset, torch.utils.data.Subset) or isinstance(dataset, torch.utils.data.ConcatDataset):
-#             kwargs = {"num_workers": args.workers, "pin_memory": True}
-#             dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=is_train, **kwargs)
-#         else:
-#             dataloader = dataset.train_loader if is_train else dataset.test_loader
-#     return dataloader
 
 def collate_fn_for_cifar(batch):
     data, labels = zip(*batch)
@@ -185,9 +173,6 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     Returns:
         DataLoader for the given dataset.
     """
-    if args.id in ["iWildCam", "FMOW"]:
-        return dataset.train_loader if is_train else dataset.test_loader
-
     kwargs = {"num_workers": args.workers, "pin_memory": True} if torch.cuda.is_available() else {}
     kwargs["batch_size"] = args.batch_size
     if args.distributed:
@@ -216,3 +201,48 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
         inner_dataset = dataset
 
     return create_dataloader(inner_dataset, kwargs)
+
+def get_autoft_dataloaders(args, model, all_datasets):
+    if args.ft_data is not None:
+        temp_model = extract_from_data_parallel(model)
+        img_text_data = get_data(args,
+                                 (temp_model.image_encoder.train_preprocess, temp_model.image_encoder.val_preprocess),
+                                 epoch=0)
+        id_dataloader = img_text_data['train_ft'].dataloader
+        del temp_model
+        torch.cuda.empty_cache()
+    else:
+        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
+    # Check for the OOD mini-batch size and adjust the sampler if required
+    # ood_hp_sampler = None
+    # if args.val_mini_batch_size is not None:
+    #     dataset_indices = all_datasets["ood_subset_for_hp"].dataset.indices
+    #     indices = np.random.choice(len(dataset_indices), args.val_mini_batch_size, replace=False)
+    #     ood_hp_sampler = SubsetRandomSampler(indices)
+    # ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
+    #
+    if args.val_mini_batch_size is not None:
+        # Sample a proportionate number of indices from each class
+        class_to_indices = all_datasets["ood_subset_for_hp"].class_to_indices
+        num_classes = len(class_to_indices)
+        samples_per_class = args.val_mini_batch_size // num_classes
+        sampled_indices = []
+        for class_indices in class_to_indices.values():
+            sampled_indices.extend(np.random.choice(class_indices, samples_per_class, replace=True))
+
+        # Ensure the total number of samples is as requested (due to rounding)
+        while len(sampled_indices) < args.val_mini_batch_size:
+            extra_class = np.random.choice(list(class_to_indices.keys()))
+            extra_index = np.random.choice(class_to_indices[extra_class])
+            sampled_indices.append(extra_index)
+        ood_hp_sampler = SubsetRandomSampler(sampled_indices)
+        ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"].dataset, is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
+    else:
+        ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
+    if args.unlabeled_id is not None:
+        unlabeled_dataloader = all_datasets["id_unlabeled"].dataloader
+    else:
+        unlabeled_dataloader = None
+
+    dataloaders = {"id": id_dataloader, "ood_hp": ood_hp_dataloader, "unlabeled": unlabeled_dataloader}
+    return dataloaders

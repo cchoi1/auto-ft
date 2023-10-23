@@ -6,11 +6,11 @@ from collections import defaultdict
 import numpy as np
 import torch
 
-from src.datasets.common import maybe_dictionarize
+from src.datasets.common import maybe_dictionarize, get_dataloader
 from src.losses.learnedloss import LearnedLoss
-from src.models import utils
 from src.models.eval import evaluate
 from src.models.utils import cosine_lr, extract_from_data_parallel
+from torch.utils.data import SubsetRandomSampler
 
 logger = logging.getLogger('main')
 
@@ -110,6 +110,7 @@ def evaluate_net(net, dataloader, dataset, args):
     torch.cuda.empty_cache()
     return metrics
 
+
 def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset):
     torch.cuda.synchronize()
     fn_start = time.time()
@@ -173,12 +174,42 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
             torch.cuda.synchronize()
             time_counter["eval"].append(time.time() - start)
 
-        if step + 1 == args.inner_steps:
-            torch.cuda.synchronize()
-            start = time.time()
-            val_metrics["meta_objective"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
-            torch.cuda.synchronize()
-            time_counter["eval"].append(time.time() - start)
+    torch.cuda.synchronize()
+    start = time.time()
+    # if args.val_mini_batch_size is not None:
+    #     dataset_indices = ood_hp_dataset.dataset.indices
+    #     indices = np.random.choice(len(dataset_indices), args.val_mini_batch_size, replace=False)
+    #     ood_hp_sampler = SubsetRandomSampler(indices)
+    #     dataloaders["ood_hp"] = get_dataloader(ood_hp_dataset, is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
+    #
+    if args.val_mini_batch_size is not None:
+        # Sample a proportionate number of indices from each class
+        class_to_indices = ood_hp_dataset.class_to_indices
+        num_classes = len(class_to_indices)
+        samples_per_class = args.val_mini_batch_size // num_classes
+        sampled_indices = []
+        for class_indices in class_to_indices.values():
+            sampled_indices.extend(np.random.choice(class_indices, samples_per_class, replace=True))
+
+        # Ensure the total number of samples is as requested (due to rounding)
+        while len(sampled_indices) < args.val_mini_batch_size:
+            extra_class = np.random.choice(list(class_to_indices.keys()))
+            extra_index = np.random.choice(class_to_indices[extra_class])
+            sampled_indices.append(extra_index)
+
+        ood_hp_sampler = SubsetRandomSampler(sampled_indices)
+        dataloaders["ood_hp"] = get_dataloader(ood_hp_dataset.dataset, is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
+
+    if step + 1 == args.inner_steps:
+        torch.cuda.synchronize()
+        start = time.time()
+        val_metrics["meta_objective"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+        torch.cuda.synchronize()
+        time_counter["eval"].append(time.time() - start)
+
+    val_metrics["last"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
+    torch.cuda.synchronize()
+    time_counter["eval"].append(time.time() - start)
 
     print(f"    Time per inner step: {np.mean(time_counter['inner_step']):.3f} x {len(time_counter['inner_step'])} = {sum(time_counter['inner_step']):.3f}")
     print(f"    Time per backprop: {np.mean(time_counter['backprop']):.3f} x {len(time_counter['backprop'])} = {sum(time_counter['backprop']):.3f}")
@@ -187,21 +218,21 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
     return model, val_metrics
 
 
-# def find_latest_checkpoint(save_dir, prefix="checkpoint_"):
-#     """Returns the latest checkpoint file and its epoch number based on the provided prefix."""
-#     checkpoints = [filename for filename in os.listdir(save_dir) if filename.startswith(prefix)]
-#     if not checkpoints:
-#         return None, -1
-#     checkpoints.sort(key=lambda x: int(x.split('_')[1].split('.pt')[0]))
-#     latest_checkpoint = checkpoints[-1]
-#     epoch_number = int(latest_checkpoint.split('_')[1].split('.pt')[0])
-#     return os.path.join(save_dir, latest_checkpoint), epoch_number
+def find_latest_checkpoint(save_dir, prefix="checkpoint_"):
+    """Returns the latest checkpoint file and its epoch number based on the provided prefix."""
+    checkpoints = [filename for filename in os.listdir(save_dir) if filename.startswith(prefix)]
+    if not checkpoints:
+        return None, -1
+    checkpoints.sort(key=lambda x: int(x.split('_')[1].split('.pt')[0]))
+    latest_checkpoint = checkpoints[-1]
+    epoch_number = int(latest_checkpoint.split('_')[1].split('.pt')[0])
+    return os.path.join(save_dir, latest_checkpoint), epoch_number
 
 
 def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every, unlabeled_dataloader=None):
     assert args.load is not None, "Please provide the patch to a checkpoint through --load."
     num_batches = len(dataloader)
-    print("Num batches in ID dataloader: ", num_batches)
+    print("Num batches in fine-tuning dataloader: ", num_batches)
     total_steps = args.ft_epochs * num_batches
     warmup_length = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
@@ -212,19 +243,28 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
 
     # Find the latest checkpoint and resume fine-tuning from there
     start_epoch = 0
-    # model_ckpt_path, model_latest_epoch = find_latest_checkpoint(save_dir=args.save)
-    # opt_checkpoint, opt_latest_epoch = find_latest_checkpoint(save_dir=args.save, prefix="opt_")
-    # latest_epoch = min(model_latest_epoch, opt_latest_epoch)
-    # if model_ckpt_path:
-    #     model.torch_load(model_ckpt_path)
-    #     optimizer.load_state_dict(opt_checkpoint)
-    #     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
-    #     start_epoch = latest_epoch + 1
-    #     print(f"Resuming from epoch {start_epoch} using model checkpoint {model_ckpt_path} and optimizer checkpoint {opt_checkpoint}")
+    model_ckpt_path, model_latest_epoch = find_latest_checkpoint(save_dir=args.save)
+    opt_checkpoint, opt_latest_epoch = find_latest_checkpoint(save_dir=args.save, prefix="opt_")
+    latest_epoch = min(model_latest_epoch, opt_latest_epoch)
+    if model_ckpt_path:
+        try:
+            print(f"\nResuming from epoch {start_epoch} using model checkpoint {model_ckpt_path} and optimizer checkpoint {opt_checkpoint}...")
+            unwrapped_model = extract_from_data_parallel(model)
+            unwrapped_model.load(model_ckpt_path)
+            model = torch.nn.DataParallel(unwrapped_model).cuda()
+            optimizer.load_state_dict(opt_checkpoint)
+            scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
+            start_epoch = latest_epoch + 1
+        except:
+            print("\nFailed to load model checkpoint. Starting from epoch 0.")
+    else:
+        print("\nNo checkpoint found. Starting from epoch 0.")
 
     for epoch in range(start_epoch, args.ft_epochs):
         epoch_start_time = time.time()
         for i, batch in enumerate(dataloader):
+            if epoch == 0 and args.id == "IWildCamTrain":
+                break
             start_time = time.time()
             step = i + epoch * num_batches
             scheduler(step)
@@ -234,12 +274,12 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
             if args.ft_data is not None:
                 text = batch['metadata']
             logits, image_features, text_features, logit_scale = model(images, text)
-            # if unlabeled_dataloader is not None:
-            #     unlabeled_batch = next(iter(unlabeled_dataloader))
-            #     unlabeled_batch = maybe_dictionarize(unlabeled_batch)
-            #     image, text = unlabeled_batch[input_key].cuda(), unlabeled_batch['metadata']
-            #     unlabeled_logits, unlabeled_image_features, text_features, logit_scale = model(image, text)
-            #     pseudolabels = unlabeled_logits.argmax(dim=-1)
+            if unlabeled_dataloader is not None:
+                unlabeled_batch = next(iter(unlabeled_dataloader))
+                unlabeled_batch = maybe_dictionarize(unlabeled_batch)
+                image, text = unlabeled_batch[input_key].cuda(), unlabeled_batch['metadata']
+                unlabeled_logits, unlabeled_image_features, text_features, logit_scale = model(image, text)
+                pseudolabels = unlabeled_logits.argmax(dim=-1)
 
             if isinstance(loss_fn, LearnedLoss):
                 loss = loss_fn(model, logits, labels, image_features, text_features, logit_scale)
@@ -256,12 +296,12 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
             print_train_update(logger, print_every, total_steps, step, loss, batch_time)
 
         # Save checkpoints
-        # opt_ckpt_path = os.path.join(args.save, f'opt_{epoch}.pt')
-        # torch.save(optimizer.state_dict, opt_ckpt_path)
-        # print(f"Saved optimizer to {opt_ckpt_path}")
-        # sched_ckpt_path = os.path.join(args.save, f'sched_{epoch}.pt')
-        # torch.save(scheduler.__dict__, sched_ckpt_path)
-        # print(f"Saved scheduler to {sched_ckpt_path}")
+        opt_ckpt_path = os.path.join(args.save, f'opt_{epoch}.pt')
+        torch.save(optimizer.state_dict, opt_ckpt_path)
+        print(f"Saved optimizer to {opt_ckpt_path}")
+        sched_ckpt_path = os.path.join(args.save, f'sched_{epoch}.pt')
+        torch.save(scheduler.__dict__, sched_ckpt_path)
+        print(f"Saved scheduler to {sched_ckpt_path}")
         unwrapped_model = extract_from_data_parallel(model)
         unwrapped_model.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
         print(f"Saved model to {args.save}")
@@ -270,28 +310,31 @@ def finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print
 
         # Evaluate
         eval_results = evaluate(model.module, args)
-        all_eval_results[step] = eval_results
+        all_eval_results[epoch] = eval_results
         print(f"Epoch {epoch}, Time: {time.time() - epoch_start_time:.3f}")
 
         # Early stopping
-        # print("eval resutls keys", eval_results.keys())
-        # id_val_metrics = {k: eval_results[k] for k in eval_results.keys() if k.contains("IDVal")}
-        # assert len(id_val_metrics) > 0, "No IDVal metrics found in eval results."
-        # if "IWildCam" in args.id:
-        #     metric = "F1-macro_all"
-        # elif "FMOW" in args.id:
-        #     metric = "acc_worst_region"
-        # else:
-        #     metric = "top1"
-        # current_val_metric = id_val_metrics[f"{args.id}IDVal:{metric}"]
-        # if current_val_metric > best_val_metric:
-        #     best_val_metric = current_val_metric
-        #     patience = 0
-        # else:
-        #     patience += 1
-        # if patience > args.early_stopping_patience:
-        #     print("Early stopping.")
-        #     break
+        id_val_metrics = {k: eval_results[k] for k in eval_results.keys() if "Val" in k}
+        assert len(id_val_metrics) > 0, "No IDVal metrics found in eval results."
+        if "IWildCam" in args.id:
+            dataset_metric = "IWildCamIDVal:F1-macro_all"
+        elif "FMOW" in args.id:
+            dataset_metric = "FMOWIDVal:acc_worst_region"
+        elif "ImageNet" in args.id:
+            dataset_metric = "ImageNet:top1"
+        elif "sst2" in args.id:
+            raise NotImplementedError("SST2 not implemented yet.")
+        elif "PatchCamelyon" in args.id:
+            raise NotImplementedError("PatchCamelyon not implemented yet.")
+        current_val_metric = id_val_metrics[dataset_metric]
+        if current_val_metric > best_val_metric:
+            best_val_metric = current_val_metric
+            patience = 0
+        else:
+            patience += 1
+        if patience > args.early_stopping_patience:
+            print("Early stopping.")
+            break
 
     del dataloader
     torch.cuda.empty_cache()

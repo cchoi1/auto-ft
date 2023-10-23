@@ -113,6 +113,10 @@ class ClipLoss(nn.Module):
                 logits_per_text = logits_per_image.T
         else:
             # import pdb;pdb.set_trace()
+            # print('device', logit_scale.device, logit_scale.shape)
+            # if logit_scale.shape[0] > 1:
+            #     device = image_features.device
+            #     logit_scale = logit_scale[device]
             logits_per_image = logit_scale * image_features @ text_features.T
             logits_per_text = logit_scale * text_features @ image_features.T
 
