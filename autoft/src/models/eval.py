@@ -180,7 +180,7 @@ def evaluate(image_classifier, args):
     info = vars(args)
     eval_datasets = args.eval_datasets
     for i, dataset_name in enumerate(eval_datasets):
-        print('Evaluating on', dataset_name)
+        print(f"Evaluating on {dataset_name}...")
         dataset_class = getattr(datasets, dataset_name)
         dataset = dataset_class(
             preprocess_fn,
@@ -189,7 +189,6 @@ def evaluate(image_classifier, args):
             location=args.data_location,
             batch_size=args.batch_size
         )
-        print('loaded dataset')
         results = eval_single_dataset(image_classifier, dataset, args)
         torch.cuda.empty_cache()
         if 'top1' in results:

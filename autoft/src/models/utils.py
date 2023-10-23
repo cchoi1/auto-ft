@@ -16,7 +16,10 @@ def print_hparams(hparams):
 def save_hparams(hparams, args):
     save_file = os.path.join(args.save, 'hparams.json')
     os.makedirs(args.save, exist_ok=True)
+    print(f"\nSaving hyperparameters to {save_file}.")
     hparams["seed"] = int(hparams["seed"])
+    if "ce" in args.losses and "lossw_ce" not in hparams.keys(): # Save cross-entropy loss weight
+        hparams["lossw_ce"] = 1.0
     with open(save_file, 'w') as f:
         json.dump(hparams, f)
 

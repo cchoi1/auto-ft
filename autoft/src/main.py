@@ -7,7 +7,7 @@ import torch
 
 import src.datasets as datasets
 from src.args import parse_arguments
-from src.datasets.common import get_dataloader
+from src.datasets.common import get_dataloader, get_autoft_dataloaders
 from src.datasets.laion import get_data
 from src.datasets.utils import get_ood_datasets
 from src.logger import setup_logging
@@ -28,10 +28,11 @@ def initialize_model(args):
         preprocess_fn = image_classifier.train_preprocess
         image_classifier.process_images = True
     devices = list(range(torch.cuda.device_count()))
-    print(f"devices {devices}")
+    print(f"Using devices {devices}.")
     model = model.cuda()
     model = torch.nn.DataParallel(model, device_ids=devices)
     return model, preprocess_fn
+
 
 def get_datasets(args, preprocess_fn):
     id_dataset_class = getattr(datasets, args.id)
@@ -105,23 +106,12 @@ def train(args, model, preprocess_fn):
         dataloader = get_dataloader(id_ood_dataset, is_train=True, args=args, image_encoder=None)
         model = finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
     elif args.method == "autoft":
-        if args.ft_data is not None:
-            temp_model = extract_from_data_parallel(model)
-            img_text_data = get_data(args, (temp_model.image_encoder.train_preprocess, temp_model.image_encoder.val_preprocess), epoch=0)
-            id_dataloader = img_text_data['train_ft'].dataloader
-            del temp_model; torch.cuda.empty_cache()
-        else:
-            id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-        ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
-        if args.unlabeled_id is not None:
-            unlabeled_dataloader = all_datasets["id_unlabeled"].dataloader
-        else:
-            unlabeled_dataloader = None
-        model = auto_ft(args, model, id_dataloader, ood_hp_dataloader, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, unlabeled_dataloader)
-        del id_dataloader, ood_hp_dataloader, unlabeled_dataloader
+        dataloaders = get_autoft_dataloaders(args, model, all_datasets)
+        model = auto_ft(args, model, dataloaders["id"], dataloaders["ood_hp"], all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, dataloaders["unlabeled"])
     else:
         raise ValueError("Invalid method")
-    del all_datasets; torch.cuda.empty_cache()
+    del all_datasets
+    torch.cuda.empty_cache()
 
     return model
 
@@ -141,6 +131,7 @@ def test_finetuned_model(args, logger, model, all_eval_results, total_steps):
 
 
 def main(args):
+    assert "IDVal" not in args.eval_datasets, "IDVal must be specified as an evaluation dataset"
     logger = logging.getLogger('main')
     logger = setup_logging(args, logger)
     args_dict = dict(sorted(vars(args).items()))

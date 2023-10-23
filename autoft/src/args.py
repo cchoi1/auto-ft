@@ -18,6 +18,7 @@ def parse_arguments():
     parser.add_argument("--num_id_val_examples", default=-1, type=int)
     parser.add_argument("--ood", default=None, type=str)
     parser.add_argument("--num_ood_hp_examples", default=-1, type=int)
+    parser.add_argument("--val_mini_batch_size", default=None, type=int)
     parser.add_argument("--num_ood_unlabeled_examples", default=None, type=int)
     parser.add_argument("--eval-datasets", default=None, type=lambda x: x.split(","),
         help="Which datasets to use for evaluation. Split by comma, e.g. CIFAR101,CIFAR102."
@@ -44,7 +45,7 @@ def parse_arguments():
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--wd", type=float, default=0.1, help="Weight decay")
-    parser.add_argument("--workers", type=int, default=4, help="Number of dataloader workers per GPU.")
+    parser.add_argument("--workers", type=int, default=2, help="Number of dataloader workers per GPU.")
     parser.add_argument("--plot", action="store_true", help="Plot results.")
     parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--eval_only", action="store_true")
@@ -52,9 +53,10 @@ def parse_arguments():
     parser.add_argument("--use_class_balanced_ood", action="store_true")
     parser.add_argument("--use_id_val", action="store_true")
     parser.add_argument("--use_hyperopt", action="store_true")
-    parser.add_argument("--early_stopping_patience", type=int, default=1)
+    parser.add_argument("--early_stopping_patience", type=int, default=3)
     parser.add_argument("--optuna_sampler", type=str, default="TPESampler")
     parser.add_argument("--inner_loop_val_steps", nargs="*", type=int, default=[])
+    parser.add_argument("--learn_batch_size", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)
