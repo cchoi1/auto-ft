@@ -1,10 +1,15 @@
 #%%
+from collections import defaultdict
+import matplotlib.pyplot as plt
+import numpy as np
 import optuna
 import torch
 import torch.optim as optim
-from torch.distributions import MultivariateNormal, kl_divergence, Normal
+from torch.distributions import MultivariateNormal, Normal, kl_divergence
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+iris_colors = ["#FF6150", "#134E6F", "#1AC0C6", "#FFA822", "#DEE0E6", "#091A29"]
 
 # Initialize dimensions and number of data points
 N = 10
@@ -17,8 +22,8 @@ prior_mean, prior_cov = prior_mean.to(device), prior_cov.to(device)
 prior = MultivariateNormal(prior_mean, prior_cov)
 
 # Generate ID data
-rand_idxs = torch.randperm(N)
-id_vars = torch.Tensor([0.1 if rand_idxs[i] < N//2 else 1.0 for i in range(N)])
+id_vars = torch.ones(N)
+id_vars[:4] = 1e-3
 id_cov = torch.diag(id_vars)
 id_vars, id_cov = id_vars.to(device), id_cov.to(device)
 id_data = MultivariateNormal(prior_mean, id_cov).sample((num_data_points,))
@@ -26,8 +31,8 @@ id_val = MultivariateNormal(prior_mean, id_cov).sample((num_data_points,))
 id_data, id_val = id_data.to(device), id_val.to(device)
 
 # Generate OOD data
-rand_idxs = torch.randperm(N)
-ood_vars = torch.Tensor([0.1 if rand_idxs[i] < N//2 else 1.0 for i in range(N)])
+ood_vars = torch.ones(N)
+ood_vars[1:5] = 1e-3
 ood_cov = torch.diag(ood_vars)
 ood_vars, ood_cov = ood_vars.to(device), ood_cov.to(device)
 ood_data = MultivariateNormal(prior_mean, ood_cov).sample((num_data_points,))
@@ -38,110 +43,117 @@ def dimwise_nll(data, mean, cov):
     _nll_vals = [-Normal(mean[d], cov[d].squeeze()).log_prob(data[:, d]) for d in range(D)]
     return torch.stack(_nll_vals, dim=1)
 
+id_vars, ood_vars
 
 #%%
-alphas = torch.ones(N).to(device)
-alphas = id_vars.to(device)
-cov = torch.ones(N).to(device)
-cov.requires_grad = True
-optimizer = optim.SGD([cov], lr=5e-3)
-
-# Training loop for Maximum Likelihood Estimation with hyperparameters
-for epoch in range(100):
-    optimizer.zero_grad()
-
-    # Negative log likelihood for ID data
-    D = id_data.shape[1]
-    nll_dimwise = []
-    cov_exp = torch.exp(cov)
-    for d in range(D):
-        cov_d = cov_exp[d].squeeze()
-        nll_d = -Normal(prior_mean[d], cov_d).log_prob(id_data[:, d])
-        nll_dimwise.append(nll_d)
-    nll_dimwise = torch.stack(nll_dimwise, dim=1)
-    kl_div = kl_divergence(MultivariateNormal(prior_mean, torch.diag(cov_exp)), prior).mean()
-
-    nll_weighted = (nll_dimwise * alphas).sum()
-
-    loss = nll_weighted + kl_div
-    
-    loss.backward()
-    optimizer.step()
-
-    if epoch % 10 == 0:
-        print(f"Epoch {epoch}, NLL_w: {nll_weighted.item()}, KL: {kl_div.item()}")
-
-# Print the optimized hyperparameters and covariance matrix
-print("Optimized Covariance:", cov_exp.detach() ** 2)
-nll_dimwise_val = dimwise_nll(id_val, prior_mean, cov_exp)
-print("NLL on validation data:", nll_dimwise_val.sum().item())
-
-
-#%%
-# Objective function to optimize
-def objective(trial):
-    # Suggest values for alpha
-    alpha_suggested = [trial.suggest_float(f'alpha_{i}', 0.0, 1.0) for i in range(N)]
-    # lr_suggested = trial.suggest_float('lr', 1e-4, 1e-2)
-
-    alphas = torch.Tensor(alpha_suggested).to(device).requires_grad_(False)
+def run_weighted_finetuning(alphas, num_steps=20):
+    """ One run of fine-tuning with a dimensionwise weighted NLL. """
+    alphas = alphas.to(device).requires_grad_(False)
     cov = torch.ones(N).to(device).requires_grad_(True)
+    optimizer = optim.SGD([cov], lr=1.0)
 
-    # Initialize optimizer
-    optimizer = optim.SGD([cov], lr=5e-3)
+    metrics = defaultdict(list)
+    for step in range(num_steps):
+        D = id_data.shape[1]
+        cov_exp = cov.exp()
+        nll_dimwise = dimwise_nll(id_data, prior_mean, cov_exp)
+        kl_div = kl_divergence(MultivariateNormal(prior_mean, torch.diag(cov_exp)), prior).mean()
 
-    # Training loop for Maximum Likelihood Estimation with hyperparameters
-    for epoch in range(10):
-        cov_exp = torch.exp(cov)
-        nll_dimwise_id = dimwise_nll(id_data, prior_mean, cov_exp)
-        nll_weighted = (nll_dimwise_id * alphas).sum()
-        prior_kl = kl_divergence(MultivariateNormal(prior_mean, torch.diag(cov_exp)), prior).mean()
-
-        inner_objective = nll_weighted + prior_kl
-        inner_objective.backward()
-        optimizer.step()
+        nll_weighted = (nll_dimwise * alphas).sum()
+        loss = nll_weighted + kl_div
+        
         optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(cov, 1.0)
+        optimizer.step()
 
-    nll_dimwise_ood = dimwise_nll(id_val, prior_mean, cov_exp)
-    meta_objective = (nll_dimwise_ood).sum()
-    return meta_objective.item()
+        ood_nll = dimwise_nll(ood_data, prior_mean, cov_exp)
 
-# Initialize dimensions and number of data points
-N = 10
-D = 10
+        metrics["id_nll"].append(nll_dimwise.sum().item())
+        metrics["w_id_nll"].append(nll_weighted.item())
+        metrics["kl_div"].append(kl_div.item())
+        metrics["ood_nll"].append(ood_nll.sum().item())
+    metrics["cov"].append(cov.exp().detach().cpu().numpy())
+    return metrics
 
-# Optuna optimization
-study = optuna.create_study(direction="minimize")
-study.optimize(objective, n_trials=500)
+alphas = torch.ones(N) * 0.001
+results = run_weighted_finetuning(alphas)
+for i in range(0, len(results["id_nll"]), 2):
+    print(f"Step {i}, ID NLL: {results['id_nll'][i]:.2f}, weighted ID NLL: {results['w_id_nll'][i]:.2f}, OOD NLL: {results['ood_nll'][i]:.2f}, KL: {results['kl_div'][i]:.2f}")
+print(f"Final covariance: {results['cov'][-1]}")
 
-# Extract the optimized alpha
-best_params = study.best_params
-opt_alpha = [best_params[f'alpha_{i}'] for i in range(N)]
-print(f"Optimized alpha values: {opt_alpha}")
+alphas = torch.ones(N) * 0.01
+results = run_weighted_finetuning(alphas)
+for i in range(0, len(results["id_nll"]), 2):
+    print(f"Step {i}, ID NLL: {results['id_nll'][i]:.2f}, weighted ID NLL: {results['w_id_nll'][i]:.2f}, OOD NLL: {results['ood_nll'][i]:.2f}, KL: {results['kl_div'][i]:.2f}")
+print(f"Final covariance: {results['cov'][-1]}")
 
-# %%
-import matplotlib.pyplot as plt
-import numpy as np
+#%%
+def objective(trial, dimwise):
+    alpha_low, alpha_high = 1e-6, 0.1
+    if dimwise:
+        alphas = [trial.suggest_float(f'alpha_{i}', alpha_low, alpha_high, log=True) for i in range(N)]
+    else:
+        alpha = trial.suggest_float('alpha', alpha_low, alpha_high, log=True)
+        alphas = [alpha for i in range(N)]
+    alphas = torch.Tensor(alphas)
+    metrics = run_weighted_finetuning(alphas)
+    return metrics["ood_nll"][-1]
 
-# Assuming ood_vars and opt_alpha are lists of length N
-variances_np = id_vars.detach().cpu().numpy()
-opt_alpha_np = np.array(opt_alpha)
+objective_dim = lambda trial: objective(trial, True)
+objective_all = lambda trial: objective(trial, False)
 
-# Create an index for each group
-barWidth = 0.3
-r1 = np.arange(len(variances_np))
-r2 = [x + barWidth for x in r1]
+study_dim = optuna.create_study(direction="minimize")
+study_dim.optimize(objective_dim, n_trials=50)
+dim_best_params = study_dim.best_params
+dim_best_alpha = [dim_best_params[f'alpha_{i}'] for i in range(N)]
+print(f"Best value: {study_dim.best_value}")
+print(f"Optimized alpha values: {dim_best_alpha}")
 
-# Create the bar plot
-plt.bar(r1, variances_np, color='b', width=barWidth, edgecolor='grey', label='ood_vars')
-plt.bar(r2, opt_alpha_np, color='r', width=barWidth, edgecolor='grey', label='opt_alpha')
+study_all = optuna.create_study(direction="minimize")
+study_all.optimize(objective_all, n_trials=50)
+all_best_params = study_all.best_params
+all_best_alpha = [all_best_params[f'alpha'] for i in range(N)]
+print(f"Best value: {study_all.best_value}")
+print(f"Optimized alpha values: {all_best_alpha}")
 
-# Add labels and title
-plt.xlabel('Group', fontweight='bold')
-plt.ylabel('Value', fontweight='bold')
-plt.xticks([r + barWidth for r in range(len(variances_np))], ['Group'+str(i) for i in range(1, 11)])
+#%%
+# outer-loop learning curve plot
+dim_values = [t.values[0] for t in study_dim.get_trials()]
+all_values = [t.values[0] for t in study_all.get_trials()]
+plt.figure(figsize=(5, 3))
+plt.plot(all_values, "o-", color=iris_colors[1], label="Global Weight")
+plt.plot(dim_values, "o-", color=iris_colors[0], label="Dim-wise Weight")
+plt.legend()
+plt.xlabel("Optuna Trials")
+plt.ylabel("OOD Data NLL")
+plt.yscale("log")
+plt.title("Hyperopt Learning Progress")
+
+#%%
+dim_results = run_weighted_finetuning(torch.Tensor(dim_best_alpha))
+dim_average_alpha = torch.ones(N) * np.mean(dim_best_alpha)
+dim_averaged_results = run_weighted_finetuning(dim_average_alpha)
+all_results = run_weighted_finetuning(torch.Tensor(all_best_alpha))
+dim_id_nll = dim_results["id_nll"]
+dim_ood_nll = dim_results["ood_nll"]
+dim_avg_id_nll = dim_averaged_results["id_nll"]
+dim_avg_ood_nll = dim_averaged_results["ood_nll"]
+all_id_nll = all_results["id_nll"]
+all_ood_nll = all_results["ood_nll"]
+
+plt.figure(figsize=(5, 3))
+plt.plot(dim_avg_id_nll, "-", color=iris_colors[3], label="Dim-wise Avg")
+plt.plot(dim_avg_ood_nll, "--", color=iris_colors[3])
+plt.plot(all_id_nll, "-", color=iris_colors[1], label="Global")
+plt.plot(all_ood_nll, "--", color=iris_colors[1])
+plt.plot(dim_id_nll, "-", color=iris_colors[0], label="Dim-wise")
+plt.plot(dim_ood_nll, "--", color=iris_colors[0])
+plt.xlabel("Inner Loop Steps")
+plt.ylabel("NLL")
+plt.yscale("log")
+plt.title(f"Evaluation of Learned Weights")
 plt.legend()
 
-# Show the plot
-plt.show()
+
 # %%
