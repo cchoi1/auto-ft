@@ -21,7 +21,7 @@ logger = logging.getLogger('main')
 class HyperparameterSpace:
     def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False, learn_batch_size=False):
         self.model = model
-        self.losses = losses
+        self.losses = sorted(losses)
         self.dataset_name = dataset_name
         self.orig_lr = orig_lr
         self.layerwise_loss = layerwise_loss
@@ -30,9 +30,9 @@ class HyperparameterSpace:
 
     def _base_loss_weight_space(self, trial, prefix):
         return {
+            f"{prefix}lossw_ce": 1.0,  # set cross-entropy loss weight to 1.0,
             **{f"{prefix}lossw_{loss_type}": trial.suggest_float(f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
-               for loss_type in self.losses if loss_type in ["hinge", "entropy", "dcm", "flyp"]},
-            f"{prefix}lossw_ce": 1.0    # set cross-entropy loss weight to 1.0
+               for loss_type in self.losses if loss_type in ["hinge", "entropy", "dcm", "flyp"]}
         }
 
     def _base_norm_space(self, trial, prefix):
@@ -138,7 +138,7 @@ def get_loss_weights(hparams, layerwise):
     return loss_weights
 
 
-def evaluate_hparams(args, net, hparams, id_dataloader, ood_hp_dataloader, ood_hp_dataset, input_key, unlabeled_dataloader=None):
+def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key, fs_image=None, fs_text=None):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
     start_time = time.time()
     current_net = copy.deepcopy(net)
@@ -152,12 +152,11 @@ def evaluate_hparams(args, net, hparams, id_dataloader, ood_hp_dataloader, ood_h
     print(f"  Time to construct loss: {time.time() - start_time:.3f}")
 
     set_seed(hparams["seed"])
-    dataloaders = {"id": id_dataloader, "ood_hp": ood_hp_dataloader, "unlabeled": unlabeled_dataloader}
     if "batch_size" in hparams.keys():
         start_time = time.time()
-        all_datasets = {"id": id_dataloader.dataset, "ood_subset_for_hp": ood_hp_dataloader.dataset}
-        if unlabeled_dataloader is not None:
-            all_datasets["unlabeled"] = unlabeled_dataloader.dataset
+        all_datasets = {"id": dataloaders["id"].dataset, "ood_subset_for_hp": dataloaders["ood_hp"].dataset}
+        if dataloaders["unlabeled"] is not None:
+            all_datasets["unlabeled"] = dataloaders["unlabeled"].dataset
         args.batch_size = hparams["batch_size"]
         dataloaders = get_autoft_dataloaders(args=args, model=current_net, all_datasets=all_datasets)
         print(f"  Time to get re-construct dataloaders: {time.time() - start_time:.3f}")
@@ -178,7 +177,7 @@ def clear_memory(study: optuna.study.Study, trial: optuna.trial.Trial):
     torch.cuda.empty_cache()
 
 
-def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_evals, input_key, unlabeled_dataloader=None):
+def auto_ft(args, model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_image=None, fs_text=None):
     """Automated fine-tuning process using Optuna."""
     def hp_objective_fn(trial, hspace):
         full_loop_start_time = time.time()
@@ -190,7 +189,7 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
         _net = copy.deepcopy(model).cuda()
         print(f"  Time to copy model: {time.time() - start:.3f}")
 
-        val_results = [evaluate_hparams(args, _net, hparams, id_dataloader, ood_hp_dataloader, ood_hp_dataset, input_key, unlabeled_dataloader) for _ in range(args.repeats)]
+        val_results = [evaluate_hparams(args, _net, hparams, dataloaders, ood_hp_dataset, input_key) for _ in range(args.repeats)]
         print(f"    Total time for autoft iteration: {time.time() - full_loop_start_time:.3f}")
 
         trial_file = os.path.join("logs", args.save, f"trial_{trial.number}.json")
@@ -199,7 +198,9 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
             first_result = copy.deepcopy(val_results[0])
             first_result["hparams"] = hparams
             json.dump(first_result, f)
-        return -np.mean([r["meta_learning_objective"] for r in val_results])    # maximize performance metric
+        # Maximize performance metric, prioritizing later trials in case of a tie
+        obj = -np.mean([r["meta_learning_objective"] for r in val_results]) - trial.number * 1e-10
+        return obj
 
     if args.load_hparams is not None:
         with open(args.load_hparams, 'r') as f:
@@ -230,12 +231,10 @@ def auto_ft(args, model, id_dataloader, ood_hp_dataloader, ood_hp_dataset, max_e
     set_seed(seed=best_hparams["seed"])
     if "batch_size" in best_hparams.keys():
         args.batch_size = best_hparams["batch_size"]
-        all_datasets = {"id": id_dataloader.dataset, "ood_subset_for_hp": ood_hp_dataloader.dataset}
-        if unlabeled_dataloader is not None:
-            all_datasets["unlabeled"] = unlabeled_dataloader.dataset
+        all_datasets = {"id": dataloaders["id"].dataset, "ood_subset_for_hp": dataloaders["ood_hp"].dataset}
+        if dataloaders["unlabeled"] is not None:
+            all_datasets["unlabeled"] = dataloaders["unlabeled"].dataset
         dataloaders = get_autoft_dataloaders(args=args, model=model, all_datasets=all_datasets)
-        id_dataloader = dataloaders["id"]
-        unlabeled_dataloader = dataloaders["unlabeled"]
-    ft_model = finetune_final(args, model, loss_fn, optimizer, id_dataloader, input_key, 100, unlabeled_dataloader)
+    ft_model = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, 100)
 
     return ft_model

@@ -155,12 +155,36 @@ def collate_fn_for_imagenet(batch):
 
     return batch_dict
 
-def create_dataloader(dataset, kwargs):
+
+class InfiniteDataLoader:
+    def __init__(self, dataloader):
+        self.dataloader = dataloader
+        self.data_iter = iter(self.dataloader)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            data = next(self.data_iter)
+            return data
+        except StopIteration:
+            # Reset the iterator when it reaches the end
+            self.data_iter = iter(self.dataloader)
+            return next(self.data_iter)
+
+    def __len__(self):
+        return len(self.dataloader)
+
+
+def create_dataloader(dataset, kwargs, infinite=False):
     """Helper function to create a DataLoader."""
+    if infinite:
+        return InfiniteDataLoader(DataLoader(dataset, **kwargs))
     return DataLoader(dataset, **kwargs)
 
 
-def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
+def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None, infinite=False):
     """
     Get a DataLoader for the given dataset.
 
@@ -200,27 +224,16 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     else:
         inner_dataset = dataset
 
-    return create_dataloader(inner_dataset, kwargs)
+    return create_dataloader(inner_dataset, kwargs, infinite)
 
-def get_autoft_dataloaders(args, model, all_datasets):
-    if args.ft_data is not None:
-        temp_model = extract_from_data_parallel(model)
-        img_text_data = get_data(args,
-                                 (temp_model.image_encoder.train_preprocess, temp_model.image_encoder.val_preprocess),
-                                 epoch=0)
-        id_dataloader = img_text_data['train_ft'].dataloader
-        del temp_model
-        torch.cuda.empty_cache()
+def get_autoft_dataloaders(args, all_datasets):
+    if args.ft_data is not None and args.k is None:
+        id_dataloader = all_datasets["id"]["train_ft"].dataloader
     else:
-        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-    # Check for the OOD mini-batch size and adjust the sampler if required
-    # ood_hp_sampler = None
-    # if args.val_mini_batch_size is not None:
-    #     dataset_indices = all_datasets["ood_subset_for_hp"].dataset.indices
-    #     indices = np.random.choice(len(dataset_indices), args.val_mini_batch_size, replace=False)
-    #     ood_hp_sampler = SubsetRandomSampler(indices)
-    # ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
-    #
+        infinite = True if args.k is not None else False
+        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None, infinite=infinite)
+        print('id_dataloader', id_dataloader)
+
     if args.val_mini_batch_size is not None:
         # Sample a proportionate number of indices from each class
         class_to_indices = all_datasets["ood_subset_for_hp"].class_to_indices

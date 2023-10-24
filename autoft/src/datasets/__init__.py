@@ -11,7 +11,7 @@ from .objectnet import ObjectNetValClasses, ObjectNet
 from .caltech101 import Caltech101Val, Caltech101Test
 from .stanfordcars import StanfordCarsVal, StanfordCarsTest
 from .flowers102 import Flowers102Val, Flowers102Test
-from .patchcamelyon import PatchCamelyonVal, PatchCamelyonTest
-from .sst2 import sst2Val, sst2Test
+from .patchcamelyon import PatchCamelyonTrain, PatchCamelyonValHOpt, PatchCamelyonValEarlyStopping, PatchCamelyonTest
+from .sst2 import sst2Train, sst2ValHOpt, sst2ValEarlyStopping, sst2Test
 from .cifar10 import CIFAR10, CIFAR101, CIFAR102, CIFAR10C, CINIC
 from .mnist import MNIST, MNISTC, ColoredMNIST, RotatedMNIST, EMNIST

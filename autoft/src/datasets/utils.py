@@ -110,3 +110,38 @@ class UnlabeledDatasetWrapper(Dataset):
 
     def __len__(self):
         return len(self.labeled_dataset)
+
+
+def split_validation_set(dataset, split_ratio=0.5, save_path=None):
+    """
+    Split dataset in a class-balanced manner. Loads from saved split indices if available
+    :param dataset: PyTorch dataset to split.
+    :param split_ratio: Fraction of data for the first split (e.g., 0.5 means a 50-50 split).
+    :param save_path: Path to save/load indices for reproducibility.
+    :return: Two lists of indices representing the two splits.
+    """
+
+    # Check if indices have been saved earlier
+    if save_path and os.path.exists(save_path):
+        all_indices = np.load(save_path, allow_pickle=True)
+        return all_indices.item().get("val_hopt"), all_indices.item().get("val_early_stopping")
+
+    # Split each class in the dataset
+    targets = np.array(dataset.targets)
+    classes, class_counts = np.unique(targets, return_counts=True)
+    split_1_indices = []
+    split_2_indices = []
+    for c in classes:
+        class_indices = np.where(targets == c)[0]
+        np.random.shuffle(class_indices)
+
+        split_point = int(len(class_indices) * split_ratio)
+        split_1_indices.extend(class_indices[:split_point])
+        split_2_indices.extend(class_indices[split_point:])
+
+    # Save the indices for reproducibility if a save path is provided
+    if save_path:
+        np.save(save_path, {"val_hopt": split_1_indices, "val_early_stopping": split_2_indices})
+
+    return split_1_indices, split_2_indices
+

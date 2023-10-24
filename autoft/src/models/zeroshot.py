@@ -87,6 +87,7 @@ def eval(args):
                                      process_images=False)
 
     if args.save is not None:
+        print("args.save", args.save)
         classifier.save(args.save)
 
     # evaluate(classifier, classification_head, args)

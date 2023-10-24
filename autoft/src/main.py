@@ -16,6 +16,7 @@ from src.models.eval import evaluate
 from src.models.finetune import finetune_final
 from src.models.modeling import ImageClassifier
 from src.models.utils import extract_from_data_parallel
+from torch.utils.data import TensorDataset
 
 
 def initialize_model(args):
@@ -34,10 +35,98 @@ def initialize_model(args):
     return model, preprocess_fn
 
 
-def get_datasets(args, preprocess_fn):
+def extract_fewshot_samples(iterator, args):
+    images0, labels0, texts0, images1, labels1, texts1 = [], [], [], [], [], []
+    match = None
+
+    while True:
+        batch = next(iterator)
+        use_text = len(batch) == 3
+
+        image, label = batch[:2]
+        text = batch[2] if use_text else [None] * len(label)  # Defaulting to list of Nones if no text
+
+        if match is None and use_text:
+            match = text[0]
+
+        for i in range(image.shape[0]):
+            is_match_condition = (not use_text and i%2 == 0) or (use_text and torch.equal(match, text[i]))
+            if is_match_condition:
+                if len(images0) < args.k:
+                    images0.append(image[i])
+                    labels0.append(label[i])
+                    if use_text:
+                        texts0.append(text[i])
+            else:
+                if len(images1) < args.k:
+                    images1.append(image[i])
+                    labels1.append(label[i])
+                    if use_text:
+                        texts1.append(text[i])
+
+        if len(images0) == args.k and len(images1) == args.k:
+            break
+
+    if not use_text:
+        return torch.stack(images0 + images1, dim=0), torch.stack(labels0 + labels1, dim=0)
+    return torch.stack(images0 + images1, dim=0), torch.stack(labels0 + labels1, dim=0), torch.stack(texts0 + texts1, dim=0)
+
+def get_fewshot_datasets(args, model, preprocess_fn):
+    if args.ft_data is not None:
+        temp_model = extract_from_data_parallel(model)
+        args.batch_size = 2 * args.k
+        img_text_data = get_data(args,
+                                 (temp_model.image_encoder.train_preprocess, temp_model.image_encoder.val_preprocess),
+                                 epoch=0)
+        id_dataloader = img_text_data['train_ft'].dataloader
+        del temp_model
+        torch.cuda.empty_cache()
+    else:
+        id_dataset_class = getattr(datasets, args.id)
+        id_dataset = id_dataset_class(preprocess=preprocess_fn, train=True, location=args.data_location,
+                                      batch_size=args.k)
+        id_dataloader = get_dataloader(id_dataset, is_train=True, args=args, image_encoder=None)
+    id_iterator = iter(id_dataloader)
+    id_image, id_label, id_text = extract_fewshot_samples(id_iterator, args)
+    print('id few shot shapes', id_image.shape, id_label.shape, id_text.shape)
+    id_dataset = TensorDataset(id_image, id_label, id_text)
+
+    val_dataset_name = next((dataset_name for dataset_name in args.eval_datasets if 'Val' in dataset_name), None)
+    assert val_dataset_name, "Please specify the val dataset in args.eval_datasets."
+    val_dataset_class = getattr(datasets, val_dataset_name)
+    val_dataset = val_dataset_class(preprocess_fn, location=args.data_location, batch_size=args.k)
+    val_dataloader = get_dataloader(val_dataset, is_train=False, args=args, image_encoder=None)
+    val_iterator = iter(val_dataloader)
+    val_image, val_text = extract_fewshot_samples(val_iterator, args)
+    print('val few shot shapes', val_image.shape, val_text.shape)
+    val_dataset = TensorDataset(val_image, val_text)
+
+    ood_dataset_class = getattr(datasets, args.ood)
+    ood_dataset = ood_dataset_class(preprocess=preprocess_fn, train=True, location=args.data_location, batch_size=args.batch_size)
+    ood_dataloader = get_dataloader(ood_dataset, is_train=True, args=args, image_encoder=None)
+    # ood_iterator = iter(ood_dataloader)
+    # ood_image, ood_text = extract_fewshot_samples(ood_iterator, args)
+    # ood_dataset = TensorDataset(ood_image, ood_text)
+
+    return {"id": id_dataset, "id_val": val_dataset, "ood_subset_for_hp": ood_dataset}
+
+
+def get_datasets(args, model, preprocess_fn):
+    if args.k is not None:
+        all_datasets = get_fewshot_datasets(args, model, preprocess_fn)
+        return all_datasets
+
     id_dataset_class = getattr(datasets, args.id)
-    id_dataset = id_dataset_class(preprocess=preprocess_fn, train=True, n_examples=args.num_id_examples,
-                                  location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
+    if args.ft_data is not None:
+        temp_model = extract_from_data_parallel(model)
+        id_dataset = get_data(args, (temp_model.image_encoder.train_preprocess, temp_model.image_encoder.val_preprocess),
+                              epoch=0)
+        del temp_model
+        torch.cuda.empty_cache()
+    else:
+        id_dataset = id_dataset_class(preprocess=preprocess_fn, train=True, n_examples=args.num_id_examples,
+                                      location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
+
     if args.unlabeled_id is not None:
         id_unlabeled_dataset_class = getattr(datasets, args.unlabeled_id)
         id_unlabeled_dataset = id_unlabeled_dataset_class(preprocess=preprocess_fn, train=True, n_examples=args.num_id_unlabeled_examples,
@@ -87,15 +176,17 @@ def train(args, model, preprocess_fn):
     gb_estimate = num_parameters * 4 / (1024 ** 3)
     print(f"Got {args.model} model with {num_parameters:.1e} parameters; {gb_estimate:.3f} GB estimated memory usage")
 
-    all_datasets = get_datasets(args, preprocess_fn)
+    all_datasets = get_datasets(args, model, preprocess_fn)
     dataset_size_str = ", ".join([f"{k}: {len(all_datasets[k])}" for k in all_datasets])
     print(f"Got datasets with size {dataset_size_str}")
 
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-        model = finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
+        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
+        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
+        dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader}
+        model = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every)
     elif args.method == "ft-id-ood":
         loss_fn = torch.nn.CrossEntropyLoss()
         if hasattr(all_datasets["ood_subset_for_hp"], "dataset"):
@@ -103,11 +194,15 @@ def train(args, model, preprocess_fn):
         else:
             id_ood_dataset = torch.utils.data.ConcatDataset([all_datasets["id"].dataset, all_datasets["ood_subset_for_hp"]])
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        dataloader = get_dataloader(id_ood_dataset, is_train=True, args=args, image_encoder=None)
-        model = finetune_final(args, model, loss_fn, optimizer, dataloader, input_key, print_every)
+        id_dataloader = get_dataloader(id_ood_dataset, is_train=True, args=args, image_encoder=None)
+        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
+        dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader}
+        model = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every)
     elif args.method == "autoft":
-        dataloaders = get_autoft_dataloaders(args, model, all_datasets)
-        model = auto_ft(args, model, dataloaders["id"], dataloaders["ood_hp"], all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, dataloaders["unlabeled"])
+        if args.k is not None:
+            args.batch_size = 2 * args.k
+        dataloaders = get_autoft_dataloaders(args, all_datasets)
+        model = auto_ft(args, model, dataloaders, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key)
     else:
         raise ValueError("Invalid method")
     del all_datasets
