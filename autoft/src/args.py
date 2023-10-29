@@ -58,6 +58,7 @@ def parse_arguments():
     parser.add_argument("--optuna_sampler", type=str, default="TPESampler")
     parser.add_argument("--inner_loop_val_steps", nargs="*", type=int, default=[])
     parser.add_argument("--learn_batch_size", action="store_true")
+    parser.add_argument("--regenerate_head", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

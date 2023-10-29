@@ -6,7 +6,7 @@ import random
 import numpy as np
 import torch
 import torchvision.datasets as datasets
-from torch.utils.data import Dataset, DataLoader, Sampler, SubsetRandomSampler
+from torch.utils.data import Dataset, DataLoader, Sampler, SubsetRandomSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
@@ -177,14 +177,12 @@ class InfiniteDataLoader:
         return len(self.dataloader)
 
 
-def create_dataloader(dataset, kwargs, infinite=False):
+def create_dataloader(dataset, kwargs):
     """Helper function to create a DataLoader."""
-    if infinite:
-        return InfiniteDataLoader(DataLoader(dataset, **kwargs))
     return DataLoader(dataset, **kwargs)
 
 
-def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None, infinite=False):
+def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     """
     Get a DataLoader for the given dataset.
 
@@ -224,16 +222,18 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None, in
     else:
         inner_dataset = dataset
 
-    return create_dataloader(inner_dataset, kwargs, infinite)
+    return create_dataloader(inner_dataset, kwargs)
 
 def get_autoft_dataloaders(args, all_datasets):
     if args.ft_data is not None and args.k is None:
         id_dataloader = all_datasets["id"]["train_ft"].dataloader
-    else:
-        infinite = True if args.k is not None else False
-        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None, infinite=infinite)
-        print('id_dataloader', id_dataloader)
+    elif args.ft_data is not None and args.k is not None:
+        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
 
+    if args.k is not None:
+        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
+    else:
+        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
     if args.val_mini_batch_size is not None:
         # Sample a proportionate number of indices from each class
         class_to_indices = all_datasets["ood_subset_for_hp"].class_to_indices
@@ -257,5 +257,5 @@ def get_autoft_dataloaders(args, all_datasets):
     else:
         unlabeled_dataloader = None
 
-    dataloaders = {"id": id_dataloader, "ood_hp": ood_hp_dataloader, "unlabeled": unlabeled_dataloader}
+    dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader, "ood_hp": ood_hp_dataloader, "unlabeled": unlabeled_dataloader}
     return dataloaders

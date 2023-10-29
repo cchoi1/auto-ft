@@ -29,11 +29,14 @@ class HyperparameterSpace:
         self.learn_batch_size = learn_batch_size
 
     def _base_loss_weight_space(self, trial, prefix):
-        return {
-            f"{prefix}lossw_ce": 1.0,  # set cross-entropy loss weight to 1.0,
-            **{f"{prefix}lossw_{loss_type}": trial.suggest_float(f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
-               for loss_type in self.losses if loss_type in ["hinge", "entropy", "dcm", "flyp"]}
-        }
+        base_loss_weight_space = {}
+        if "ce" in self.losses:
+            base_loss_weight_space[f"{prefix}lossw_ce"] = 1.0
+        for loss_type in self.losses:
+            if loss_type in ["hinge", "entropy", "dcm", "flyp"]:
+                base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
+                    f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
+        return base_loss_weight_space
 
     def _base_norm_space(self, trial, prefix):
         return {
@@ -138,7 +141,7 @@ def get_loss_weights(hparams, layerwise):
     return loss_weights
 
 
-def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key, fs_image=None, fs_text=None):
+def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
     start_time = time.time()
     current_net = copy.deepcopy(net)
@@ -152,14 +155,6 @@ def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key,
     print(f"  Time to construct loss: {time.time() - start_time:.3f}")
 
     set_seed(hparams["seed"])
-    if "batch_size" in hparams.keys():
-        start_time = time.time()
-        all_datasets = {"id": dataloaders["id"].dataset, "ood_subset_for_hp": dataloaders["ood_hp"].dataset}
-        if dataloaders["unlabeled"] is not None:
-            all_datasets["unlabeled"] = dataloaders["unlabeled"].dataset
-        args.batch_size = hparams["batch_size"]
-        dataloaders = get_autoft_dataloaders(args=args, model=current_net, all_datasets=all_datasets)
-        print(f"  Time to get re-construct dataloaders: {time.time() - start_time:.3f}")
     current_net, all_metrics = inner_finetune(args, current_net, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset)
     set_seed(args.seed)
     if "IWildCam" in args.id:
@@ -177,7 +172,7 @@ def clear_memory(study: optuna.study.Study, trial: optuna.trial.Trial):
     torch.cuda.empty_cache()
 
 
-def auto_ft(args, model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_image=None, fs_text=None):
+def auto_ft(args, model, dataloaders, ood_hp_dataset, max_evals, input_key):
     """Automated fine-tuning process using Optuna."""
     def hp_objective_fn(trial, hspace):
         full_loop_start_time = time.time()
@@ -219,6 +214,16 @@ def auto_ft(args, model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_i
             study = optuna.create_study(direction="minimize")
         study.optimize(partial_hp_objective_fn, n_trials=max_evals, callbacks=[clear_memory])
         best_hparams = study.best_params
+        # best_hparams = {"seed": 0}
+        # if args.losses == ["flyp"]:
+        #     best_hparams["lossw_flyp"] = 1.0
+        #     best_hparams["lr"] = args.lr
+        #     best_hparams["wd"] = args.wd
+        # elif args.losses == ["ce", "flyp"]:
+        #     best_hparams["lossw_ce"] = 1.0
+        #     best_hparams["lossw_flyp"] = 1.0
+        #     best_hparams["lr"] = args.lr
+        #     best_hparams["wd"] = args.wd
 
     if "ce" in args.losses and "lossw_ce" not in best_hparams.keys():
         best_hparams["lossw_ce"] = 1.0
@@ -235,6 +240,10 @@ def auto_ft(args, model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_i
         if dataloaders["unlabeled"] is not None:
             all_datasets["unlabeled"] = dataloaders["unlabeled"].dataset
         dataloaders = get_autoft_dataloaders(args=args, model=model, all_datasets=all_datasets)
-    ft_model = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, 100)
+    if args.k is None:
+        print_every = 100
+    else:
+        print_every = 1
+    ft_model = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every)
 
     return ft_model

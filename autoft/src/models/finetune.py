@@ -1,15 +1,17 @@
+import copy
 import logging
 import os
 import time
 from collections import defaultdict
+from itertools import cycle
 
 import numpy as np
 import torch
-
 from src.datasets.common import maybe_dictionarize, get_dataloader
 from src.losses.learnedloss import LearnedLoss
-from src.models.eval import evaluate
-from src.models.utils import cosine_lr, extract_from_data_parallel
+from src.models.eval import evaluate, eval_single_batch_dataset
+from src.models.utils import cosine_lr, extract_from_data_parallel, val_metric_str
+from src.models.zeroshot import get_zeroshot_classifier
 from torch.utils.data import SubsetRandomSampler
 
 logger = logging.getLogger('main')
@@ -56,14 +58,12 @@ def compute_accuracy(model, dataloader, input_key):
 
 @torch.no_grad()
 def evaluate_net(net, dataloader, dataset, args):
-    net = net.cuda()
-    net.eval()
-
     total_correct = 0
     total_samples = 0
-
-    # Introducing variables to save predictions, labels, and metadata
     all_labels, all_preds, all_metadata = [], [], []
+
+    net = net.cuda()
+    net.eval()
     for batch in dataloader:
         data = maybe_dictionarize(batch)
         x = data['images'].cuda()
@@ -80,16 +80,12 @@ def evaluate_net(net, dataloader, dataset, args):
         correct = (predictions == y).sum().item()
         total_correct += correct
         total_samples += y.size(0)
-
-        # Save labels, predictions, and metadata
         all_labels.append(y.cpu().clone().detach())
         all_preds.append(outputs.cpu().clone().detach())
         if 'metadata' in data:
             all_metadata.extend(data['metadata'])
 
     accuracy = (total_correct / total_samples) * 100
-
-    # Concatenate all saved tensors
     all_labels = torch.cat(all_labels)
     all_preds = torch.cat(all_preds)
 
@@ -116,7 +112,6 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
     fn_start = time.time()
     time_counter = defaultdict(list)
 
-    model.train()
     warmup_steps = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_steps, args.inner_steps)
     if len(args.inner_loop_val_steps) == 0:
@@ -124,9 +119,11 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
     else:
         # Do up to the biggest inner loop val step; no effect if args.inner_loop_val_steps is empty
         num_steps = max(args.inner_steps, *args.inner_loop_val_steps) * args.accumulation_steps
-    print("Num batches in ID dataloader: ", len(dataloaders["id"]))
+
     val_metrics = {}
-    for step, batch in enumerate(dataloaders["id"]):
+    model.train()
+    id_dataloader = cycle(dataloaders["id"]) if args.k is not None else dataloaders["id"]
+    for step, batch in enumerate(id_dataloader):
         if step >= num_steps:
             break
         scheduler(step)
@@ -177,8 +174,6 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
             torch.cuda.synchronize()
             time_counter["eval"].append(time.time() - start)
 
-    torch.cuda.synchronize()
-    start = time.time()
     if args.val_mini_batch_size is not None:
         # Sample a proportionate number of indices from each class
         class_to_indices = ood_hp_dataset.class_to_indices
@@ -187,18 +182,18 @@ def inner_finetune(args, model, loss_fn, optimizer, input_key, dataloaders, ood_
         sampled_indices = []
         for class_indices in class_to_indices.values():
             sampled_indices.extend(np.random.choice(class_indices, samples_per_class, replace=True))
-
         # Ensure the total number of samples is as requested (due to rounding)
         while len(sampled_indices) < args.val_mini_batch_size:
             extra_class = np.random.choice(list(class_to_indices.keys()))
             extra_index = np.random.choice(class_to_indices[extra_class])
             sampled_indices.append(extra_index)
-
         ood_hp_sampler = SubsetRandomSampler(sampled_indices)
         dataloaders["ood_hp"] = get_dataloader(ood_hp_dataset.dataset, is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
 
     torch.cuda.synchronize()
     start = time.time()
+    if args.regenerate_head:
+        model.module.classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
     val_metrics["meta_objective"] = evaluate_net(model, dataloaders["ood_hp"], ood_hp_dataset, args)
     torch.cuda.synchronize()
     time_counter["eval"].append(time.time() - start)
@@ -226,17 +221,69 @@ def find_latest_checkpoint(save_dir, prefix="checkpoint_"):
     return os.path.join(save_dir, latest_checkpoint), epoch_number
 
 
-def finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, unlabeled_dataloader=None):
+def finetune_fewshot(args, model, loss_fn, optimizer, dataloaders, input_key):
+    warmup_length = args.warmup_length * args.accumulation_steps
+    scheduler = cosine_lr(optimizer, args.lr, warmup_length, args.ft_epochs)
+    max_val_acc = 0.0
+    model_copy = copy.deepcopy(model.module).cpu()
+    exit_flag = False
+    step = 0
+    for epoch in range(0, args.ft_epochs):
+        for i, batch in enumerate(dataloaders["id"]):
+            model.train()
+            scheduler(step)
+
+            batch = maybe_dictionarize(batch)
+            images, labels, text = batch[input_key].cuda(), batch['labels'].cuda(), None
+            if args.ft_data is not None and 'metadata' in batch.keys():
+                text = batch['metadata'].cuda()
+            logits, image_features, text_features, logit_scale = model(images, text)
+
+            if isinstance(loss_fn, LearnedLoss):
+                try:
+                    ls = logit_scale[0]
+                except Exception:
+                    ls = logit_scale
+                loss = loss_fn(model, logits, labels, image_features, text_features, ls)
+            else:
+                loss = loss_fn(logits, labels)
+            print(f"Epoch {epoch}, Loss {loss.item()}")
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            step += 1
+
+        # Evaluate
+        with torch.no_grad():
+            model.eval()
+            classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
+            classification_head = classification_head.cuda()
+            val_batch = next(iter(dataloaders["id_val"]))
+            eval_results = eval_single_batch_dataset(model, dataloaders["id_val"].dataset, args, classification_head, val_batch)
+            val_acc = eval_results[0]
+            if val_acc > max_val_acc:
+                max_val_acc = val_acc
+                model_copy = copy.deepcopy(extract_from_data_parallel(model)).cpu()
+                for param in model_copy.parameters():
+                    param.requires_grad = False
+
+        if exit_flag:
+            break
+
+    del model
+    torch.cuda.empty_cache()
+    model_copy = model_copy.cuda()
+    model_copy = torch.nn.DataParallel(model_copy, device_ids=list(range(torch.cuda.device_count())))
+    return model_copy
+
+
+def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_every):
     assert args.load is not None, "Please provide the patch to a checkpoint through --load."
     num_batches = len(dataloaders["id"])
-    print("Num batches in fine-tuning dataloader: ", num_batches)
+    print(f"{num_batches} batches in fine-tuning dataloader")
     total_steps = args.ft_epochs * num_batches
     warmup_length = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
-    best_val_metric = -float('inf')
-    patience = 0
-    all_eval_results = {}
-    model.train()
 
     # Find the latest checkpoint and resume fine-tuning from there
     start_epoch = 0
@@ -257,45 +304,45 @@ def finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, prin
     else:
         print("\nNo checkpoint found. Starting from epoch 0.")
 
+    val_metrics = {}
+    best_val_metric = -float('inf')
+    model.train()
     for epoch in range(start_epoch, args.ft_epochs):
         epoch_start_time = time.time()
-        for i, batch in enumerate(dataloaders["id"]):
-            start_time = time.time()
-            step = i + epoch * num_batches
-            if step >= total_steps: # few-shot ID dataloader is infinite
-                break
-            scheduler(step)
-
-            batch = maybe_dictionarize(batch)
-            images, labels, text = batch[input_key].cuda(), batch['labels'].cuda(), None
-            if args.ft_data is not None and 'metadata' in batch.keys():
-                text = batch['metadata']
-            logits, image_features, text_features, logit_scale = model(images, text)
-            if unlabeled_dataloader is not None:
-                unlabeled_batch = next(iter(unlabeled_dataloader))
-                unlabeled_batch = maybe_dictionarize(unlabeled_batch)
-                image, text = unlabeled_batch[input_key].cuda(), unlabeled_batch['metadata']
-                unlabeled_logits, unlabeled_image_features, text_features, logit_scale = model(image, text)
-                pseudolabels = unlabeled_logits.argmax(dim=-1)
-
-            if isinstance(loss_fn, LearnedLoss):
-                try:
-                    ls = logit_scale[0]
-                except Exception:
-                    ls = logit_scale
-                loss = loss_fn(model, logits, labels, image_features, text_features, ls)
-            else:
-                loss = loss_fn(logits, labels)
-                # if args.unlabeled_id is not None:
-                #     loss += loss_fn(unlabeled_logits, pseudolabels)
-            loss = loss / args.accumulation_steps
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
-            if (i + 1) % args.accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-            batch_time = time.time() - start_time
-            print_train_update(logger, print_every, total_steps, step, loss, batch_time)
+        # for i, batch in enumerate(dataloaders["id"]):
+        #     start_time = time.time()
+        #     step = i + epoch * num_batches
+        #     scheduler(step)
+        #
+        #     batch = maybe_dictionarize(batch)
+        #     images, labels, text = batch[input_key].cuda(), batch['labels'].cuda(), None
+        #     if args.ft_data is not None and 'metadata' in batch.keys():
+        #         text = batch['metadata'].cuda()
+        #     logits, image_features, text_features, logit_scale = model(images, text)
+        #     if dataloaders["unlabeled"] is not None:
+        #         unlabeled_batch = next(iter(dataloaders["unlabeled"]))
+        #         unlabeled_batch = maybe_dictionarize(unlabeled_batch)
+        #         image, text = unlabeled_batch[input_key].cuda(), unlabeled_batch['metadata']
+        #         unlabeled_logits, unlabeled_image_features, text_features, logit_scale = model(image, text)
+        #         pseudolabels = unlabeled_logits.argmax(dim=-1)
+        #     if isinstance(loss_fn, LearnedLoss):
+        #         try:
+        #             ls = logit_scale[0]
+        #         except Exception:
+        #             ls = logit_scale
+        #         loss = loss_fn(model, logits, labels, image_features, text_features, ls)
+        #     else:
+        #         loss = loss_fn(logits, labels)
+        #         # if args.unlabeled_id is not None:
+        #         #     loss += loss_fn(unlabeled_logits, pseudolabels)
+        #     loss = loss / args.accumulation_steps
+        #     loss.backward()
+        #     torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
+        #     if (i + 1) % args.accumulation_steps == 0:
+        #         optimizer.step()
+        #         optimizer.zero_grad()
+        #     batch_time = time.time() - start_time
+        #     print_train_update(logger, print_every, total_steps, step, loss, batch_time)
 
         # Save checkpoints
         opt_ckpt_path = os.path.join(args.save, f'opt_{epoch}.pt')
@@ -304,38 +351,38 @@ def finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, prin
         sched_ckpt_path = os.path.join(args.save, f'sched_{epoch}.pt')
         torch.save(scheduler.__dict__, sched_ckpt_path)
         print(f"Saved scheduler to {sched_ckpt_path}")
-        unwrapped_model = extract_from_data_parallel(model)
-        unwrapped_model.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
+        model.module.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
         print(f"Saved model to {args.save}")
-        del unwrapped_model
-        torch.cuda.empty_cache()
 
         # Evaluate
-        eval_results = evaluate(model.module, args)
-        all_eval_results[epoch] = eval_results
+        # eval_results = evaluate(model.module, args)
+        with torch.no_grad():
+            classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
+            classification_head = classification_head.cuda()
+            eval_results = evaluate(model, classification_head, args)
+        val_metrics[epoch] = eval_results
+        print(eval_results)
+        curr_val_metric = eval_results[val_metric_str(args)]
+        if curr_val_metric > best_val_metric:
+            print(f"Best val metric of {curr_val_metric} at epoch {epoch}.")
+            best_val_metric = curr_val_metric
+            model_copy = copy.deepcopy(extract_from_data_parallel(model)).cpu()
+            for param in model_copy.parameters():
+                param.requires_grad = False
         print(f"Epoch {epoch}, Time: {time.time() - epoch_start_time:.3f}")
 
-        # Early stopping
-        id_val_metrics = {k: eval_results[k] for k in eval_results.keys() if "Val" in k}
-        assert len(id_val_metrics) > 0, "No IDVal metrics found in eval results."
-        if "IWildCam" in args.id:
-            dataset_metric = "IWildCamIDVal:F1-macro_all"
-        elif "FMOW" in args.id:
-            dataset_metric = "FMOWIDVal:acc_worst_region"
-        elif "ImageNet" in args.id:
-            dataset_metric = "ImageNet:top1"
-        elif "sst2" in args.id:
-            dataset_metric = "sst2ValEarlyStopping:top1"
-        elif "PatchCamelyon" in args.id:
-            dataset_metric = "PatchCamelyonIDVal:top1"
-        current_val_metric = id_val_metrics[dataset_metric]
-        if current_val_metric > best_val_metric:
-            best_val_metric = current_val_metric
-            patience = 0
-        else:
-            patience += 1
-        if patience > args.early_stopping_patience:
-            print("Early stopping.")
-            break
+    del model
+    torch.cuda.empty_cache()
+    model_copy = model_copy.cuda()
+    model_copy = torch.nn.DataParallel(model_copy, device_ids=list(range(torch.cuda.device_count())))
 
-    return model
+    return model_copy
+
+
+def finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, ft_dataset=None, val_dataset=None):
+    if args.k is not None:
+        print(f"Finetuning with {args.k}-shot ID data.")
+        return finetune_fewshot(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, ft_dataset, val_dataset)
+    else:
+        print("Finetuning with full ID data.")
+        return finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_every)

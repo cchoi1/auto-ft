@@ -36,7 +36,7 @@ def setup_logging(args, logger):
         run_details = f"ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}_seed{args.seed}"
         args.save = os.path.join(save_dir, run_details)
 
-    os.makedirs(args.save)
+    os.makedirs(args.save, exist_ok=True)
     logging_path = os.path.join("logs", args.save)
     print(f"\nMODEL SAVE PATH: {args.save}")
     print(f"\nLOGGING PATH: {logging_path}\n")

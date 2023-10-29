@@ -79,6 +79,7 @@ def eval(args):
         classifier = ImageClassifier.load(args.load)
     else:
         image_encoder = ImageEncoder(args, keep_lang=True)
+        # image_encoder = CLIPEncoder(args, keep_lang=True)
         classification_head = get_zeroshot_classifier(args,
                                                       image_encoder.model)
         # delattr(image_encoder.model, 'transformer')

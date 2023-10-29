@@ -6,12 +6,55 @@ import random
 import numpy as np
 import torch
 
+def get_num_classes(args):
+    if args.id in ["sst2Train", "PatchCamelyonTrain"]:
+        return 2
+    elif args.id in ["ImageNetKShot"]:
+        return 1000
+    elif args.id == "IWildCamTrain":
+        return 294
+    elif args.id == "FMOWTrain":
+        return 62
+    elif args.id == "CIFAR10":
+        return 10
+    else:
+        raise ValueError("Invalid dataset")
+
+
+def test_metric_str(args):
+    if "sst2" in args.id:
+        metric = "sst2Test:top1"
+    elif "PatchCamelyon" in args.id:
+        metric = "PatchCamelyonTest:top1"
+    elif "ImageNet" in args.id:
+        metric = f"ImageNet{args.k}Shot:top1"
+    elif "IWildCam" in args.id:
+        metric = "IWildCamOODTest:F1-macro_all"
+    elif "FMOW" in args.id:
+        metric = "FMOWOODTest:acc_worst_region"
+    return metric
+
+
+def val_metric_str(args):
+    if "IWildCam" in args.id:
+        metric = "IWildCamIDVal:F1-macro_all"
+    elif "FMOW" in args.id:
+        metric = "FMOWIDVal:acc_worst_region"
+    elif "ImageNet" in args.id:
+        metric = "ImageNet:top1"
+    elif "sst2" in args.id:
+        metric = "sst2ValEarlyStopping:top1"
+    elif "PatchCamelyon" in args.id:
+        metric = "PatchCamelyonIDVal:top1"
+    return metric
+
 
 def print_hparams(hparams):
     print("\nHyperparameters:")
     for key, value in hparams.items():
         if not "dataw" in key:
             print(f"{key}: {value}")
+
 
 def save_hparams(hparams, args):
     save_file = os.path.join(args.save, 'hparams.json')
@@ -22,6 +65,7 @@ def save_hparams(hparams, args):
         hparams["lossw_ce"] = 1.0
     with open(save_file, 'w') as f:
         json.dump(hparams, f)
+
 
 def extract_from_data_parallel(model):
     if isinstance(model, torch.nn.DataParallel):
@@ -109,6 +153,14 @@ def get_logits(inputs, classifier):
     if hasattr(classifier, 'to'):
         classifier = classifier.to(inputs.device)
     return classifier(inputs)
+
+def get_logits_encoder(inputs, encoder, classification_head):
+    assert callable(encoder)
+    if hasattr(encoder, 'to'):
+        encoder = encoder.to(inputs.device)
+        classification_head = classification_head.to(inputs.device)
+    feats = encoder(inputs)
+    return classification_head(feats)
 
 
 def get_probs(inputs, classifier):
