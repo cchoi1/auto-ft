@@ -3,6 +3,7 @@ import os
 import numpy as np
 import torch
 import wilds
+from src.datasets.utils import SampledDataset
 from wilds.common.data_loaders import get_train_loader, get_eval_loader
 
 
@@ -30,6 +31,15 @@ class FMOW:
             self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif subset == 'val':
             self.dataset = dataset.get_subset('val', transform=preprocess)
+            if self.n_examples > -1:
+                collate_fn = self.dataset.collate
+                if use_class_balanced:
+                    self.dataset = SampledDataset(self.dataset, "IWildCamOODVal", n_examples)
+                    self.dataset.collate = collate_fn
+                else:
+                    indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                    self.dataset = torch.utils.data.Subset(self.dataset, indices)
+                    self.dataset.collate = collate_fn
             self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif subset == 'id_val':
             self.dataset = dataset.get_subset('id_val', transform=preprocess)

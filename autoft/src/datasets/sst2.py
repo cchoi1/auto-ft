@@ -1,51 +1,16 @@
-import glob
 import os
 
-import numpy as np
 import torch
 import torchvision
-from PIL import Image
-
-
-class CustomDataset(torchvision.datasets.ImageFolder):
-    def __init__(self, root, transform=None):
-        self.root_dir = root
-        self.transforms = transform
-        self.class_list = sorted(os.listdir(root))
-        self.img_list = []
-        self.class_len_list = []
-        for i, c in enumerate(self.class_list):
-            root_child = os.path.join(root, c)
-            self.img_list.append(sorted(glob.glob(root_child + "/*")))
-            self.class_len_list.append(len(self.img_list[-1]))
-
-    def __len__(self):
-        total_len = 0
-        for i, c in enumerate(self.class_list):
-            total_len += len(self.img_list[i])
-        return total_len
-
-    def __getitem__(self, idx):
-        batch_img = []
-        for i, c in enumerate(self.class_list):
-            rand_idx = np.random.randint(0, self.class_len_list[i])
-            img_name = self.img_list[i][rand_idx]
-            image = self.transforms(Image.open(img_name))
-            batch_img.append(image)
-
-        batch_img = torch.stack(batch_img, dim=0)
-
-        return batch_img
+from src.datasets.utils import split_validation_set
 
 
 class sst2:
-    test_subset = None
-
     def __init__(self,
                  preprocess,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
-                 num_workers=16,
+                 num_workers=2,
                  subset='test',
                  classnames=None,
                  custom=False,
@@ -55,52 +20,55 @@ class sst2:
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.k = k
-        if self.k is not None:
-            self.train_location = os.path.join(location, 'sst2',
-                                               f'train_shot_{self.k}')
+
+        # Load data based on the subset argument
+        if subset == 'train':
+            if self.k is not None:
+                self.data_location = os.path.join(location, 'sst2', f'train_shot_{self.k}')
+            else:
+                self.data_location = os.path.join(location, 'sst2', 'train')
+            self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+        elif 'val' in subset:
+            self.data_location = os.path.join(location, 'sst2', 'val')
+            save_path = os.path.join(self.data_location, 'val_split_indices.npy')
+            dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+            self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
+            if subset == 'val_hopt':
+                self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
+            else:
+                self.dataset = torch.utils.data.Subset(dataset, self.val_early_stopping_indices)
+        elif subset == 'test':
+            self.data_location = os.path.join(location, 'sst2', 'test')
+            self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
         else:
-            self.train_location = os.path.join(location, 'sst2', 'train')
+            raise ValueError(f'Subset must be one of "train", "val_hopt", "val_early_stopping", or "test".')
 
-        print("Loading Train Data from ", self.train_location)
-        self.train_dataset = torchvision.datasets.ImageFolder(
-            root=self.train_location, transform=preprocess)
-        self.train_loader = torch.utils.data.DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers)
-        if custom:
-            self.train_dataset_custom = CustomDataset(root=self.train_location,
-                                                      transform=preprocess)
-            self.train_loader_custom = torch.utils.data.DataLoader(
-                self.train_dataset_custom,
-                batch_size=1,
-                shuffle=True,
-                num_workers=self.num_workers)
+        print(f"Loading {subset} Data from ", self.data_location)
 
-        self.test_location = os.path.join(location, 'sst2', self.test_subset)
-        print("Loading Test Data from ", self.test_location)
-        self.test_dataset = torchvision.datasets.ImageFolder(
-            root=self.test_location, transform=preprocess)
-        self.test_loader = torch.utils.data.DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers)
+        self.classnames = ['negative', 'positive']
 
-        self.classnames = [
-            'negative',
-            'positive',
-        ]
+    def __len__(self):
+        return len(self.dataset)
 
 
-class sst2Val(sst2):
+class sst2Train(sst2):
     def __init__(self, *args, **kwargs):
-        self.test_subset = 'val'
+        kwargs['subset'] = 'train'
+        super().__init__(*args, **kwargs)
+
+class sst2ValHOpt(sst2):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'val_hopt'
+        super().__init__(*args, **kwargs)
+
+
+class sst2ValEarlyStopping(sst2):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'val_early_stopping'
         super().__init__(*args, **kwargs)
 
 
 class sst2Test(sst2):
     def __init__(self, *args, **kwargs):
-        self.test_subset = 'test'
+        kwargs['subset'] = 'test'
         super().__init__(*args, **kwargs)

@@ -46,6 +46,13 @@ templates = [
 
 
 def main(args):
+    import torchvision.datasets as datasets
+    import os
+    caltech101_dir = os.path.join("/iris/u/cchoi1/Data/caltech101")
+
+    # Downloading Caltech101
+    dataset = datasets.Caltech101(caltech101_dir, download=True)
+    print(f"Caltech101 dataset downloaded to {caltech101_dir}")
 
     assert len(classes) == 101, 'number of classes are less'
     print(args.data_dir)

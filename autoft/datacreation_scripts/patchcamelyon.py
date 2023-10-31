@@ -56,17 +56,16 @@ def main(args):
     assert len(classes) == len(classes_in_dir), 'num class mismatch'
 
     os.makedirs(os.path.join(args.save_dir, args.data_name), exist_ok=True)
-    with open(os.path.join(args.save_dir, args.data_name, 'train.csv'),
-              'w') as f:
-        f.write('title\tfilepath\n')
+    with open(os.path.join(args.save_dir, args.data_name, 'train.csv'), 'w') as f:
+        f.write('title\tfilepath\tlabel\n')  # <-- Added 'label' column here
         for i, dir_name in enumerate(classes_in_dir):
             directory = os.path.join(args.data_dir, 'train', dir_name)
             for file in os.listdir(directory):
                 assert 'jpg' in file or 'jpeg' in file, f'extension mismatch {file} {directory}'
-                full_path = os.path.join(args.data_dir, 'train', dir_name,
-                                         file)
+                full_path = os.path.join(args.data_dir, 'train', dir_name, file)
                 for template in templates:
-                    f.write(f'{template(classes[i])}\t{full_path}\n')
+                    # Write the class label (i) along with the title and filepath
+                    f.write(f'{template(classes[i])}\t{full_path}\t{i}\n')
 
     print('done')
 

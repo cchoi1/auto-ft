@@ -1,15 +1,14 @@
-import os
-import pandas as pd
 import json
-import numpy as np
+import os
 import pathlib
-import torch
 
+import numpy as np
+import pandas as pd
+import torch
 import wilds
+from src.datasets.utils import SampledDataset
 from wilds.common.data_loaders import get_train_loader, get_eval_loader
 from wilds.datasets.wilds_dataset import WILDSSubset
-
-from src.datasets.utils import SampledDataset
 
 
 def get_mask_non_empty(dataset):
@@ -67,7 +66,7 @@ class IWildCam:
             if self.n_examples > -1:
                 collate_fn = self.dataset.collate
                 if use_class_balanced:
-                    self.dataset = SampledDataset(self.dataset, n_examples, dataset.class_balance)
+                    self.dataset = SampledDataset(self.dataset, "IWildCamOODVal", n_examples)
                     self.dataset.collate = collate_fn
                 else:
                     indices = np.random.choice(len(self.dataset), n_examples, replace=False)

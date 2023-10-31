@@ -10,29 +10,25 @@ templates = [
     lambda c: f'a {c} review of a movie.'
 ]
 
-
 def main(args):
-
-    classes_in_dir = sorted(
-        next(os.walk(os.path.join(args.data_dir, 'train')))[1])
+    classes_in_dir = sorted(next(os.walk(os.path.join(args.data_dir, 'train')))[1])
     print(classes_in_dir)
     assert len(classes) == len(classes_in_dir), 'num class mismatch'
 
     os.makedirs(os.path.join(args.save_dir, args.data_name), exist_ok=True)
-    with open(os.path.join(args.save_dir, args.data_name, 'train.csv'),
-              'w') as f:
-        f.write('title\tfilepath\n')
+    with open(os.path.join(args.save_dir, args.data_name, 'train.csv'), 'w') as f:
+        f.write('title\tfilepath\tlabel\n')  # Added the label header here
         for i, dir_name in enumerate(classes_in_dir):
             directory = os.path.join(args.data_dir, 'train', dir_name)
             for file in os.listdir(directory):
                 assert 'jpg' in file or 'jpeg' in file or 'png' in file, f'extension mismatch {file} {directory}'
-                full_path = os.path.join(args.data_dir, 'train', dir_name,
-                                         file)
+                full_path = os.path.join(args.data_dir, 'train', dir_name, file)
                 for template in templates:
-                    f.write(f'{template(classes[i])}\t{full_path}\n')
+                    # Added the classes[i] to write the class label
+                    class_label = 0 if classes[i] == 'negative' else 1
+                    f.write(f'{template(classes[i])}\t{full_path}\t{class_label}\n')
 
     print('done')
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')

@@ -3,7 +3,6 @@ import argparse
 
 import torch
 
-
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", type=str, choices=["autoft", "ft-id", "ft-id-ood", "zeroshot", "flyp"])
@@ -32,7 +31,9 @@ def parse_arguments():
     # Training
     parser.add_argument("--model", type=str, default=None, help="The type of model (e.g. RN50, ViT-B/32).")
     parser.add_argument("--num_classes", type=int, default=1000)
-    parser.add_argument("--losses", type=str, nargs="+", help="list of losses to use",
+    parser.add_argument("--losses",
+                        help="list of losses to use",
+                        nargs="+",
                         choices=["ce", "hinge", "entropy", "dcm", "flyp", "l1zero", "l2zero", "l1init", "l2init"])
     parser.add_argument("--layerwise_loss", action="store_true")
     parser.add_argument("--layerwise_opt", action="store_true")
@@ -53,10 +54,11 @@ def parse_arguments():
     parser.add_argument("--use_class_balanced_ood", action="store_true")
     parser.add_argument("--use_id_val", action="store_true")
     parser.add_argument("--use_hyperopt", action="store_true")
-    parser.add_argument("--early_stopping_patience", type=int, default=3)
+    parser.add_argument("--early_stopping_patience", type=int, default=10)
     parser.add_argument("--optuna_sampler", type=str, default="TPESampler")
     parser.add_argument("--inner_loop_val_steps", nargs="*", type=int, default=[])
     parser.add_argument("--learn_batch_size", action="store_true")
+    parser.add_argument("--regenerate_head", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)
@@ -196,6 +198,7 @@ def parse_arguments():
     )
 
     parsed_args = parser.parse_args()
+    parsed_args.losses = sorted(parsed_args.losses)
 
     parsed_args.device = "cuda" if torch.cuda.is_available() else "cpu"
 
