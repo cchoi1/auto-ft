@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="caltech101-autoft-50inner-100ep-1000ex-class-balanced" # Name the job (for easier monitoring)
-#SBATCH --output=caltech101-autoft-50inner-100ep-1000ex-class-balanced.log  # Name of the output log file
+#SBATCH --job-name="caltech101-autoft-50inner-100ep-1000ex-class-balanced-seeds" # Name the job (for easier monitoring)
+#SBATCH --output=caltech101-autoft-50inner-100ep-1000ex-class-balanced-seeds.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -26,4 +26,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --ft_data /iris/u/cchoi1/Data/caltech-101/train.csv --template caltech101_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_caltech101.pt \
---workers 2
+--workers 2 --repeats 2

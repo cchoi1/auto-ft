@@ -160,6 +160,8 @@ def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key,
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['F1-macro_all']
     elif "FMOW" in args.id:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc_worst_region']
+    elif "sst2" in args.id or "PatchCamelyon" in args.id:
+        all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['xent']
     else:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
 
