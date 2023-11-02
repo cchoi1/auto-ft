@@ -108,7 +108,7 @@ def main(args):
     os.makedirs(os.path.join(args.save_dir, args.data_name), exist_ok=True)
     with open(os.path.join(args.save_dir, args.data_name, 'train.csv'),
               'w') as f:
-        f.write('title\tfilepath\n')
+        f.write('title\tfilepath\tlabel\n')
         for i, dir_name in enumerate(classes_in_dir):
             directory = os.path.join(args.data_dir, 'train', dir_name)
             for file in os.listdir(directory):
@@ -116,10 +116,11 @@ def main(args):
                 full_path = os.path.join(args.data_dir, 'train', dir_name,
                                          file)
                 for template in templates:
-                    f.write(f'{template(classes[i])}\t{full_path}\n')
+                    f.write(f'{template(classes[i])}\t{full_path}\t{i}\n')
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
     parser.add_argument('--save_dir', default='./datasets/csv')

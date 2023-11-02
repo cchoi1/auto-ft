@@ -15,13 +15,15 @@ class SampledDataset(Dataset):
         self.dataset = dataset
         os.makedirs(save_dir, exist_ok=True)
         indices_file = f"{dataset_name}_sample_indices_{num_samples_per_class}.json"
+        if dataset_name == "IWildCamTrain":
+            indices_file = f"{dataset_name}_sample_indices_{num_samples_per_class}_2.json"
         self.save_path = os.path.join(save_dir, indices_file)
         print('num_samples_per_class', num_samples_per_class)
 
         if os.path.exists(self.save_path):
             with open(self.save_path, 'r') as f:
                 self.indices = json.load(f)
-            print("Loading class-balanced indices from file.")
+            print(f"Loading class-balanced indices from file {self.save_path}")
             self.indices = [int(index) for index in self.indices]
         else:
             start_time = time.time()
@@ -29,7 +31,7 @@ class SampledDataset(Dataset):
             self.indices = self.get_indices(num_samples_per_class)
             with open(self.save_path, 'w') as f:
                 json.dump(self.indices, f)
-            print(f"Finished generating class-balanced indices in {time.time() - start_time} seconds.")
+            print(f"Finished generating class-balanced indices in {time.time() - start_time:.3f} seconds.")
 
     def __getitem__(self, index):
         return self.dataset[self.indices[index]]
@@ -41,7 +43,10 @@ class SampledDataset(Dataset):
         first_item = self.dataset[0]
         if isinstance(first_item, tuple):
             # Old format: Tuple format (image, label, text)
-            targets = np.array([label for _, label, text in self.dataset])
+            if len(first_item) == 3:
+                targets = np.array([label for _, label, text in self.dataset])
+            elif len(first_item) == 2:
+                targets = np.array([label for _, label in self.dataset])
         elif isinstance(first_item, dict) and 'labels' in first_item:
             # New format: Dictionary with keys 'images', 'labels', etc.
             targets = np.array([item['labels'] for item in self.dataset])

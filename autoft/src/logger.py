@@ -15,8 +15,6 @@ def setup_logging(args, logger):
             method_name += "_lopt"
         if args.unlabeled_id is not None:
             method_name += "_unlabeled"
-        if args.ft_data is not None:
-            method_name += "_flyp"
         if args.optuna_sampler != "TPESampler":
             method_name += f"_{args.optuna_sampler}"
         method_name += loss_type + opt_type

@@ -59,6 +59,10 @@ def parse_arguments():
     parser.add_argument("--inner_loop_val_steps", nargs="*", type=int, default=[])
     parser.add_argument("--learn_batch_size", action="store_true")
     parser.add_argument("--regenerate_head", action="store_true")
+    parser.add_argument("--no_regenerate_head", action="store_true")
+    parser.add_argument("--clip_gradient", action="store_true")
+    parser.add_argument("--no_lr_wd", action="store_true")
+    parser.add_argument("--autoft_repeats", type=int, default=1)
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

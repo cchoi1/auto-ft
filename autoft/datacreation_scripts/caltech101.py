@@ -46,28 +46,23 @@ templates = [
 
 
 def main(args):
-    import torchvision.datasets as datasets
-    import os
-    caltech101_dir = os.path.join("/iris/u/cchoi1/Data/caltech101")
-
-    # Downloading Caltech101
-    dataset = datasets.Caltech101(caltech101_dir, download=True)
-    print(f"Caltech101 dataset downloaded to {caltech101_dir}")
-
     assert len(classes) == 101, 'number of classes are less'
-    print(args.data_dir)
+    print("data dir", args.data_dir)
     classes_in_dir = sorted(next(os.walk(args.data_dir))[1])
+    print('\nclasses_in_dir', classes_in_dir)
 
+    print("hand-written classes", len(classes), "dir classes", len(classes_in_dir))
     assert len(classes_in_dir) == len(classes), 'number of classes mismatch'
 
     with open(args.save_file, 'w') as f:
-        f.write('title\tfilepath\n')
+        f.write('title\tfilepath\tlabel\n')
         for i, dir_name in enumerate(classes_in_dir):
             for file in os.listdir(os.path.join(args.data_dir, dir_name)):
+                print(f"Directory name {dir_name}, class name {classes[i]}")
                 assert 'jpg' in file or 'jpeg' in file, 'extension mismatch'
                 full_path = os.path.join(args.data_dir, dir_name, file)
                 for template in templates:
-                    f.write(f'{template(classes[i])}\t{full_path}\n')
+                    f.write(f'{template(classes[i])}\t{full_path}\t{i}\n')
 
 
 if __name__ == '__main__':

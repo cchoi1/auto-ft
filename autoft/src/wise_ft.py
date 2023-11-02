@@ -88,13 +88,17 @@ def wise_ft(args):
         theta = _merge(alpha, theta_0, theta_1, fishers, args.fisher_floor)
 
         # update the model (in-place) acccording to the new weights
+        if isinstance(finetuned, torch.nn.DataParallel):
+            finetuned = finetuned.module
         finetuned.load_state_dict(theta)
 
         # save model
         finetuned.save(os.path.join(args.save, f'wise_ft_alpha={alpha:.3f}.pt'))
 
         # evaluate
-        evaluate(finetuned, args)
+        classification_head = finetuned.classification_head
+        finetuned = torch.nn.DataParallel(finetuned)
+        evaluate(finetuned, classification_head, args)
 
 
 if __name__ == '__main__':

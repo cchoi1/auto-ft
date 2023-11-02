@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="fmow-autoft-ce-flyp-50inner-100ep-1000ex" # Name the job (for easier monitoring)
-#SBATCH --output=fmow-autoft-ce-flyp-50inner-100ep-1000ex.log  # Name of the output log file
+#SBATCH --job-name="fmow-autoft-ce-flyp-50inner-100ep-1000ex-class-balanced" # Name the job (for easier monitoring)
+#SBATCH --output=fmow-autoft-ce-flyp-50inner-100ep-1000ex-class-balanced.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -25,4 +25,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoo
 --losses ce flyp \
 --ft_data /iris/u/cchoi1/Data/csv/fmow_v1.1/fmow.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow2.pt
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow2.pt --template fmow_template

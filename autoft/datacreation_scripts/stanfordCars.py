@@ -1,3 +1,4 @@
+import torchvision
 import os
 import pandas as pd
 import argparse
@@ -231,7 +232,9 @@ templates = [
 
 def main(args):
 
-    classes = loadmat(os.path.join(args.data_dir, 'devkit', 'cars_meta.mat'))
+    # classes = loadmat(os.path.join(args.data_dir, 'devkit', 'cars_meta.mat'))
+    classes = loadmat(os.path.join(args.data_dir, 'cars_annos.mat'))
+    print('classes', classes)
     classes = [
         a[0].replace(' ', '_').replace('/', '-')
         for a in classes['class_names'][0]
@@ -291,7 +294,7 @@ def main(args):
     os.makedirs(os.path.join(args.save_dir, args.data_name), exist_ok=True)
     with open(os.path.join(args.save_dir, args.data_name, 'train.csv'),
               'w') as f:
-        f.write('title\tfilepath\n')
+        f.write('title\tfilepath\tlabel\n')
         for i, dir_name in enumerate(classes_in_dir):
             directory = os.path.join(args.data_dir, 'train', dir_name)
             for file in os.listdir(directory):
@@ -299,15 +302,17 @@ def main(args):
                 full_path = os.path.join(args.data_dir, 'train', dir_name,
                                          file)
                 for template in templates:
-                    f.write(f'{template(classes[i])}\t{full_path}\n')
+                    f.write(f'{template(classes[i])}\t{full_path}\t{i}\n')
 
 
 if __name__ == '__main__':
+    # dataset = torchvision.datasets.StanfordCars(root="/iris/u/cchoi1/Data", split="train", download=True)
+
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
     parser.add_argument('--save_dir', default='./datasets/csv')
     parser.add_argument('--data_dir', default='./datasets/data')
-    parser.add_argument('--data_name', default='StanfordCars')
+    parser.add_argument('--data_name', default='stanford-cars')
     args = parser.parse_args()
 
     args.data_dir = os.path.join(args.data_dir, args.data_name)

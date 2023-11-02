@@ -23,7 +23,7 @@ class LearnedLoss(nn.Module):
         if "ce" in self.losses:
             ce_loss = F.cross_entropy(logits, labels)
             losses.append(ce_loss)
-        if "entropy" in self.losses or "dcm" in self.losses:
+        if "dcm" in self.losses or "entropy" in self.losses:
             entropy_all = -(F.softmax(logits, dim=1) * F.log_softmax(logits, dim=1)).sum(dim=1)
         if "dcm" in self.losses:
             dcm_loss = ((logits.argmax(dim=1) != labels).float().detach() * entropy_all).mean()

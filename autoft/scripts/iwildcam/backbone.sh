@@ -6,7 +6,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:2 # Request one GPU
-#SBATCH --job-name="vitl14-transfer-iwildcam-autoft-flyp-10inner-500ep-1000ex" # Name the job (for easier monitoring)
+#SBATCH --job-name="vitl14-iwildcam-autoft-flyp-10inner-500ep-1000ex" # Name the job (for easier monitoring)
 #SBATCH --output=vitl14-transfer-iwildcam-autoft-flyp-10inner-500ep-1000ex.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail

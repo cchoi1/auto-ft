@@ -115,37 +115,6 @@ class ImageClassifier(torch.nn.Module):
         else:
             return utils.torch_load(filename)
 
-
-class ImageClassifierWithLanguage(torch.nn.Module):
-    def __init__(self,
-                 encoder,
-                 classification_head,
-                 process_images=True):
-        super().__init__()
-        self.encoder = encoder
-        self.classification_head = classification_head
-        self.process_images = process_images
-        if self.encoder is not None:
-            self.train_preprocess = self.encoder.train_preprocess
-            self.val_preprocess = self.encoder.val_preprocess
-
-    def forward(self, images, text=None):
-        image_features, text_features, logit_scale = self.encoder(images, text)
-        logits = self.classification_head(image_features)
-        return logits, image_features, text_features, logit_scale
-
-    def save(self, filename):
-        print(f'Saving image classifier to {filename}')
-        utils.torch_save(self, filename)
-
-    @classmethod
-    def load(cls, filename):
-        print(f'Loading image classifier from {filename}')
-        if "expts" in filename:
-            return torch.load(filename, map_location='cpu')["model_state"]
-        else:
-            return utils.torch_load(filename)
-
 class ImageClassifier_Norm(torch.nn.Module):
     def __init__(self,
                  image_encoder,

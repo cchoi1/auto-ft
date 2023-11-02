@@ -1,45 +1,52 @@
 import os
+
+import numpy as np
 import torch
 import torchvision
-import wilds
-
-from torchvision.datasets import CIFAR10 as PyTorchCIFAR10
-from wilds.common.data_loaders import get_train_loader, get_eval_loader
+from src.datasets.utils import SampledDataset
+from src.datasets.utils import split_validation_set
 
 
 class Caltech101:
-    test_subset = None
-
     def __init__(self,
                  preprocess,
+                 n_examples,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
-                 num_workers=16,
+                 num_workers=2,
                  subset='test',
-                 classnames=None,
                  **kwargs):
 
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        self.train_location = os.path.join(location, 'caltech-101', 'train')
-        self.train_dataset = torchvision.datasets.ImageFolder(
-            root=self.train_location, transform=preprocess)
-        self.train_loader = torch.utils.data.DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers)
+        self.n_examples = n_examples
 
-        self.test_location = os.path.join(location, 'caltech-101',
-                                          self.test_subset)
-        print("Loading Test Data from ", self.test_location)
-        self.test_dataset = torchvision.datasets.ImageFolder(
-            root=self.test_location, transform=preprocess)
-        self.test_loader = torch.utils.data.DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers)
+        if subset == 'train':
+            self.data_location = os.path.join(location, 'caltech-101', 'train')
+            self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+            print('len train dataset', len(self.dataset))
+        elif 'val' in subset:
+            self.data_location = os.path.join(location, 'caltech-101', 'val')
+            save_path = os.path.join(self.data_location, 'val_split_indices.npy')
+            dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+            self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
+            if subset == 'val_hopt':
+                self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
+                if self.n_examples > -1:
+                    if use_class_balanced:
+                        sampled_dataset = SampledDataset(self.dataset, "Caltech101ValHOpt", n_examples)
+                        self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
+                    else:
+                        indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                        self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            else:
+                self.dataset = torch.utils.data.Subset(dataset, self.val_early_stopping_indices)
+        elif subset == 'test':
+            self.data_location = os.path.join(location, 'caltech-101', 'test')
+            self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+        else:
+            raise ValueError(f'Subset must be one of "train", "val", or "test".')
+
+        print(f"Loading {subset} Data from ", self.data_location)
 
         self.classnames = [
             'off-center face',
@@ -145,14 +152,25 @@ class Caltech101:
             'yin and yang symbol'
         ]
 
+    def __len__(self):
+        return len(self.dataset)
 
-class Caltech101Val(Caltech101):
+class Caltech101Train(Caltech101):
     def __init__(self, *args, **kwargs):
-        self.test_subset = 'val'
+        kwargs['subset'] = 'train'
         super().__init__(*args, **kwargs)
 
+class Caltech101ValHOpt(Caltech101):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'val_hopt'
+        super().__init__(*args, **kwargs)
+
+class Caltech101ValEarlyStopping(Caltech101):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'val_early_stopping'
+        super().__init__(*args, **kwargs)
 
 class Caltech101Test(Caltech101):
     def __init__(self, *args, **kwargs):
-        self.test_subset = 'test'
+        kwargs['subset'] = 'test'
         super().__init__(*args, **kwargs)

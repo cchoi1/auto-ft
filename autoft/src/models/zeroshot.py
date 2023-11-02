@@ -91,8 +91,8 @@ def eval(args):
         print("args.save", args.save)
         classifier.save(args.save)
 
-    # evaluate(classifier, classification_head, args)
-    evaluate(classifier, args)
+    evaluate(classifier, classification_head, args)
+    # evaluate(classifier, args)
 
 
 if __name__ == '__main__':

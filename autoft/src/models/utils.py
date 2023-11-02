@@ -32,6 +32,12 @@ def test_metric_str(args):
         metric = "IWildCamOODTest:F1-macro_all"
     elif "FMOW" in args.id:
         metric = "FMOWOODTest:acc_worst_region"
+    elif "Caltech101" in args.id:
+        metric = "Caltech101Test:top1"
+    elif "Flowers102" in args.id:
+        metric = "Flowers102Test:top1"
+    elif "StanfordCars" in args.id:
+        metric = "StanfordCarsTest:top1"
     return metric
 
 
@@ -45,7 +51,13 @@ def val_metric_str(args):
     elif "sst2" in args.id:
         metric = "sst2ValEarlyStopping:top1"
     elif "PatchCamelyon" in args.id:
-        metric = "PatchCamelyonIDVal:top1"
+        metric = "PatchCamelyonValEarlyStopping:top1"
+    elif "Caltech101" in args.id:
+        metric = "Caltech101ValEarlyStopping:top1"
+    elif "Flowers102" in args.id:
+        metric = "Flowers102ValEarlyStopping:top1"
+    elif "StanfordCars" in args.id:
+        metric = "StanfordCarsValEarlyStopping:top1"
     return metric
 
 

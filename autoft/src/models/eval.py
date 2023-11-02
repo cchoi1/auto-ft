@@ -5,15 +5,19 @@ from src.models import utils
 
 def eval_single_dataset(image_classifier, classification_head, dataset, args):
     if args.freeze_encoder:
+        model = image_classifier.module.classification_head
         input_key = 'features'
+        image_enc = image_classifier.module.image_encoder
     else:
+        model = image_classifier
         input_key = 'images'
+        image_enc = None
 
-    image_classifier = image_classifier.cuda()
+    model = model.cuda()
     classification_head = classification_head.cuda()
-    image_classifier.eval()
+    model.eval()
     classification_head.eval()
-    dataloader = get_dataloader(dataset, is_train=False, args=args)
+    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
     batched_data = enumerate(dataloader)
 
     if hasattr(dataset, 'post_loop_metrics'):
@@ -35,7 +39,7 @@ def eval_single_dataset(image_classifier, classification_head, dataset, args):
             # image_features = encoder(x)
             # print(image_features)
             # logits = classification_head(image_features)
-            logits = utils.get_logits_encoder(x, image_classifier.module.image_encoder, classification_head)
+            logits = utils.get_logits_encoder(x, model.module.image_encoder, classification_head)
 
             projection_fn = getattr(dataset, 'project_logits', None)
             if projection_fn is not None:
