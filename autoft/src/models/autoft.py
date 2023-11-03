@@ -19,7 +19,7 @@ from src.models.utils import extract_from_data_parallel, set_seed, print_hparams
 logger = logging.getLogger('main')
 
 class HyperparameterSpace:
-    def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False, learn_lr_wd=True):
+    def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False, learn_lr_wd=True, relative_to_flyp=False):
         self.model = model
         self.losses = sorted(losses)
         self.dataset_name = dataset_name
@@ -27,17 +27,23 @@ class HyperparameterSpace:
         self.layerwise_loss = layerwise_loss
         self.layerwise_opt = layerwise_opt
         self.learn_lr_wd = learn_lr_wd
+        self.relative_to_flyp = relative_to_flyp
 
     def _base_loss_weight_space(self, trial, prefix):
         base_loss_weight_space = {}
-        if "ce" in self.losses:
+        if "ce" in self.losses and not self.relative_to_flyp:
             base_loss_weight_space[f"{prefix}lossw_ce"] = 1.0
-        # if "flyp" in self.losses:
-        #     base_loss_weight_space[f"{prefix}lossw_flyp"] = 1.0
-        for loss_type in self.losses:
-            if loss_type in ["dcm", "entropy", "hinge", "flyp"]:
-                base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
-                    f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
+            for loss_type in self.losses:
+                if loss_type in ["dcm", "entropy", "hinge", "flyp"]:
+                    base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
+                        f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
+        elif "flyp" in self.losses and self.relative_to_flyp:
+            base_loss_weight_space[f"{prefix}lossw_flyp"] = 1.0
+            for loss_type in self.losses:
+                if loss_type in ["ce", "dcm", "entropy", "hinge"]:
+                    base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
+                        f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
+
         return base_loss_weight_space
 
     def _base_norm_space(self, trial, prefix):
@@ -161,7 +167,7 @@ def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key,
     elif "FMOW" in args.id:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc_worst_region']
     elif "sst2" in args.id or "PatchCamelyon" in args.id:
-        all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['xent']
+        all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
     else:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
 
@@ -216,7 +222,7 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
                 learn_lr_wd = True
             hspace = HyperparameterSpace(model=model, losses=args.losses, dataset_name=args.id, orig_lr=args.lr,
                                         layerwise_loss=args.layerwise_loss, layerwise_opt=args.layerwise_opt,
-                                        learn_lr_wd=learn_lr_wd)
+                                        learn_lr_wd=learn_lr_wd, relative_to_flyp=args.relative_to_flyp)
             partial_hp_objective_fn = partial(hp_objective_fn, hspace=hspace)
 
             if args.optuna_sampler == "random":
@@ -230,8 +236,8 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
 
     if "ce" in args.losses and "lossw_ce" not in best_hparams.keys():
         best_hparams["lossw_ce"] = 1.0
-    # if "flyp" in args.losses and "lossw_flyp" not in best_hparams.keys():
-    #     best_hparams["lossw_flyp"] = 1.0
+    if "flyp" in args.losses and "lossw_flyp" not in best_hparams.keys():
+        best_hparams["lossw_flyp"] = 1.0
     loss_weights = get_loss_weights(hparams=best_hparams, layerwise=args.layerwise_loss)
     initial_params = [p for p in model.parameters()]
     loss_fn = LearnedLoss(losses=args.losses, loss_weights=loss_weights, initial_params=initial_params)

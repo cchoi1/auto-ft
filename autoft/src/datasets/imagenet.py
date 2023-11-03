@@ -75,21 +75,6 @@ class ImageNet:
     def populate_train(self):
         traindir = os.path.join(self.location, 'ImageNet/ILSVRC/Data/CLS-LOC', 'train')
         self.dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
-        if self.n_examples > -1:
-            if self.use_class_balanced:
-                self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples//self.num_classes)
-            else:
-                rand_idxs = torch.randperm(len(self.dataset))[:self.n_examples]
-                self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)
-
-        if self.custom:
-            self.dataset = CustomDataset(root=traindir, transform=self.preprocess)
-            if self.n_examples > -1:
-                if self.use_class_balanced:
-                    self.dataset = SampledDataset(self.dataset, num_samples_per_class=self.n_examples // self.num_classes)
-                else:
-                    rand_idxs = torch.randperm(len(self.dataset))[:self.n_examples]
-                    self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)
 
     def populate_test(self):
         self.dataset = self.get_test_dataset()
@@ -118,6 +103,7 @@ class ImageNet:
 
     def __str__(self):
         return "ImageNet"
+
 
 class ImageNetTrain(ImageNet):
     def get_test_dataset(self):

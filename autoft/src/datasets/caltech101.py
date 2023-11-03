@@ -19,6 +19,7 @@ class Caltech101:
                  **kwargs):
 
         self.n_examples = n_examples
+        self.n_classes = 101
 
         if subset == 'train':
             self.data_location = os.path.join(location, 'caltech-101', 'train')
@@ -31,9 +32,10 @@ class Caltech101:
             self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
             if subset == 'val_hopt':
                 self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
+                n_examples_per_class = self.n_examples // self.n_classes
                 if self.n_examples > -1:
                     if use_class_balanced:
-                        sampled_dataset = SampledDataset(self.dataset, "Caltech101ValHOpt", n_examples)
+                        sampled_dataset = SampledDataset(self.dataset, "Caltech101ValHOpt", n_examples_per_class)
                         self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
                     else:
                         indices = np.random.choice(len(self.dataset), n_examples, replace=False)

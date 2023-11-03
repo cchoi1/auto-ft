@@ -63,6 +63,7 @@ def parse_arguments():
     parser.add_argument("--clip_gradient", action="store_true")
     parser.add_argument("--no_lr_wd", action="store_true")
     parser.add_argument("--autoft_repeats", type=int, default=1)
+    parser.add_argument("--relative_to_flyp", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)

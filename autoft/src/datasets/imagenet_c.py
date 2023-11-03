@@ -41,6 +41,14 @@ class ImageNetC(ImageNet):
         )
 
     def populate_train(self):
+        if self.n_examples > -1:
+            if self.use_class_balanced:
+                sampled_dataset = SampledDataset(self.dataset, "Caltech101ValHOpt", self.n_examples)
+                self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
+            else:
+                indices = np.random.choice(len(self.dataset), self.n_examples, replace=False)
+                self.dataset = torch.utils.data.Subset(self.dataset, indices)
+
         if self.use_class_balanced:
             datasets = []
             for corruption in IMAGENET_CORRUPTIONS:
@@ -49,7 +57,7 @@ class ImageNetC(ImageNet):
 
                 if self.n_examples > -1:
                     num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                    dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class)
+                    dataset = SampledDataset(dataset, self.__str__(), self.n_examples)
             datasets.append(dataset)
             self.dataset = ConcatDataset(datasets)
         else:
@@ -58,24 +66,6 @@ class ImageNetC(ImageNet):
             if self.n_examples > -1:
                 rand_idxs = torch.randperm(len(self.dataset))[:self.n_examples]
                 self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)
-
-        if self.custom:
-            if self.use_class_balanced:
-                custom_datasets = []
-                for corruption in IMAGENET_CORRUPTIONS:
-                    traindir = os.path.join(self.location, 'ImageNet-C', corruption, str(self.severity))
-                    dataset = CustomDataset(root=traindir, transform=self.preprocess)
-                    if self.n_examples > -1:
-                        num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                        dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class=num_samples_per_class)
-                    custom_datasets.append(dataset)
-                self.dataset = ConcatDataset(custom_datasets)
-            else:
-                traindir = os.path.join(self.location, 'ImageNet-C', IMAGENET_CORRUPTIONS[0], str(self.severity))
-                self.dataset = CustomDataset(root=traindir, transform=self.preprocess)
-                if self.n_examples > -1:
-                    rand_idxs = torch.randperm(len(self.dataset))[:self.n_examples]
-                    self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)
 
     def get_test_path(self):
         test_path = os.path.join(self.location, 'ImageNet-C', IMAGENET_CORRUPTIONS[0], str(self.severity))

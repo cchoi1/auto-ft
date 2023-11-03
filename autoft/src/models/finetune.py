@@ -9,7 +9,7 @@ import torch
 from src.datasets.common import maybe_dictionarize, get_dataloader
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import evaluate, eval_single_batch_dataset
-from src.models.utils import cosine_lr, extract_from_data_parallel, val_metric_str
+from src.models.utils import cosine_lr, extract_from_data_parallel, val_metric_str, test_metric_str
 from src.models.zeroshot import get_zeroshot_classifier
 from torch.utils.data import SubsetRandomSampler
 
@@ -362,24 +362,24 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
     warmup_length = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
 
-    # Find the latest checkpoint and resume fine-tuning from there
-    start_epoch = 0
-    model_ckpt_path, model_latest_epoch = find_latest_checkpoint(save_dir=args.save)
-    opt_checkpoint, opt_latest_epoch = find_latest_checkpoint(save_dir=args.save, prefix="opt_")
-    latest_epoch = min(model_latest_epoch, opt_latest_epoch)
-    if model_ckpt_path:
-        try:
-            print(f"\nResuming from epoch {start_epoch} using model checkpoint {model_ckpt_path} and optimizer checkpoint {opt_checkpoint}...")
-            unwrapped_model = extract_from_data_parallel(model)
-            unwrapped_model.load(model_ckpt_path)
-            model = torch.nn.DataParallel(unwrapped_model).cuda()
-            optimizer.load_state_dict(opt_checkpoint)
-            scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
-            start_epoch = latest_epoch + 1
-        except:
-            print("\nFailed to load model checkpoint. Starting from epoch 0.")
-    else:
-        print("\nNo checkpoint found. Starting from epoch 0.")
+    # # Find the latest checkpoint and resume fine-tuning from there
+    # start_epoch = 0
+    # model_ckpt_path, model_latest_epoch = find_latest_checkpoint(save_dir=args.save)
+    # opt_checkpoint, opt_latest_epoch = find_latest_checkpoint(save_dir=args.save, prefix="opt_")
+    # latest_epoch = min(model_latest_epoch, opt_latest_epoch)
+    # if model_ckpt_path:
+    #     try:
+    #         print(f"\nResuming from epoch {start_epoch} using model checkpoint {model_ckpt_path} and optimizer checkpoint {opt_checkpoint}...")
+    #         unwrapped_model = extract_from_data_parallel(model)
+    #         unwrapped_model.load(model_ckpt_path)
+    #         model = torch.nn.DataParallel(unwrapped_model).cuda()
+    #         optimizer.load_state_dict(opt_checkpoint)
+    #         scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
+    #         start_epoch = latest_epoch + 1
+    #     except:
+    #         print("\nFailed to load model checkpoint. Starting from epoch 0.")
+    # else:
+    #     print("\nNo checkpoint found. Starting from epoch 0.")
 
     val_metrics = {}
     best_val_metric = -float('inf')

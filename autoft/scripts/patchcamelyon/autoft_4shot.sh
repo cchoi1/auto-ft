@@ -17,9 +17,36 @@ cd ../..
 
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
+#python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
+#--id PatchCamelyonTrain --ood PatchCamelyonValHOpt --k 4 --eval-datasets PatchCamelyonValEarlyStopping,PatchCamelyonTest \
+#--num_ood_hp_examples 8 --ft_epochs 20 --autoft_epochs 20 --inner_steps 20 \
+#--lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 0 --accumulation_steps 1 \
+#--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_patchcamelyon2.pt --template patchcamelyon_template \
+#--ft_data /iris/u/cchoi1/Data/patchcamelyon/train.csv \
+#--csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+#--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init --repeats 50 --autoft_repeats 5
+
 python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
 --id PatchCamelyonTrain --ood PatchCamelyonValHOpt --k 4 --eval-datasets PatchCamelyonValEarlyStopping,PatchCamelyonTest \
---num_ood_hp_examples 8 --ft_epochs 20 --autoft_epochs 20 --inner_steps 20 \
+--num_ood_hp_examples 8 --ft_epochs 20 --autoft_epochs 5 --inner_steps 1 \
+--lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 0 --accumulation_steps 1 \
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_patchcamelyon2.pt --template patchcamelyon_template \
+--ft_data /iris/u/cchoi1/Data/patchcamelyon/train.csv \
+--csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init --repeats 50 --autoft_repeats 5
+
+python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
+--id PatchCamelyonTrain --ood PatchCamelyonValHOpt --k 4 --eval-datasets PatchCamelyonValEarlyStopping,PatchCamelyonTest \
+--num_ood_hp_examples 8 --ft_epochs 20 --autoft_epochs 20 --inner_steps 5 \
+--lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 0 --accumulation_steps 1 \
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_patchcamelyon2.pt --template patchcamelyon_template \
+--ft_data /iris/u/cchoi1/Data/patchcamelyon/train.csv \
+--csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+--losses ce hinge entropy dcm flyp l1zero l2zero l1init l2init --repeats 50 --autoft_repeats 5
+
+python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
+--id PatchCamelyonTrain --ood PatchCamelyonValHOpt --k 4 --eval-datasets PatchCamelyonValEarlyStopping,PatchCamelyonTest \
+--num_ood_hp_examples 8 --ft_epochs 20 --autoft_epochs 50 --inner_steps 20 \
 --lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 0 --accumulation_steps 1 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_patchcamelyon2.pt --template patchcamelyon_template \
 --ft_data /iris/u/cchoi1/Data/patchcamelyon/train.csv \

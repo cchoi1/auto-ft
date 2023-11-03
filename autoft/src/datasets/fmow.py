@@ -23,6 +23,7 @@ class FMOW:
                  classnames=None,
                  **kwargs):
         self.n_examples = n_examples
+        self.n_classes = 62
         dataset = wilds.get_dataset(dataset='fmow', root_dir=location)
         if subset == 'train':
             self.dataset = dataset.get_subset('train', transform=preprocess)
@@ -37,7 +38,8 @@ class FMOW:
             if self.n_examples > -1:
                 collate_fn = self.dataset.collate
                 if use_class_balanced:
-                    sampled_dataset = SampledDataset(self.dataset, "FMOWOODVal", n_examples)
+                    n_examples_per_class = self.n_examples // self.n_classes
+                    sampled_dataset = SampledDataset(self.dataset, "FMOWOODVal", n_examples_per_class)
                     self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
                     self.dataset.collate = collate_fn
                 else:
