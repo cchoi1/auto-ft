@@ -41,14 +41,6 @@ class ImageNetC(ImageNet):
         )
 
     def populate_train(self):
-        if self.n_examples > -1:
-            if self.use_class_balanced:
-                sampled_dataset = SampledDataset(self.dataset, "Caltech101ValHOpt", self.n_examples)
-                self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
-            else:
-                indices = np.random.choice(len(self.dataset), self.n_examples, replace=False)
-                self.dataset = torch.utils.data.Subset(self.dataset, indices)
-
         if self.use_class_balanced:
             datasets = []
             for corruption in IMAGENET_CORRUPTIONS:
@@ -57,7 +49,7 @@ class ImageNetC(ImageNet):
 
                 if self.n_examples > -1:
                     num_samples_per_class = self.n_examples // (len(IMAGENET_CORRUPTIONS) * self.num_classes)
-                    dataset = SampledDataset(dataset, self.__str__(), self.n_examples)
+                    dataset = SampledDataset(dataset, self.__str__(), num_samples_per_class)
             datasets.append(dataset)
             self.dataset = ConcatDataset(datasets)
         else:

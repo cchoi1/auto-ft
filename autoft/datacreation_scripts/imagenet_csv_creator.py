@@ -11,7 +11,7 @@ import src.templates as templates
 
 template = getattr(templates, 'openai_imagenet_template')
 out = open(f"/iris/u/cchoi1/Data/csv/imagenet.csv", "w")
-out.write("title\tfilepath\n")
+out.write("title\tfilepath\tlabel\n")
 
 openai_classnames = [
     "tench", "goldfish", "great white shark", "tiger shark",
@@ -250,5 +250,5 @@ for i in range(1000):
         fp = os.path.join(curr_path, file)
         for t in template:
             caption = t(class_name)
-            out.write("%s\t%s\n" % (caption, fp))
+            out.write("%s\t%s\t%s\n" % (caption, fp, i))
 out.close()

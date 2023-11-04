@@ -26,4 +26,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --ft_data /iris/u/cchoi1/Data/caltech-101/train.csv --template caltech101_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_caltech101.pt \
---workers 2 --repeats 2
+--workers 2 --repeats 3

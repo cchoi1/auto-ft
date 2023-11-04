@@ -166,7 +166,9 @@ def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key,
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['F1-macro_all']
     elif "FMOW" in args.id:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc_worst_region']
-    elif "sst2" in args.id or "PatchCamelyon" in args.id:
+    elif "sst2" in args.id:
+        all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
+    elif "PatchCamelyon" in args.id and args.k is not None:
         all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
     else:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
@@ -249,7 +251,9 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
         print_every = 100
     else:
         print_every = 1
-    ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, fs_id_dataset, fs_val_dataset)
+
+    if "ImageNet" not in args.id:
+        ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, fs_id_dataset, fs_val_dataset)
 
     return {"model": ft_model, "val_metric": val_metric, "hparams": best_hparams}
 

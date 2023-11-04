@@ -384,7 +384,7 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
     val_metrics = {}
     best_val_metric = -float('inf')
     model.train()
-    for epoch in range(start_epoch, args.ft_epochs):
+    for epoch in range(0, args.ft_epochs):
         epoch_start_time = time.time()
         for i, batch in enumerate(dataloaders["id"]):
             start_time = time.time()

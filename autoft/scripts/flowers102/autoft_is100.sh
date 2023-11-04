@@ -19,7 +19,7 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
 python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
 --id Flowers102Train --ood Flowers102ValHOpt --eval-datasets Flowers102ValEarlyStopping,Flowers102Test \
---num_ood_hp_examples 1020 --ft_epochs 20 \
+--num_ood_hp_examples 1020 --use_class_balanced_ood --ft_epochs 20 \
 --autoft_epochs 500 --inner_steps 100 --lr 1e-5 --wd 0.1 \
 --batch-size 128 --accumulation_steps 2 --warmup_length 500 \
 --losses ce dcm flyp entropy hinge l1init l1zero l2init l2zero \
