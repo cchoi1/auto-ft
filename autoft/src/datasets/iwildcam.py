@@ -81,6 +81,18 @@ class IWildCam:
             print(f"Finished loading val set in {time.time() - start_time:.3f} seconds.")
         elif subset == 'id_val':
             self.dataset = dataset.get_subset('id_val', transform=preprocess)
+            if self.n_examples > -1:
+                collate_fn = self.dataset.collate
+                if use_class_balanced:
+                    n_examples_per_class = self.n_examples // self.n_classes
+                    print('n_examples_per_class', n_examples_per_class)
+                    sampled_dataset = SampledDataset(self.dataset, "IWildCamIDVal", n_examples_per_class)
+                    self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
+                    self.dataset.collate = collate_fn
+                else:
+                    indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                    self.dataset = torch.utils.data.Subset(self.dataset, indices)
+                    self.dataset.collate = collate_fn
             self.dataloader = get_eval_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif subset == 'id_test':
             self.dataset = dataset.get_subset('id_test', transform=preprocess)

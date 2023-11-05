@@ -57,7 +57,8 @@ class HyperparameterSpace:
         lr_upper_bound = 1e2 * self.orig_lr
         return {
             f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-            f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
+            f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 0.3, log=True)
+            # f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
         }
 
     def build_space(self, trial):
@@ -227,12 +228,14 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
                                         learn_lr_wd=learn_lr_wd, relative_to_flyp=args.relative_to_flyp)
             partial_hp_objective_fn = partial(hp_objective_fn, hspace=hspace)
 
+            pruner_kwargs = {'n_startup_trials': 5, 'n_warmup_steps': 30, 'interval_steps': 10}
+            pruner = optuna.pruners.MedianPruner(**pruner_kwargs)
             if args.optuna_sampler == "random":
                 print(f"Using random sampler for optuna")
-                study = optuna.create_study(sampler=optuna.samplers.RandomSampler(seed=args.seed), direction="minimize")
+                study = optuna.create_study(sampler=optuna.samplers.RandomSampler(seed=args.seed), direction="minimize", pruner=pruner)
             else:
                 print(f"Using default TPE sampler for optuna, option={args.optuna_sampler}")
-                study = optuna.create_study(direction="minimize")
+                study = optuna.create_study(direction="minimize", pruner=pruner)
             study.optimize(partial_hp_objective_fn, n_trials=max_evals, callbacks=[clear_memory])
             best_hparams = study.best_params
 

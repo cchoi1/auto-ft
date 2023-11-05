@@ -16,7 +16,7 @@ class LearnedLoss(nn.Module):
         self.param_sum = sum(param.numel() for param in initial_params)
         self.device = initial_params[0].device
         self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=self.device,
-                                     world_size=len(devices), use_horovod=False)
+                                     world_size=1, use_horovod=False)
 
     def forward(self, model, logits, labels, image_features, text_features=None, logit_scale=None, unlabeled_image_features=None, pseudolabels=None):
         losses = []

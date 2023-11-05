@@ -13,6 +13,7 @@ class SampledDataset(Dataset):
 
     def __init__(self, dataset, dataset_name, num_samples_per_class, save_dir="/iris/u/cchoi1/robust-optimizer/Data"):
         self.dataset = dataset
+        self.dataset_name = dataset_name
         os.makedirs(save_dir, exist_ok=True)
         indices_file = f"{dataset_name}_sample_indices_{num_samples_per_class}.json"
         if dataset_name == "IWildCamTrain":
@@ -40,6 +41,9 @@ class SampledDataset(Dataset):
         return len(self.indices)
 
     def get_indices(self, num_samples_per_class):
+        if "iWildCamTrain" in self.dataset_name:
+            return self.get_indices2(self.dataset, num_samples_per_class)
+
         first_item = self.dataset[0]
         if isinstance(first_item, tuple):
             # Old format: Tuple format (image, label, text)
@@ -62,6 +66,50 @@ class SampledDataset(Dataset):
             else:
                 sampled_indices_class = np.random.choice(class_indices, num_samples_per_class, replace=False)
             sampled_indices.append(sampled_indices_class)
+
+        indices = np.concatenate(sampled_indices)
+        np.random.shuffle(indices)
+
+        return indices.tolist()
+
+    def get_indices2(self, dataset, num_samples_per_class):
+        first_item = self.dataset[0]
+        if isinstance(first_item, tuple):
+            # Old format: Tuple format (image, label, text)
+            if len(first_item) == 3:
+                targets = np.array([label for _, label, _ in self.dataset])
+            elif len(first_item) == 2:
+                targets = np.array([label for _, label in self.dataset])
+        elif isinstance(first_item, dict) and 'labels' in first_item:
+            # New format: Dictionary with keys 'images', 'labels', etc.
+            targets = np.array([item['labels'] for item in dataset])
+        else:
+            raise ValueError("Unsupported dataset format.")
+
+        unique_classes = np.unique(targets)
+        total_deficit = 0
+        class_deficits = []
+        sampled_indices = []
+
+        # First pass: sample without replacement and track deficits
+        for cls in unique_classes:
+            class_indices = np.where(targets == cls)[0]
+            if num_samples_per_class <= len(class_indices):
+                sampled_indices_class = np.random.choice(class_indices, num_samples_per_class, replace=False)
+                sampled_indices.append(sampled_indices_class)
+                class_deficits.append(0)
+            else:
+                sampled_indices_class = class_indices  # take all available indices
+                sampled_indices.append(sampled_indices_class)
+                deficit = num_samples_per_class - len(class_indices)
+                class_deficits.append(deficit)
+                total_deficit += deficit
+
+        # Second pass: redistribute deficits across other classes
+        if total_deficit > 0:
+            remaining_indices = [idx for cls_indices in sampled_indices for idx in cls_indices]
+            additional_indices = np.random.choice(remaining_indices, total_deficit, replace=True)
+            sampled_indices.append(additional_indices)
 
         indices = np.concatenate(sampled_indices)
         np.random.shuffle(indices)

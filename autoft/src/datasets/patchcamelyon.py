@@ -1,15 +1,18 @@
-import glob
 import os
 
 import numpy as np
 import torch
 import torchvision
-from PIL import Image
+from src.datasets.utils import SampledDataset
 from src.datasets.utils import split_validation_set
+
 
 class PatchCamelyon:
     def __init__(self,
                  preprocess,
+                 train=None,
+                 n_examples=-1,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
                  num_workers=2,
@@ -22,6 +25,7 @@ class PatchCamelyon:
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.k = k
+        self.n_examples = n_examples
 
         # Load data based on the subset argument
         if subset == 'train':
@@ -37,6 +41,17 @@ class PatchCamelyon:
             self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
             if subset == 'val_hopt':
                 self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
+                if self.n_examples > -1:
+                    collate_fn = self.dataset.collate
+                    if use_class_balanced:
+                        n_examples_per_class = self.n_examples // self.n_classes
+                        sampled_dataset = SampledDataset(self.dataset, "IWildCamOODVal", n_examples_per_class)
+                        self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
+                        self.dataset.collate = collate_fn
+                    else:
+                        indices = np.random.choice(len(self.dataset), n_examples, replace=False)
+                        self.dataset = torch.utils.data.Subset(self.dataset, indices)
+                        self.dataset.collate = collate_fn
             else:
                 self.dataset = torch.utils.data.Subset(dataset, self.val_early_stopping_indices)
         elif subset == 'test':

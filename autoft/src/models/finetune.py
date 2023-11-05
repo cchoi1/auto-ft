@@ -183,7 +183,6 @@ def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders,
     time_counter = defaultdict(list)
 
     warmup_steps = args.warmup_length * args.accumulation_steps
-    scheduler = cosine_lr(optimizer, args.lr, warmup_steps, args.inner_steps)
     if len(args.inner_loop_val_steps) == 0:
         num_steps = args.inner_steps * args.accumulation_steps
     else:
@@ -195,7 +194,6 @@ def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders,
     for step, batch in enumerate(dataloaders["id"]):
         if step >= num_steps:
             break
-        scheduler(step)
 
         batch = maybe_dictionarize(batch)
         images, labels, text = batch[input_key].cuda(), batch['labels'].cuda(), None
