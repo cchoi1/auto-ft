@@ -432,10 +432,13 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
 
         # Evaluate
         # eval_results = evaluate(model.module, args)
-        with torch.no_grad():
-            classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
-            classification_head = classification_head.cuda()
-            eval_results = evaluate(model, classification_head, args)
+        if not args.no_regenerate_head:
+            with torch.no_grad():
+                classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
+                classification_head = classification_head.cuda()
+        else:
+            classification_head = model.module.classification_head
+        eval_results = evaluate(model, classification_head, args)
         val_metrics[epoch] = eval_results
         curr_val_metric = eval_results[val_metric_str(args)]
         if curr_val_metric > best_val_metric:

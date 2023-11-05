@@ -24,4 +24,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt --template iwildcam_template \
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --clip_gradient --no_regenerate_head
+--losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --clip_gradient --relative_to_flyp --no_regenerate_head

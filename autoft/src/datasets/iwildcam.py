@@ -151,7 +151,10 @@ class IWildCamIDVal(IWildCam):
 
     def post_loop_metrics(self, labels, preds, metadata, args):
         preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
-        results = self.dataset.eval(preds, labels, metadata)
+        if isinstance(self.dataset, SampledDataset) or isinstance(self.dataset, torch.utils.data.Subset):
+            results = self.dataset.dataset.eval(preds, labels, metadata)
+        else:
+            results = self.dataset.eval(preds, labels, metadata)
         return results[0]
 
 class IWildCamIDTest(IWildCam):

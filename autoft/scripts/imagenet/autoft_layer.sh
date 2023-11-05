@@ -6,6 +6,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64GB # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
+#SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
 #SBATCH --job-name="imagenet-autoft-layer" # Name the job (for easier monitoring)
 #SBATCH --output=imagenet-autoft-layer.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
@@ -25,4 +26,5 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --load ./zeroshot/clip_vitb16_imagenet2.pt \
 --ft_data /iris/u/cchoi1/Data/csv/imagenet.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template
+--losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
+--num_workers 8

@@ -55,11 +55,16 @@ class HyperparameterSpace:
     def _base_lr_wd_space(self, trial, prefix):
         lr_lower_bound = 1e-2 * self.orig_lr
         lr_upper_bound = 1e2 * self.orig_lr
-        return {
-            f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-            f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 0.3, log=True)
-            # f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
-        }
+        if self.layerwise_opt:
+            return {
+                f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
+                f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
+            }
+        else:
+            return {
+                f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
+                f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 0.3, log=True)
+            }
 
     def build_space(self, trial):
         # Global hyperparameters: loss weights, seed, batch size
