@@ -255,8 +255,8 @@ def main(args):
         print(f"\nRun {i + 1} / {args.repeats}")
         model, preprocess_fn = initialize_model(args)
         if not args.eval_only:
-            ft_model, val_metric = train(args, model, preprocess_fn)
-        test_metric = test(ft_model, args)
+            model, val_metric = train(args, model, preprocess_fn)
+        test_metric = test(model, args)
         test_metrics.append(test_metric)
         print(f"Run {i + 1}. \n\tVal metric: {val_metric} \n\tTest metric: {test_metric}"
               f"\n\tTest metrics thus far: {test_metrics}")

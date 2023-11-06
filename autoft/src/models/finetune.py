@@ -177,12 +177,11 @@ def inner_finetune_fewshot(args, model, loss_fn, optimizer, ood_hp_dataset, fs_i
     return model, val_metrics
 
 
-def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset, fs_id_dataset=None, fs_val_dataset=None):
+def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset):
     torch.cuda.synchronize()
     fn_start = time.time()
     time_counter = defaultdict(list)
 
-    warmup_steps = args.warmup_length * args.accumulation_steps
     if len(args.inner_loop_val_steps) == 0:
         num_steps = args.inner_steps * args.accumulation_steps
     else:
@@ -203,12 +202,14 @@ def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders,
 
         torch.cuda.synchronize()
         start = time.time()
-        # if args.unlabeled_id is not None:
-        #     unlabeled_batch = next(iter(dataloaders["id_unlabeled"]))
-        #     unlabeled_batch = maybe_dictionarize(unlabeled_batch)
-        #     image, text = unlabeled_batch[input_key].cuda(), unlabeled_batch['metadata']
-        #     unlabeled_logits, image_features, text_features, logit_scale = model(image, text)
-        #     pseudolabels = unlabeled_logits.argmax(dim=-1)
+        unlabeled_logits = None
+        if dataloaders["unlabeled"] is not None:
+            unlabeled_batch = next(iter(dataloaders["unlabeled"]))
+            unlabeled_batch = maybe_dictionarize(unlabeled_batch)
+            image = unlabeled_batch[input_key].cuda()
+            unlabeled_logits, unlabeled_image_features, _, _ = model(image)
+            pseudolabels = unlabeled_logits.argmax(dim=-1)
+            unlabeled_logits = torch.cat((logits, unlabeled_logits), dim=0)
         torch.cuda.synchronize()
         time_counter["inner_step"].append(time.time() - start)
 
@@ -217,11 +218,11 @@ def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders,
                 ls = logit_scale[0]
             except Exception:
                 ls = logit_scale
-            loss = loss_fn(model, logits, labels, image_features, text_features, ls)
+            loss = loss_fn(model, logits, labels, image_features, text_features, ls, unlabeled_logits)
         else:
             loss = loss_fn(logits, labels)
-            # if args.unlabeled_id is not None:
-            #     loss += loss_fn(unlabeled_logits, pseudolabels)
+            if args.unlabeled_id is not None:
+                loss += loss_fn(unlabeled_logits, pseudolabels)
         loss = loss / args.accumulation_steps
 
         torch.cuda.synchronize()
@@ -394,22 +395,24 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
             if args.ft_data is not None and 'metadata' in batch.keys():
                 text = batch['metadata'].cuda()
             logits, image_features, text_features, logit_scale = model(images, text)
+            unlabeled_logits = None
             if dataloaders["unlabeled"] is not None:
                 unlabeled_batch = next(iter(dataloaders["unlabeled"]))
                 unlabeled_batch = maybe_dictionarize(unlabeled_batch)
-                image, text = unlabeled_batch[input_key].cuda(), unlabeled_batch['metadata']
-                unlabeled_logits, unlabeled_image_features, text_features, logit_scale = model(image, text)
+                image = unlabeled_batch[input_key].cuda()
+                unlabeled_logits, unlabeled_image_features, _, _ = model(image)
                 pseudolabels = unlabeled_logits.argmax(dim=-1)
+                unlabeled_logits = torch.cat((logits, unlabeled_logits), dim=0)
             if isinstance(loss_fn, LearnedLoss):
                 try:
                     ls = logit_scale[0]
                 except Exception:
                     ls = logit_scale
-                loss = loss_fn(model, logits, labels, image_features, text_features, ls)
+                loss = loss_fn(model, logits, labels, image_features, text_features, ls, unlabeled_logits)
             else:
                 loss = loss_fn(logits, labels)
-                # if args.unlabeled_id is not None:
-                #     loss += loss_fn(unlabeled_logits, pseudolabels)
+                if args.unlabeled_id is not None:
+                    loss += loss_fn(unlabeled_logits, pseudolabels)
             loss = loss / args.accumulation_steps
             loss.backward()
             if args.clip_gradient:

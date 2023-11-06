@@ -18,10 +18,12 @@ class LearnedLoss(nn.Module):
         self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=self.device,
                                      world_size=1, use_horovod=False)
 
-    def forward(self, model, logits, labels, image_features, text_features=None, logit_scale=None, unlabeled_image_features=None, pseudolabels=None):
+    def forward(self, model, logits, labels, image_features, text_features=None, logit_scale=None, unlabeled_logits=None, pseudolabels=None):
         losses = []
         if "ce" in self.losses:
             ce_loss = F.cross_entropy(logits, labels)
+            if unlabeled_logits is not None and pseudolabels is not None:
+                ce_loss += F.cross_entropy(unlabeled_logits, pseudolabels)
             losses.append(ce_loss)
         if "dcm" in self.losses or "entropy" in self.losses:
             entropy_all = -(F.softmax(logits, dim=1) * F.log_softmax(logits, dim=1)).sum(dim=1)
@@ -61,10 +63,6 @@ class LearnedLoss(nn.Module):
             del l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum
             torch.cuda.empty_cache()
 
-        if unlabeled_image_features is not None and pseudolabels is not None:
-            unlabeled_logits = model.classification_head(unlabeled_image_features)
-            unlabeled_ce_loss = F.cross_entropy(unlabeled_logits, pseudolabels)
-            losses.append(unlabeled_ce_loss)
         losses = torch.matmul(self.loss_weights, torch.stack(losses))
 
         return losses.mean()

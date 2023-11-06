@@ -43,7 +43,6 @@ class HyperparameterSpace:
                 if loss_type in ["ce", "dcm", "entropy", "hinge"]:
                     base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
                         f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
-
         return base_loss_weight_space
 
     def _base_norm_space(self, trial, prefix):
@@ -175,7 +174,8 @@ def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key,
     elif "sst2" in args.id:
         all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
     elif "PatchCamelyon" in args.id and args.k is not None:
-        all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
+        # all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
+        all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
     else:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
 
@@ -260,8 +260,7 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
     else:
         print_every = 1
 
-    if "ImageNet" not in args.id:
-        ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, fs_id_dataset, fs_val_dataset)
+    ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, fs_id_dataset, fs_val_dataset)
 
     return {"model": ft_model, "val_metric": val_metric, "hparams": best_hparams}
 

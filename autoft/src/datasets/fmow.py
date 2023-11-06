@@ -29,7 +29,7 @@ class FMOW:
             self.dataset = dataset.get_subset('train', transform=preprocess)
             self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif "unlabeled" in subset:
-            dataset = wilds.get_dataset(dataset='fmow', unlabeled=True, root_dir=location)
+            dataset = wilds.get_dataset(dataset='fmow', unlabeled=True, root_dir=location, download=True)
             self.dataset = dataset.get_subset('train_unlabeled', transform=preprocess)
             self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif subset == 'val':
