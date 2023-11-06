@@ -5,6 +5,8 @@ ckpts/
 **/wandb/
 mnist/data/**
 autoft/logs/
+autoft/saved/**/*.pt
+autoft/saved/**/*.json
 hparams.json
 
 # Byte-compiled / optimized / DLL files
