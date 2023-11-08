@@ -61,13 +61,16 @@ def evaluate_net(net, dataloader, dataset, args):
     total_samples = 0
     all_labels, all_preds, all_metadata = [], [], []
 
+    if args.regenerate_head:
+        net.module.classification_head = get_zeroshot_classifier(args, net.module.image_encoder.model)
+
     net = net.cuda()
     net.eval()
     for batch in dataloader:
+
         data = maybe_dictionarize(batch)
         x = data['images'].cuda()
         y = data['labels'].cuda()
-
         outputs, _, _, _ = net(x)
 
         if (y == -1).any():  # Handle unlabeled parts of the batch
@@ -112,19 +115,11 @@ def evaluate_net_fewshot(net, dataset, args):
     total_samples = 0
     all_labels, all_preds, all_metadata = [], [], []
 
-    # net = net.cuda()
-    # net.eval()
-    # x, y = dataset
-    # x, y = x.cuda(), y.cuda()
-    # outputs, _, _, _ = net(x)
-    image_encoder = net.module.image_encoder.model
-    image_encoder = image_encoder.cuda()
-    image_encoder.eval()
-    classification_head = get_zeroshot_classifier(args, image_encoder)
-    classification_head = classification_head.cuda()
-    classification_head.eval()
+    net = net.cuda()
+    net.eval()
     x, y = dataset
     x, y = x.cuda(), y.cuda()
+    outputs, _, _, _ = net(x)
     predictions = outputs.argmax(dim=1)
     correct = (predictions == y).sum().item()
     total_correct += correct

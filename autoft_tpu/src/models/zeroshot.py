@@ -1,18 +1,12 @@
-import os
 import torch
 from tqdm import tqdm
 
-import numpy as np
-
 import clip.clip as clip
-
-import src.templates as templates
 import src.datasets as datasets
-
+import src.templates as templates
 from src.args import parse_arguments
-from src.models.modeling import ClassificationHead, CLIPEncoder, ImageClassifier, ImageEncoder
 from src.models.eval import evaluate
-
+from src.models.modeling import ClassificationHead, ImageClassifier, ImageEncoder
 
 
 def get_zeroshot_classifier(args, clip_model):

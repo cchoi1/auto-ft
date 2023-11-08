@@ -1,27 +1,40 @@
 import json
 import logging
 import os
-import time
 import re
+import time
 
-import src.datasets as datasets
-import src.losses as losses
 import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
 import torch_xla.distributed.xla_multiprocessing as xmp
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
+import src.datasets as datasets
+import src.losses as losses
 from src.args import parse_arguments
 from src.datasets.common import collate_fn_for_imagenet, collate_fn_for_cifar, FeatureDataset
 from src.datasets.common import get_dataloader, maybe_dictionarize
-from src.datasets.utils import UnlabeledDatasetWrapper
 from src.logger import setup_logging
 from src.losses.layerwiseloss import LayerwiseLoss
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import _mp_evaluate
+from src.models.modeling import ImageClassifier
 from src.models.utils import cosine_lr
-from src.models.utils import initialize_model
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
+
+
+def initialize_model(args):
+    image_classifier = ImageClassifier.load(args.load)
+    if args.freeze_encoder:
+        model = image_classifier.classification_head
+        preprocess_fn = image_classifier.val_preprocess
+    else:
+        model = image_classifier
+        preprocess_fn = image_classifier.train_preprocess
+        image_classifier.process_images = True
+
+    return model, preprocess_fn
 
 
 def get_datasets(args, preprocess_fn):
@@ -104,8 +117,6 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     return dataloader
 
 def create_optimizer(model, hparams, layerwise=False):
-    model = extract_from_data_parallel(model)
-    assert isinstance(model, ImageClassifier), "Expected model to be an instance of ImageClassifier"
     if layerwise:
         layerwise_params = []
         layer_idx = 0

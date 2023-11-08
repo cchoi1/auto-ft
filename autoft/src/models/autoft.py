@@ -173,13 +173,13 @@ def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key,
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc_worst_region']
     elif "sst2" in args.id:
         all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
-    elif "Flowers" in args.id:
-        all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
     elif "PatchCamelyon" in args.id and args.k is not None:
         all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
-        # all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
     else:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
+
+    if args.xent_meta_objective:
+        all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
 
     return all_metrics
 

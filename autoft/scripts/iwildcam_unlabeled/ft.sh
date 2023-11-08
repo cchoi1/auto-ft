@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="iwildcam-unlabeled-flyp" # Name the job (for easier monitoring)
-#SBATCH --output=iwildcam-unlabeled-flyp.log  # Name of the output log file
+#SBATCH --job-name="iwildcam-unlabeled-ft" # Name the job (for easier monitoring)
+#SBATCH --output=iwildcam-unlabeled-ft.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -24,4 +24,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt \
 --template iwildcam_template --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---losses flyp --clip_gradient
+--losses ce --clip_gradient

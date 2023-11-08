@@ -37,18 +37,6 @@ def print_train_update(device, tracker, loss, step, total_steps, epoch=None):
   ]
   xm.master_print('|', ' '.join(item for item in update_data if item), flush=True)
 
-def initialize_model(args):
-    image_classifier = ImageClassifier.load(args.load)
-    if args.freeze_encoder:
-        model = image_classifier.classification_head
-        preprocess_fn = image_classifier.val_preprocess
-    else:
-        model = image_classifier
-        preprocess_fn = image_classifier.train_preprocess
-        image_classifier.process_images = True
-
-    return model, preprocess_fn
-
 def setup_dataloader(dataloader, device):
     """Configure the dataloader for multi-core TPU or multi-GPU if available."""
     if is_tpu_available():
