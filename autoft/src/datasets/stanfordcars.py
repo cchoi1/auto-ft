@@ -2,7 +2,7 @@ import os
 import numpy as np
 import torch
 import torchvision
-from src.datasets.utils import split_validation_set
+from src.datasets.utils import split_validation_set, SampledDataset
 
 
 class StanfordCars:
@@ -18,25 +18,30 @@ class StanfordCars:
 
         self.n_examples = n_examples
         self.n_classes = 196
-        self.data_location = os.path.join(location, 'StanfordCars', subset)
         self.batch_size = batch_size
         self.num_workers = num_workers
 
         if subset == 'train':
+            self.data_location = os.path.join(location, 'stanford-cars', 'train')
             self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
             print('len train dataset', len(self.dataset))
         elif 'val' in subset:
+            self.data_location = os.path.join(location, 'stanford-cars', 'val')
             save_path = os.path.join(self.data_location, 'val_split_indices.npy')
             dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
             self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
             if subset == 'val_hopt':
-                self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
-                if self.n_examples > -1:  # assuming n_examples=-1 means no sampling
-                    indices = np.random.choice(len(self.dataset), self.n_examples, replace=False)
-                    self.dataset = torch.utils.data.Subset(self.dataset, indices)
+                if self.n_examples > -1:
+                    if use_class_balanced:
+                        sampled_dataset = SampledDataset(dataset, "StanfordCarsValHOpt", n_examples)
+                        self.dataset = torch.utils.data.Subset(dataset, sampled_dataset.indices)
+                    else:
+                        indices = np.random.choice(len(dataset), n_examples, replace=False)
+                        self.dataset = torch.utils.data.Subset(dataset, indices)
             else:
                 self.dataset = torch.utils.data.Subset(dataset, self.val_early_stopping_indices)
         elif subset == 'test':
+            self.data_location = os.path.join(location, 'stanford-cars', 'test')
             self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
         else:
             raise ValueError(f'Subset must be one of "train", "val_hopt", "val_early_stopping", or "test".')

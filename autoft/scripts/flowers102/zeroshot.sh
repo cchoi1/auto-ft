@@ -3,4 +3,5 @@ python3 src/models/zeroshot.py --method autoft --model ViT-B/16 --data-location 
 --num_ood_hp_examples 1000 --ft_epochs 20 \
 --autoft_epochs 500 --inner_steps 10 --lr 1e-5 --wd 0.1 \
 --batch-size 256 --warmup_length 500 \
---template flowers102_template --save ./zeroshot/clip_vitb16_flowers102.pt
+--template flowers102_template --save ./zeroshot/clip_vitb16_flowers102.pt \
+--losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero
