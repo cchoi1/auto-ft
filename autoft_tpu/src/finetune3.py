@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 import re
@@ -40,22 +41,28 @@ def get_sampler(dataset, train):
     return sampler
 
 
-def get_loss_weights(hyperparams, loss_type, num_losses=None):
-    if loss_type == "LayerwiseLoss":
-        loss_weight_keys = [k for k in hyperparams.keys() if "lossw" in k]
+def get_loss_weights(hparams, layerwise):
+    global_loss_weight_keys = [k for k in sorted(hparams.keys()) if "lossw" in k and "_lossw" not in k]
+    global_loss_weights = torch.tensor([hparams[k] for k in global_loss_weight_keys])
+    if layerwise:
+        layerwise_loss_weight_keys = [k for k in hparams.keys() if "_lossw" in k]
+        layerwise_loss_weight_keys = sorted(layerwise_loss_weight_keys,
+                                            key=lambda x: (int(x.split("_")[0]), x.split("_")[2]))
         layer_idx = 0
         layer_loss_weights = []
         loss_weights = []
-        for k in loss_weight_keys:
+        for k in layerwise_loss_weight_keys:
             if int(k.split("_")[0]) == layer_idx:
-                layer_loss_weights.append(hyperparams[k])
+                layer_loss_weights.append(hparams[k])
             else:
                 loss_weights.append(torch.tensor(layer_loss_weights))
-                layer_loss_weights = [hyperparams[k]]
+                layer_loss_weights = [hparams[k]]
                 layer_idx += 1
+        layerwise_loss_weights = torch.stack(loss_weights)
+        global_loss_weights = global_loss_weights.expand(layerwise_loss_weights.shape[0], -1)
+        loss_weights = torch.cat([global_loss_weights, layerwise_loss_weights], dim=1)
     else:
-        assert num_losses is not None
-        loss_weights = torch.tensor([hyperparams[f"lossw_{i}"] for i in range(num_losses)])
+        loss_weights = global_loss_weights
     return loss_weights
 
 def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
@@ -96,8 +103,10 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     dataloader = pl.MpDeviceLoader(dataloader, device, loader_prefetch_size=args.loader_prefetch_size, device_prefetch_size=args.device_prefetch_size)
     return dataloader
 
-def create_optimizer(model, hyperparams, loss_type):
-    if loss_type == "LayerwiseLoss":
+def create_optimizer(model, hparams, layerwise=False):
+    model = extract_from_data_parallel(model)
+    assert isinstance(model, ImageClassifier), "Expected model to be an instance of ImageClassifier"
+    if layerwise:
         layerwise_params = []
         layer_idx = 0
         # Extract layers from the image_encoder (CLIPEncoder) of the model
@@ -106,8 +115,8 @@ def create_optimizer(model, hyperparams, loss_type):
                 for sub_module in [module.visual.conv1, module.visual.ln_pre, *module.visual.transformer.resblocks]:
                     params_for_layer = {
                         'params': sub_module.parameters(),
-                        'lr': hyperparams[f"{layer_idx}_lr"],
-                        'weight_decay': hyperparams[f"{layer_idx}_wd"]
+                        'lr': hparams[f"{layer_idx}_lr"],
+                        'weight_decay': hparams[f"{layer_idx}_wd"]
                     }
                     layerwise_params.append(params_for_layer)
                     layer_idx += 1
@@ -115,20 +124,17 @@ def create_optimizer(model, hyperparams, loss_type):
         # Classification head of the model
         params_for_layer = {
             'params': model.classification_head.parameters(),
-            'lr': hyperparams[f"{layer_idx}_lr"],
-            'weight_decay': hyperparams[f"{layer_idx}_wd"]
+            'lr': hparams[f"{layer_idx}_lr"],
+            'weight_decay': hparams[f"{layer_idx}_wd"]
         }
         layerwise_params.append(params_for_layer)
         optimizer = torch.optim.AdamW(layerwise_params)
     else:
-        optimizer = torch.optim.AdamW(model.parameters(), lr=hyperparams["lr"], weight_decay=hyperparams["wd"])
+        if "lr" not in hparams.keys() and "wd" not in hparams.keys():
+            hparams["lr"] = 1e-5
+            hparams["wd"] = 0.2
+        optimizer = torch.optim.AdamW(model.parameters(), lr=hparams["lr"], weight_decay=hparams["wd"])
     return optimizer
-
-# def _run2(index, args):
-#     device = xm.xla_device()
-#     model, preprocess_fn = initialize_model(args)
-#     model = model.to(device)
-#     _mp_evaluate(index, model, args)
 
 def _run(index, args):
     start_time = time.time()
@@ -227,13 +233,13 @@ def _run(index, args):
             }, ckpt_save_path)
             xm.master_print(f"Saved optimizer and scheduler to {ckpt_save_path}")
         # Evaluate
-        if args.id != "CIFAR10":
-            _mp_evaluate(index, model, args)
+        _mp_evaluate(index, model, args)
         xm.master_print(f"Finished training epoch: {epoch + 1} | Time: {time.time() - start_time} s")
 
 
 def main(args):
-    logger = setup_logging(args)
+    logger = logging.getLogger('main')
+    logger = setup_logging(args, logger)
     logger.info(args)
     xmp.spawn(_run, args=(args,), nprocs=8, start_method='spawn')
 

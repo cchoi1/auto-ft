@@ -3,19 +3,21 @@ import argparse
 
 import torch
 
-
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", type=str, choices=["autoft", "autoft2", "ft-id", "ft-id-ood", "zeroshot", "flyp"])
+    parser.add_argument("--method", type=str, choices=["autoft", "ft-id", "ft-id-ood", "zeroshot", "flyp"])
 
     # Datasets
-    parser.add_argument("--data-location", type=str, default=os.path.expanduser('~/robust-ft'),
+    parser.add_argument("--data-location", type=str, default=os.path.expanduser('~/data'),
                         help="The root directory for the datasets.")
     parser.add_argument("--id", default=None, type=str)
     parser.add_argument("--num_id_examples", default=-1, type=int)
+    parser.add_argument("--unlabeled_id", default=None, type=str)
+    parser.add_argument("--num_id_unlabeled_examples", default=None, type=int)
     parser.add_argument("--num_id_val_examples", default=-1, type=int)
     parser.add_argument("--ood", default=None, type=str)
     parser.add_argument("--num_ood_hp_examples", default=-1, type=int)
+    parser.add_argument("--val_mini_batch_size", default=None, type=int)
     parser.add_argument("--num_ood_unlabeled_examples", default=None, type=int)
     parser.add_argument("--eval-datasets", default=None, type=lambda x: x.split(","),
         help="Which datasets to use for evaluation. Split by comma, e.g. CIFAR101,CIFAR102."
@@ -29,9 +31,12 @@ def parse_arguments():
     # Training
     parser.add_argument("--model", type=str, default=None, help="The type of model (e.g. RN50, ViT-B/32).")
     parser.add_argument("--num_classes", type=int, default=1000)
-    parser.add_argument("--num_losses", type=int, default=8)
-    parser.add_argument("--loss_type", type=str, choices=["LearnedLoss", "LayerwiseLoss"], default="LearnedLoss")
-    parser.add_argument("--pointwise_loss", action="store_true")
+    parser.add_argument("--losses",
+                        help="list of losses to use",
+                        nargs="+",
+                        choices=["ce", "hinge", "entropy", "dcm", "flyp", "l1zero", "l2zero", "l1init", "l2init"])
+    parser.add_argument("--layerwise_loss", action="store_true")
+    parser.add_argument("--layerwise_opt", action="store_true")
     parser.add_argument("--load_hparams", type=str, help="Path to hyperparameters to load.")
     parser.add_argument("--ft_epochs", type=int, default=10)
     parser.add_argument("--autoft_epochs", type=int, default=10)
@@ -41,17 +46,24 @@ def parse_arguments():
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--wd", type=float, default=0.1, help="Weight decay")
-    parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--persistent_workers", action="store_true", default=False)
-    parser.add_argument("--prefetch_factor", type=int, default=16)
-    parser.add_argument("--loader_prefetch_size", type=int, default=8)
-    parser.add_argument("--device_prefetch_size", type=int, default=4)
-    parser.add_argument("--host_to_device_transfer_threads", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=2, help="Number of dataloader workers per GPU.")
     parser.add_argument("--plot", action="store_true", help="Plot results.")
-    parser.add_argument("--eval_only", action="store_true", help="Only evaluate.")
-    parser.add_argument("--distributed", action="store_true", help="Use DDP.")
+    parser.add_argument("--distributed", action="store_true")
+    parser.add_argument("--eval_only", action="store_true")
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--resume_study", action="store_true", help="Resume hyperparameter optimization from an existing Optuna study.")
+    parser.add_argument("--use_class_balanced_ood", action="store_true")
+    parser.add_argument("--use_id_val", action="store_true")
+    parser.add_argument("--use_hyperopt", action="store_true")
+    parser.add_argument("--early_stopping_patience", type=int, default=10)
+    parser.add_argument("--optuna_sampler", type=str, default="TPESampler")
+    parser.add_argument("--inner_loop_val_steps", nargs="*", type=int, default=[])
+    parser.add_argument("--learn_batch_size", action="store_true")
+    parser.add_argument("--regenerate_head", action="store_true")
+    parser.add_argument("--no_regenerate_head", action="store_true")
+    parser.add_argument("--clip_gradient", action="store_true")
+    parser.add_argument("--no_lr_wd", action="store_true")
+    parser.add_argument("--autoft_repeats", type=int, default=1)
+    parser.add_argument("--relative_to_flyp", action="store_true")
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)
@@ -65,7 +77,7 @@ def parse_arguments():
     parser.add_argument(
         "--save",
         type=str,
-        default="/home/carolinechoi/robust-ft/expts",
+        default="./saved",
         help=
         "Directory to save models and results. If not provided, will not save anything.",
     )
@@ -74,7 +86,12 @@ def parse_arguments():
     parser.add_argument("--seed", type=int, default=0, help="Default random seed.")
     parser.add_argument("--run", type=int, default=1, help="Repeated run number")
 
-    # TODO other args from FLYP code that we don't need right now but might need later
+    parser.add_argument(
+        "--ft_data",
+        type=str,
+        default=None,
+        help="Path to csv filewith training data",
+    )
     parser.add_argument(
         "--template",
         type=str,
@@ -186,6 +203,7 @@ def parse_arguments():
     )
 
     parsed_args = parser.parse_args()
+    parsed_args.losses = sorted(parsed_args.losses)
 
     parsed_args.device = "cuda" if torch.cuda.is_available() else "cpu"
 

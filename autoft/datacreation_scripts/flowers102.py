@@ -95,7 +95,7 @@ def main(args):
             value = str(number).zfill(5)
             fname = f'image_{value}.jpg'
             os.symlink(
-                os.path.join(args.data_dir, 'all_images', fname),
+                os.path.join(args.data_dir, 'jpg', fname),
                 os.path.join(args.data_dir, typ,
                              classes[all_y[number - 1] - 1], fname))
 

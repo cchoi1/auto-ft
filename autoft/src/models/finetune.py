@@ -112,11 +112,19 @@ def evaluate_net_fewshot(net, dataset, args):
     total_samples = 0
     all_labels, all_preds, all_metadata = [], [], []
 
-    net = net.cuda()
-    net.eval()
+    # net = net.cuda()
+    # net.eval()
+    # x, y = dataset
+    # x, y = x.cuda(), y.cuda()
+    # outputs, _, _, _ = net(x)
+    image_encoder = net.module.image_encoder.model
+    image_encoder = image_encoder.cuda()
+    image_encoder.eval()
+    classification_head = get_zeroshot_classifier(args, image_encoder)
+    classification_head = classification_head.cuda()
+    classification_head.eval()
     x, y = dataset
     x, y = x.cuda(), y.cuda()
-    outputs, _, _, _ = net(x)
     predictions = outputs.argmax(dim=1)
     correct = (predictions == y).sum().item()
     total_correct += correct

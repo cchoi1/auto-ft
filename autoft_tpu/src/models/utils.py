@@ -124,11 +124,22 @@ def torch_save(classifier, save_path):
         pickle.dump(classifier.cpu(), f)
 
 
+# def torch_load(save_path, device=None):
+#     with open(save_path, 'rb') as f:
+#         classifier = pickle.load(f)
+#     if device is not None:
+#         classifier = classifier.to(device)
+#     return classifier
+
 def torch_load(save_path, device=None):
-    with open(save_path, 'rb') as f:
-        classifier = pickle.load(f)
+    device = xm.xla_device()
+    # Load the model using torch.load with map_location
+    classifier = torch.load(save_path, map_location=device)
+
+    # If a device is specified, move the model to that device
     if device is not None:
         classifier = classifier.to(device)
+
     return classifier
 
 

@@ -19,6 +19,8 @@ def setup_logging(args, logger):
             method_name += f"_{args.optuna_sampler}"
         method_name += loss_type + opt_type
         method_name += "_" + "".join([l[0] for l in args.losses])
+        if args.relative_to_flyp:
+            method_name += "_relflyp"
         val_set = f"no{args.num_ood_hp_examples}"
         if args.val_mini_batch_size is not None:
             val_set += f"_mbs{args.val_mini_batch_size}"

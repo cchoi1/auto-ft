@@ -26,5 +26,4 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --ft_data /iris/u/cchoi1/Data/csv/imagenet.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
---load_hparams ./saved/ImageNet4/autoft/oodImageNetC_cdefhllll/no15000_nouNone_afep1000_is10_ftep10_bs128_wd0.1_lr1e-05_run1_seed0_ViT-B/16/hparams.json \
---no_regenerate_head
+--load_hparams ./saved/ImageNet4/autoft/oodImageNetC_cdefhllll/no15000_nouNone_afep1000_is10_ftep10_bs128_wd0.1_lr1e-05_run1_seed0_ViT-B/16/hparams.json
