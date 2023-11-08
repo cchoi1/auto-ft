@@ -9,7 +9,7 @@ from .imagenet_vid_robust import ImageNetVidRobustValClasses, ImageNetVidRobust
 from .iwildcam import *
 from .objectnet import ObjectNetValClasses, ObjectNet
 from .caltech101 import Caltech101Train, Caltech101ValHOpt, Caltech101ValEarlyStopping, Caltech101Test
-from .stanfordcars import StanfordCarsVal, StanfordCarsTest
+from .stanfordcars import StanfordCarsTrain, StanfordCarsValHOpt, StanfordCarsValEarlyStopping, StanfordCarsTest
 from .flowers102 import Flowers102Train, Flowers102ValHOpt, Flowers102ValEarlyStopping, Flowers102Test
 from .patchcamelyon import PatchCamelyonTrain, PatchCamelyonValHOpt, PatchCamelyonValEarlyStopping, PatchCamelyonTest
 from .sst2 import sst2Train, sst2ValHOpt, sst2ValEarlyStopping, sst2Test

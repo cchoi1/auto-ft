@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="flowers102-autoft-100inner-500ep-1000ex-class-balanced" # Name the job (for easier monitoring)
-#SBATCH --output=flowers102-autoft-100inner-500ep-1000ex-class-balanced.log  # Name of the output log file
+#SBATCH --job-name="flowers102-autoft-350inner-500ep-500ex-class-balanced" # Name the job (for easier monitoring)
+#SBATCH --output=flowers102-autoft-350inner-500ep-500ex-class-balanced.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -19,12 +19,12 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
 python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
 --id Flowers102Train --ood Flowers102ValHOpt --eval-datasets Flowers102ValEarlyStopping,Flowers102Test \
---num_ood_hp_examples 500 --use_class_balanced_ood --ft_epochs 100 \
---autoft_epochs 500 --inner_steps 50 --lr 1e-5 --wd 0.0 \
---batch-size 128 --accumulation_steps 2 --warmup_length 500 \
---losses ce dcm flyp entropy hinge l1init l1zero l2init l2zero \
+--num_ood_hp_examples 500 --use_class_balanced_ood --ft_epochs 20 \
+--autoft_epochs 500 --inner_steps 350 --lr 1e-5 --wd 0.2 \
+--batch-size 128 --accumulation_steps 2 --warmup_length 0 \
+--losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero \
 --ft_data /iris/u/cchoi1/Data/flowers102/train.csv --template flowers102_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_flowers102.pt \
---workers 2 \
---load_hparams ./saved/Flowers102Train/autoft/oodFlowers102ValHOpt_cdefhllll/no2000_nouNone_afep500_is100_ftep20_bs128_wd0.1_lr1e-05_run1_seed0_ViT-B/16/hparams.json
+--relative_to_flyp \
+--workers 2

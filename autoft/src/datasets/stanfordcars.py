@@ -1,43 +1,47 @@
 import os
+import numpy as np
 import torch
 import torchvision
-import wilds
+from src.datasets.utils import split_validation_set
 
-from torchvision.datasets import CIFAR10 as PyTorchCIFAR10
-from wilds.common.data_loaders import get_train_loader, get_eval_loader
 
 class StanfordCars:
-    test_subset = None
-
     def __init__(self,
                  preprocess,
+                 n_examples,
+                 use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
-                 num_workers=16,
+                 num_workers=2,
                  subset='test',
-                 classnames=None,
                  **kwargs):
 
-        self.batch_size=batch_size
-        self.num_workers=num_workers
-        self.train_location=os.path.join(location, 'StanfordCars', 'train')
-        self.train_dataset = torchvision.datasets.ImageFolder(root=self.train_location, transform=preprocess)
-        self.train_loader = torch.utils.data.DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers
-        )
+        self.n_examples = n_examples
+        self.n_classes = 196
+        self.data_location = os.path.join(location, 'StanfordCars', subset)
+        self.batch_size = batch_size
+        self.num_workers = num_workers
 
-        self.test_location=os.path.join(location, 'StanfordCars', self.test_subset)
-        print("Loading Test Data from ", self.test_location)
-        self.test_dataset = torchvision.datasets.ImageFolder(root=self.test_location, transform=preprocess)
-        self.test_loader = torch.utils.data.DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers
-        )
+        if subset == 'train':
+            self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+            print('len train dataset', len(self.dataset))
+        elif 'val' in subset:
+            save_path = os.path.join(self.data_location, 'val_split_indices.npy')
+            dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+            self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
+            if subset == 'val_hopt':
+                self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
+                if self.n_examples > -1:  # assuming n_examples=-1 means no sampling
+                    indices = np.random.choice(len(self.dataset), self.n_examples, replace=False)
+                    self.dataset = torch.utils.data.Subset(self.dataset, indices)
+            else:
+                self.dataset = torch.utils.data.Subset(dataset, self.val_early_stopping_indices)
+        elif subset == 'test':
+            self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
+        else:
+            raise ValueError(f'Subset must be one of "train", "val_hopt", "val_early_stopping", or "test".')
+
+        print(f"Loading {subset} Data from ", self.data_location)
 
         self.classnames = [
             'AM General Hummer SUV 2000', 'Acura Integra Type R 2001',
@@ -144,12 +148,29 @@ class StanfordCars:
             'smart fortwo Convertible 2012'
         ]
 
-class StanfordCarsVal(StanfordCars):
+    def __len__(self):
+        return len(self.dataset)
+
+
+class StanfordCarsTrain(StanfordCars):
     def __init__(self, *args, **kwargs):
-        self.test_subset = 'val'
+        kwargs['subset'] = 'train'
         super().__init__(*args, **kwargs)
+
+
+class StanfordCarsValHOpt(StanfordCars):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'val_hopt'
+        super().__init__(*args, **kwargs)
+
+
+class StanfordCarsValEarlyStopping(StanfordCars):
+    def __init__(self, *args, **kwargs):
+        kwargs['subset'] = 'val_early_stopping'
+        super().__init__(*args, **kwargs)
+
 
 class StanfordCarsTest(StanfordCars):
     def __init__(self, *args, **kwargs):
-        self.test_subset = 'test'
+        kwargs['subset'] = 'test'
         super().__init__(*args, **kwargs)
