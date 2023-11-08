@@ -33,6 +33,7 @@ class StanfordCars:
             if subset == 'val_hopt':
                 if self.n_examples > -1:
                     if use_class_balanced:
+                        n_examples = self.n_examples // self.n_classes
                         sampled_dataset = SampledDataset(dataset, "StanfordCarsValHOpt", n_examples)
                         self.dataset = torch.utils.data.Subset(dataset, sampled_dataset.indices)
                     else:
