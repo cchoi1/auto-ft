@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="fmow-autoft-flyp-1000inner-500ep-620ex-class-balanced-clipgrad-relflyp" # Name the job (for easier monitoring)
-#SBATCH --output=fmow-autoft-flyp-1000inner-500ep-620ex-class-balanced-clipgrad-relflyp.log  # Name of the output log file
+#SBATCH --job-name="fmow-autoft-flyp-500inner-500ep-620ex-class-balanced-clipgrad-relflyp" # Name the job (for easier monitoring)
+#SBATCH --output=fmow-autoft-flyp-500inner-500ep-620ex-class-balanced-clipgrad-relflyp.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
