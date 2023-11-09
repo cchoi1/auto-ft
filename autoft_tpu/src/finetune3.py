@@ -13,7 +13,7 @@ from torch.utils.data.distributed import DistributedSampler
 import src.datasets as datasets
 from src.args import parse_arguments
 from src.datasets.common import collate_fn_for_imagenet, collate_fn_for_cifar, FeatureDataset
-from src.datasets.common import get_dataloader, maybe_dictionarize
+from src.datasets.common import maybe_dictionarize
 from src.logger import setup_logging
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import _mp_evaluate
@@ -52,6 +52,7 @@ def get_datasets(args, model, preprocess_fn):
 def get_sampler(dataset, train):
     """Helper function to create a sampler."""
     if xm.xrt_world_size() > 1:
+        print(f"Using distributed sampler for with {xm.xrt_world_size()} replicas")
         sampler = DistributedSampler(dataset, num_replicas=xm.xrt_world_size(), rank=xm.get_ordinal(), shuffle=train)
     else:
         sampler = None
@@ -96,7 +97,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
         DataLoader for the given dataset.
     """
     kwargs = {"batch_size": args.batch_size, "num_workers": args.workers, "persistent_workers": args.persistent_workers,
-              "prefetch_factor": args.prefetch_factor, "pin_memory": True}
+              "prefetch_factor": args.prefetch_factor}
     if sampler is not None:
         kwargs["sampler"] = sampler
     else:
@@ -117,6 +118,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     kwargs["dataset"] = dataset
     dataloader = DataLoader(**kwargs)
     device = xm.xla_device()
+    print('hi finetune3 get_dataloader')
     print(f"Num batches: {len(dataloader)}")
     dataloader = pl.MpDeviceLoader(dataloader, device, loader_prefetch_size=args.loader_prefetch_size, device_prefetch_size=args.device_prefetch_size)
     return dataloader
