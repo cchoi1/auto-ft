@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 import time
 
 import torch
@@ -12,16 +11,16 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 import src.datasets as datasets
-import src.losses as losses
 from src.args import parse_arguments
 from src.datasets.common import collate_fn_for_imagenet, collate_fn_for_cifar, FeatureDataset
 from src.datasets.common import get_dataloader, maybe_dictionarize
 from src.logger import setup_logging
-from src.losses.layerwiseloss import LayerwiseLoss
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import _mp_evaluate
 from src.models.modeling import ImageClassifier
 from src.models.utils import cosine_lr
+from src.models.utils import set_seed, print_hparams, save_hparams
+from src.datasets.laion import get_data
 
 
 def initialize_model(args):
@@ -37,10 +36,15 @@ def initialize_model(args):
     return model, preprocess_fn
 
 
-def get_datasets(args, preprocess_fn):
+def get_datasets(args, model, preprocess_fn):
     id_dataset_class = getattr(datasets, args.id)
-    id_dataset = id_dataset_class(preprocess_fn, train=True, n_examples=args.num_id_examples,
-                                  location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
+    if args.ft_data is not None:
+        train_preprocess_fn = model.image_encoder.train_preprocess
+        val_preprocess_fn = model.image_encoder.val_preprocess
+        id_dataset = get_data(args, (train_preprocess_fn, val_preprocess_fn), epoch=0)
+    else:
+        id_dataset = id_dataset_class(preprocess=preprocess_fn, train=True, n_examples=args.num_id_examples,
+                                      location=args.data_location, batch_size=args.batch_size, num_workers=args.workers)
     all_datasets = {"id": id_dataset}
     return all_datasets
 
@@ -113,6 +117,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     kwargs["dataset"] = dataset
     dataloader = DataLoader(**kwargs)
     device = xm.xla_device()
+    print(f"Num batches: {len(dataloader)}")
     dataloader = pl.MpDeviceLoader(dataloader, device, loader_prefetch_size=args.loader_prefetch_size, device_prefetch_size=args.device_prefetch_size)
     return dataloader
 
@@ -155,69 +160,51 @@ def _run(index, args):
     if args.eval_only:
         _mp_evaluate(index, model, args)
         return
-    if args.method in ["ft-id", "ft-id-ood"]:
-        loss_fn = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
-    elif args.method in ["autoft"]:
-        assert args.load_hparams is not None
-        with open(args.load_hparams, 'r') as f:
-            best_hparams = json.load(f)
-        loss_weights = get_loss_weights(best_hparams, args.loss_type, args.num_losses)
-        model_params = [p for p in model.parameters()]
-        loss_fn = getattr(losses, args.loss_type)(loss_weights, model_params)
-        optimizer = create_optimizer(model, best_hparams, args.loss_type)
-        del model_params, loss_weights; torch.cuda.empty_cache()
-    all_datasets = get_datasets(args, preprocess_fn)
-    train_loader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-    num_batches = len(train_loader) / args.accumulation_steps
-    total_steps = num_batches * args.ft_epochs
-    scheduler = cosine_lr(optimizer, args.lr, args.warmup_length, total_steps)
-    per_epoch_eval_results = {}
-    if args.freeze_encoder:
-        input_key = 'features'
-    else:
-        input_key = 'images'
 
-    # xm.master_print("Zeroshot accuracies...")
-    # _mp_evaluate(index, model, args)
-    # Resume training from the latest checkpoint if it exists
-    start_epoch = 0
-    model_epochs = [int(re.search(r'model_(\d+)\.pt', f).group(1)) for f in os.listdir(args.save) if
-                    re.match(r'model_\d+\.pt', f)]
-    opt_sched_epochs = [int(re.search(r'opt_sched_(\d+)\.pt', f).group(1)) for f in os.listdir(args.save) if
-                        re.match(r'opt_sched_\d+\.pt', f)]
-    if len(model_epochs) > 0 and len(opt_sched_epochs) > 0:
-        last_epoch = min(max(model_epochs), max(opt_sched_epochs))
-        model_ckpt_path = os.path.join(args.save, f'model_{last_epoch}.pt')
-        opt_sched_ckpt_path = os.path.join(args.save, f'opt_sched_{last_epoch}.pt')
-        model.load(model_ckpt_path)
-        xm.master_print(f"Loaded model checkpoint from epoch {last_epoch}.")
-        opt_sched_ckpt = torch.load(opt_sched_ckpt_path)
-        optimizer.load_state_dict(opt_sched_ckpt['optimizer_state'])
-        scheduler_params = opt_sched_ckpt['scheduler_params']
-        scheduler = cosine_lr(optimizer, scheduler_params['base_lrs'], scheduler_params['warmup_length'],
-                              scheduler_params['steps'])
-        start_epoch = last_epoch + 1  # Start next epoch after the saved epoch
-        xm.master_print(f"Found checkpoint for epoch {last_epoch}. Resuming training from epoch {start_epoch}.")
+    assert args.load_hparams is not None
+    with open(args.load_hparams, 'r') as f:
+        best_hparams = json.load(f)
+
+    all_datasets = get_datasets(args, model, preprocess_fn)
+    train_loader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
+    num_batches = len(train_loader)
+    print(f"{num_batches} batches in fine-tuning dataloader")
+    total_steps = (args.ft_epochs * num_batches) // xm.xrt_world_size()
+    warmup_length = (args.warmup_length * args.accumulation_steps) // xm.xrt_world_size()
+    optimizer = create_optimizer(model=model, hparams=best_hparams, layerwise=args.layerwise_opt)
+    scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
+
+    loss_weights = get_loss_weights(hparams=best_hparams, layerwise=args.layerwise_loss)
+    initial_params = [p for p in model.parameters()]
+    loss_fn = LearnedLoss(losses=args.losses, loss_weights=loss_weights, initial_params=initial_params)
+    print_hparams(hparams=best_hparams)
+    save_hparams(hparams=best_hparams, args=args)
+    set_seed(seed=best_hparams["seed"])
+
     effective_step = 0
-    for epoch in range(start_epoch, args.ft_epochs):
+    for epoch in range(0, args.ft_epochs):
         model.train()
         for i, batch in enumerate(train_loader):
+            step = i + epoch * (num_batches // xm.xrt_world_size())
+            scheduler(step)
+
             batch = maybe_dictionarize(batch)
-            inputs = batch[input_key].to(device)
+            print('batch keys', batch.keys())
+            images = batch['images'].to(device)
             labels = batch['labels'].to(device)
-            if i % args.accumulation_steps == args.accumulation_steps - 1:
-                scheduler_step = effective_step + epoch * num_batches
-                scheduler(scheduler_step)
-                optimizer.zero_grad()
-                effective_step += 1
-            outputs = model(inputs)
-            if isinstance(loss_fn, (LearnedLoss, LayerwiseLoss)):
-                loss = loss_fn(outputs, labels, model) / args.accumulation_steps
-            else:
-                loss = loss_fn(outputs, labels) / args.accumulation_steps
+            text = batch['metadata'].to(device)
+            logits, image_features, text_features, logit_scale = model(images, text)
+
+            try:
+                ls = logit_scale[0]
+            except Exception:
+                ls = logit_scale
+            loss = loss_fn(model, logits, labels, image_features, text_features, ls, unlabeled_logits=None)
+            loss = loss / args.accumulation_steps
             loss.backward()
-            if i % args.accumulation_steps == args.accumulation_steps - 1:
+            if args.clip_gradient:
+                torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
+            if (i + 1) % args.accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 xm.optimizer_step(optimizer)
 

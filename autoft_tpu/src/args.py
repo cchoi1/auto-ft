@@ -46,7 +46,7 @@ def parse_arguments():
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--wd", type=float, default=0.1, help="Weight decay")
-    parser.add_argument("--workers", type=int, default=2, help="Number of dataloader workers per GPU.")
+    parser.add_argument("--workers", type=int, default=8, help="Number of dataloader workers per GPU.")
     parser.add_argument("--plot", action="store_true", help="Plot results.")
     parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--eval_only", action="store_true")
@@ -64,7 +64,11 @@ def parse_arguments():
     parser.add_argument("--no_lr_wd", action="store_true")
     parser.add_argument("--autoft_repeats", type=int, default=1)
     parser.add_argument("--relative_to_flyp", action="store_true")
-    parser.add_argument("--persistent_workers", type=int, default=0)
+    parser.add_argument("--persistent_workers", type=bool, default=True)
+    parser.add_argument("--prefetch_factor", type=int, default=2)
+    parser.add_argument("--loader_prefetch_size", type=int, default=2)
+    parser.add_argument("--device_prefetch_size", type=int, default=2)
+    parser.add_argument("--host_to_device_transfer_threads", type=int, default=1)
 
     # Saving/Logging
     parser.add_argument("--eval_every", type=int, default=1000)
@@ -207,6 +211,7 @@ def parse_arguments():
     parsed_args.losses = sorted(parsed_args.losses)
 
     parsed_args.device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("ARGS DEVICE", parsed_args.device)
 
     if parsed_args.load is not None and len(parsed_args.load) == 1:
         parsed_args.load = parsed_args.load[0]

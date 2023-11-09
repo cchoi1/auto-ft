@@ -26,5 +26,8 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --ft_data /iris/u/cchoi1/Data/flowers102/train.csv --template flowers102_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_flowers102.pt \
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/Flowers102Train/autoft/oodFlowers102ValHOpt_cdefhllll_relflyp/no500_nouNone_afep500_is350_ftep100_bs128_wd0.2_lr1e-05_run1_seed0_ViT-B/16/hparams.json \
 --relative_to_flyp \
 --workers 2
+
+# --load_hparams ./saved/Flowers102Train/autoft/oodFlowers102ValHOpt_cdefhllll_relflyp/no500_nouNone_afep500_is350_ftep100_bs128_wd0.2_lr1e-05_run1_seed0_ViT-B/16/hparams.json

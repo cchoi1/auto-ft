@@ -1,4 +1,5 @@
 import torch
+import copy
 
 import clip.clip as clip
 
@@ -23,14 +24,15 @@ class CLIPEncoder(torch.nn.Module):
 
     def forward(self, images, text=None):
         assert self.model is not None
-        # if text==None:
-        #     return self.model.encode_image(images)
-        # else:
-        return self.model(images, text)
+        if text is None:
+            return self.model.encode_image(images)
+        else:
+            return self.model(images, text)
 
     def save(self, filename):
         print(f'Saving clip encoder to {filename}')
         utils.torch_save(self, filename)
+        # torch.save(self.model, filename)
 
     @classmethod
     def load(cls, filename, logger=None):
@@ -86,11 +88,20 @@ class ImageClassifier(torch.nn.Module):
             self.train_preprocess = self.image_encoder.train_preprocess
             self.val_preprocess = self.image_encoder.val_preprocess
 
-    def forward(self, inputs):
-        if self.process_images:
-            inputs = self.image_encoder(inputs)
-        outputs = self.classification_head(inputs)
-        return outputs
+    # def forward(self, inputs):
+    #     if self.process_images:
+    #         inputs = self.image_encoder(inputs)
+    #     outputs = self.classification_head(inputs)
+    #     return outputs
+
+    def forward(self, images, text=None):
+        if text is None:
+            image_features = self.image_encoder(images)
+            text_features, logit_scale = None, None
+        else:
+            image_features, text_features, logit_scale = self.image_encoder(images, text)
+        logits = self.classification_head(image_features)
+        return logits, image_features, text_features, logit_scale
 
     def save(self, filename):
         print(f'Saving image classifier to {filename}')
@@ -99,8 +110,10 @@ class ImageClassifier(torch.nn.Module):
     @classmethod
     def load(cls, filename):
         print(f'Loading image classifier from {filename}')
-        return utils.torch_load(filename)
-
+        if "expts" in filename:
+            return torch.load(filename, map_location='cpu')["model_state"]
+        else:
+            return utils.torch_load(filename)
 
 class ImageClassifier_Norm(torch.nn.Module):
     def __init__(self,
@@ -125,6 +138,7 @@ class ImageClassifier_Norm(torch.nn.Module):
     def save(self, filename):
         print(f'Saving image classifier to {filename}')
         utils.torch_save(self, filename)
+        print(f'Saved image classifier to {filename}')
 
     @classmethod
     def load(cls, filename):
@@ -144,9 +158,12 @@ class ImageEncoder(torch.nn.Module):
         if not keep_lang and hasattr(self.model, 'transformer'):
             delattr(self.model, 'transformer')
 
-    def forward(self, images):
+    def forward(self, images, text=None):
         assert self.model is not None
+        if text is not None:
+            return self.model(images, text)
         return self.model.encode_image(images)
+
 
     def save(self, filename):
         print(f'Saving image encoder to {filename}')

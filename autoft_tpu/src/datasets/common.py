@@ -47,6 +47,7 @@ class ImageFolderWithPaths(datasets.ImageFolder):
 
 
 def maybe_dictionarize(batch):
+    print('batch', batch)
     if isinstance(batch, dict):
         return batch
 

@@ -22,9 +22,7 @@ def setup_logging(args, logger):
         if args.relative_to_flyp:
             method_name += "_relflyp"
         val_set = f"no{args.num_ood_hp_examples}"
-        if args.val_mini_batch_size is not None:
-            val_set += f"_mbs{args.val_mini_batch_size}"
-        run_details = f"{val_set}_nou{args.num_ood_unlabeled_examples}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}_seed{args.seed}_{args.model}"
+        run_details = f"{val_set}_afep{args.autoft_epochs}_is{args.inner_steps}_ftep{args.ft_epochs}_bs{args.batch_size}_wd{args.wd}_lr{args.lr}_run{args.run}_seed{args.seed}_{args.model}"
         args.save = os.path.join(save_dir, method_name, run_details)
     elif args.method == "ft-id-ood":
         method_name = f"ood{args.ood}"

@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
-from src.models.modeling import ImageClassifier
+import json
 
 def _get_device_spec(device):
   ordinal = xm.get_ordinal(defval=-1)
@@ -61,6 +61,23 @@ def set_seed(seed=0):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def print_hparams(hparams):
+    print("\nHyperparameters:")
+    for key, value in hparams.items():
+        if not "dataw" in key:
+            print(f"{key}: {value}")
+
+
+def save_hparams(hparams, args):
+    save_file = os.path.join(args.save, 'hparams.json')
+    os.makedirs(args.save, exist_ok=True)
+    print(f"\nSaving hyperparameters to {save_file}.")
+    hparams["seed"] = int(hparams["seed"])
+    if "ce" in args.losses and "lossw_ce" not in hparams.keys(): # Save cross-entropy loss weight
+        hparams["lossw_ce"] = 1.0
+    with open(save_file, 'w') as f:
+        json.dump(hparams, f)
+
 
 def get_subset(dataset, num_datapoints):
     rand_idxs = torch.randperm(len(dataset))[:num_datapoints]
@@ -108,8 +125,10 @@ def accuracy(output, target, topk=(1,)):
 def torch_save(classifier, save_path):
     if os.path.dirname(save_path) != '':
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    # with open(save_path, 'wb') as f:
+    #     pickle.dump(classifier.cpu(), f)
     with open(save_path, 'wb') as f:
-        pickle.dump(classifier.cpu(), f)
+        torch.save(classifier.cpu(), f)
 
 
 # def torch_load(save_path, device=None):
@@ -120,13 +139,12 @@ def torch_save(classifier, save_path):
 #     return classifier
 
 def torch_load(save_path, device=None):
-    device = xm.xla_device()
-    # Load the model using torch.load with map_location
-    classifier = torch.load(save_path, map_location=device)
+    cpu_device = torch.device('cpu')
+    tpu_device = xm.xla_device()
+    print(f"Loading from device {cpu_device} and putting on device {tpu_device}")
+    classifier = torch.load(save_path, map_location=cpu_device)
 
-    # If a device is specified, move the model to that device
-    if device is not None:
-        classifier = classifier.to(device)
+    classifier = classifier.to(tpu_device)
 
     return classifier
 

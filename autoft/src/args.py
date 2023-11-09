@@ -13,12 +13,10 @@ def parse_arguments():
     parser.add_argument("--id", default=None, type=str)
     parser.add_argument("--num_id_examples", default=-1, type=int)
     parser.add_argument("--unlabeled_id", default=None, type=str)
-    parser.add_argument("--num_id_unlabeled_examples", default=None, type=int)
+    parser.add_argument("--num_id_unlabeled_examples", default=-1, type=int)
     parser.add_argument("--num_id_val_examples", default=-1, type=int)
     parser.add_argument("--ood", default=None, type=str)
     parser.add_argument("--num_ood_hp_examples", default=-1, type=int)
-    parser.add_argument("--val_mini_batch_size", default=None, type=int)
-    parser.add_argument("--num_ood_unlabeled_examples", default=None, type=int)
     parser.add_argument("--eval-datasets", default=None, type=lambda x: x.split(","),
         help="Which datasets to use for evaluation. Split by comma, e.g. CIFAR101,CIFAR102."
         " Note that same model used for all datasets, so much have same classnames"

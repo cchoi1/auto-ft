@@ -1,47 +1,69 @@
-import gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_xla.core.xla_model as xm
-from src.losses.utils import compute_hinge_loss
-
+from .utils import compute_hinge_loss
+from clip.loss import ClipLoss
 
 class LearnedLoss(nn.Module):
-    def __init__(self, hyperparams, initial_net_params):
+    def __init__(self, losses, loss_weights, initial_params):
         super().__init__()
+        self.losses = losses
         self.device = xm.xla_device()
-        self.initial_net_params = [param.clone().detach().to(self.device) for param in initial_net_params]
-        self.hyperparams = hyperparams.to(self.device).float()
-        self.param_sum = sum(param.numel() for param in initial_net_params)
+        print(f"LearnedLoss device: {self.device}")
+        self.initial_params = [param.clone().detach().to(self.device) for param in initial_params]
+        if isinstance(loss_weights, list):
+            loss_weights = torch.stack(loss_weights)
+        self.loss_weights = loss_weights.float().to(self.device)
+        self.param_sum = sum(param.numel() for param in initial_params)
+        self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=xm.get_ordinal(),
+                                     world_size=xm.xrt_world_size(), use_horovod=False)
 
-    def forward(self, outputs, targets, net, use_contrastive_loss=False):
-        ce_loss = F.cross_entropy(outputs, targets)
-        hinge_loss = compute_hinge_loss(outputs, targets)
-        entropy_all = -(F.softmax(outputs, dim=1) * F.log_softmax(outputs, dim=1)).sum(dim=1)
-        is_wrong = (outputs.argmax(dim=1) != targets).float().detach()
-        dcm_loss = (is_wrong * entropy_all).mean()
-        entropy = entropy_all.mean()
+    def forward(self, model, logits, labels, image_features, text_features=None, logit_scale=None, unlabeled_logits=None, pseudolabels=None):
+        losses = []
+        if "ce" in self.losses:
+            ce_loss = F.cross_entropy(logits, labels)
+            if unlabeled_logits is not None and pseudolabels is not None:
+                ce_loss += F.cross_entropy(unlabeled_logits, pseudolabels)
+            losses.append(ce_loss)
+        if "dcm" in self.losses or "entropy" in self.losses:
+            entropy_all = -(F.softmax(logits, dim=1) * F.log_softmax(logits, dim=1)).sum(dim=1)
+        if "dcm" in self.losses:
+            dcm_loss = ((logits.argmax(dim=1) != labels).float().detach() * entropy_all).mean()
+            losses.append(dcm_loss)
+        if "entropy" in self.losses:
+            entropy = entropy_all.mean()
+            losses.append(entropy)
+        if "flyp" in self.losses:
+            clip_loss = self.clip_loss_fn(image_features, text_features, logit_scale)
+            losses.append(clip_loss)
+        if "hinge" in self.losses:
+            hinge_loss = compute_hinge_loss(logits, labels)
+            losses.append(hinge_loss)
 
-        l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum = 0, 0, 0, 0
-        for param, init_param in zip(net.parameters(), self.initial_net_params):
-            l1_zero_accum += torch.abs(param).sum()
-            l2_zero_accum += (param ** 2).sum()
+        if "l1zero" in self.losses or "l2zero" in self.losses or "l1init" in self.losses or "l2init" in self.losses:
+            l1_zero_accum, l2_zero_accum, l1_init_accum, l2_init_accum = 0, 0, 0, 0
+            for param, init_param in zip(model.parameters(), self.initial_params):
+                l1_zero_accum += torch.abs(param).sum()
+                l2_zero_accum += (param ** 2).sum()
+                diff = param - init_param
+                l1_init_accum += torch.abs(diff).sum()
+                l2_init_accum += (diff ** 2).sum()
+            l1_zero_accum /= self.param_sum
+            l2_zero_accum /= self.param_sum
+            l1_init_accum /= self.param_sum
+            l2_init_accum /= self.param_sum
+            if "l1init" in self.losses:
+                losses.append(l1_init_accum)
+            if "l1zero" in self.losses:
+                losses.append(l1_zero_accum)
+            if "l2init" in self.losses:
+                losses.append(l2_init_accum)
+            if "l2zero" in self.losses:
+                losses.append(l2_zero_accum)
 
-            diff = param - init_param
-            l1_init_accum += torch.abs(diff).sum()
-            l2_init_accum += (diff ** 2).sum()
-        l1_zero_accum /= self.param_sum
-        l2_zero_accum /= self.param_sum
-        l1_init_accum /= self.param_sum
-        l2_init_accum /= self.param_sum
+        losses = torch.stack(losses)
+        weighted_losses = torch.matmul(self.loss_weights, losses)
+        reduced_losses = xm.mesh_reduce('reduced_losses', weighted_losses, torch.sum)
 
-        losses = torch.stack([
-            ce_loss, hinge_loss, entropy, dcm_loss,
-            torch.tensor(l1_zero_accum, device=self.device),
-            torch.tensor(l2_zero_accum, device=self.device),
-            torch.tensor(l1_init_accum, device=self.device),
-            torch.tensor(l2_init_accum, device=self.device)
-        ])
-        loss = torch.dot(losses, self.hyperparams)
-
-        return loss
+        return reduced_losses

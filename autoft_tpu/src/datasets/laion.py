@@ -39,9 +39,11 @@ class CsvDataset(Dataset):
                  label_key=None):
         logging.debug(f'Loading csv data from {input_filename}.')
         df = pd.read_csv(input_filename, sep=sep)
+        print("CAPTION KEY", caption_key)
 
         self.images = df[img_key].tolist()
         self.captions = df[caption_key].tolist()
+        print("CAPTIONS", self.captions[0])
 
         num_columns = len(df.columns) - 2
 
@@ -77,9 +79,9 @@ class CsvDataset(Dataset):
         if self.return_label:
             label = self.labels[idx]
             if len(self.captions_list) > 0:
-                return images, texts, texts_list, label
+                return images, label, texts, texts_list
             else:
-                return images, texts, label
+                return images, label, texts
 
         if len(self.captions_list) > 0:
             return images, texts, texts_list
@@ -459,8 +461,7 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
     assert input_filename
 
     if args.get_labeled_csv:
-        label_key = args.supervised_label_key
-
+        label_key = "label"
     else:
         label_key = None
 
@@ -520,3 +521,4 @@ def get_data(args, preprocess_fns, epoch=0):
                                                          epoch=epoch)
 
     return data
+
