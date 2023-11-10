@@ -1,5 +1,7 @@
 #%%
+import os
 from collections import defaultdict
+
 import matplotlib.pyplot as plt
 import numpy as np
 import optuna
@@ -7,11 +9,12 @@ import torch
 import torch.optim as optim
 from torch.distributions import MultivariateNormal, Normal, kl_divergence
 
+os.makedirs("figures", exist_ok=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 iris_colors = ["#FF6150", "#134E6F", "#1AC0C6", "#FFA822", "#DEE0E6", "#091A29"]
 
-def set_seed(SEED=1):
+def set_seed(SEED=0):
     np.random.seed(SEED)
     torch.random.manual_seed(SEED)
     torch.manual_seed(SEED)
@@ -145,7 +148,7 @@ all_values2 = all_results["all_wide"]["values"]
 dim_values_min2 = np.minimum.accumulate(dim_values2)
 all_values_min2 = np.minimum.accumulate(all_values2)
 
-plt.figure(figsize=(7, 3))
+plt.figure(figsize=(6, 3))
 
 # First subplot
 plt.subplot(1, 2, 1)
@@ -153,8 +156,8 @@ plt.scatter(range(len(dim_values1)), dim_values1, color=iris_colors[0], alpha=0.
 plt.scatter(range(len(all_values1)), all_values1, color=iris_colors[1], alpha=0.1)
 plt.plot(dim_values_min1, "-", color=iris_colors[0], label="Dim-wise Weight")
 plt.plot(all_values_min1, "-", color=iris_colors[1], label="Global Weight")
-plt.xlabel("Optuna Trials")
-plt.ylabel("OOD Data NLL")
+plt.xlabel("Hyperparameter Trials")
+plt.ylabel("NLL (OOD Data)", fontsize=12)
 plt.yscale("log")
 plt.title("Good Prior")
 
@@ -165,12 +168,13 @@ plt.scatter(range(len(all_values2)), all_values2, color=iris_colors[1], alpha=0.
 plt.plot(dim_values_min2, "-", color=iris_colors[0], label="Dim-wise Weight")
 plt.plot(all_values_min2, "-", color=iris_colors[1], label="Global Weight")
 plt.legend(loc="upper right")
-plt.xlabel("Optuna Trials")
+plt.xlabel("Hyperparameter Trials")
 plt.yticks([])
 plt.yscale("log")
 plt.title("Misspecified Prior")
 
 plt.tight_layout()
+plt.savefig("figures/learning_curves.pdf", bbox_inches="tight", dpi=300)
 plt.show()
 
 #%%
@@ -187,37 +191,44 @@ dim_avg_ood_nll = dim_averaged_results["ood_nll"]
 all_id_nll = all_results["id_nll"]
 all_ood_nll = all_results["ood_nll"]
 
-plt.figure(figsize=(5, 3))
+plt.figure(figsize=(3.5, 3))
 plt.plot(dim_avg_id_nll, "-", color=iris_colors[3], label="Dim-wise Avg")
 plt.plot(dim_avg_ood_nll, "--", color=iris_colors[3])
 plt.plot(all_id_nll, "-", color=iris_colors[1], label="Global")
 plt.plot(all_ood_nll, "--", color=iris_colors[1])
 plt.plot(dim_id_nll, "-", color=iris_colors[0], label="Dim-wise")
 plt.plot(dim_ood_nll, "--", color=iris_colors[0])
-plt.xlabel("Inner Loop Steps")
-plt.ylabel("NLL")
+plt.xlabel("Fine-tuning Steps")
+plt.ylabel("NLL (OOD Data)")
 plt.yscale("log")
-plt.title(f"Evaluation of Learned Weights")
+plt.title(f"Fine-tuning Learning Curves")
 plt.legend()
+plt.tight_layout()
+plt.savefig("figures/evaluation.pdf", bbox_inches="tight", dpi=300)
+plt.show()
 
 # %%
-dim_best_alpha = np.array(dim_best_alpha)
+np_alpha = np.array(dim_best_alpha)
 alpha_splits = {
-    "ID": dim_best_alpha[0],
-    "Both": dim_best_alpha[1:4].mean(),
-    "OOD": dim_best_alpha[4],
-    "None": dim_best_alpha[5:].mean()
+    "ID": np_alpha[0],
+    "OOD": np_alpha[4],
+    "Both": np_alpha[1:4].mean(),
+    "None": np_alpha[5:].mean()
 }
 alpha_stds = {
     "ID": 0.0,
-    "Both": dim_best_alpha[1:4].std(),
     "OOD": 0.0,
-    "None": dim_best_alpha[5:].std()
+    "Both": np_alpha[1:4].std(),
+    "None": np_alpha[5:].std()
 }
 
 # Bar plot
-plt.figure(figsize=(4, 3))
+plt.figure(figsize=(3.5, 3))
 plt.bar(alpha_splits.keys(), alpha_splits.values(), color=iris_colors, yerr=alpha_stds.values(), capsize=5, alpha=0.8, edgecolor="black")
 plt.title("Learned Weights")
+plt.ylabel("Weight")
 plt.yscale("log")
+plt.tight_layout()
+plt.savefig("figures/weights.pdf", bbox_inches="tight", dpi=300)
+plt.show()
 # %%
