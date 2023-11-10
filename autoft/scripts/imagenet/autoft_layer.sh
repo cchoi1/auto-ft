@@ -7,8 +7,8 @@
 #SBATCH --mem=64GB # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
 #SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
-#SBATCH --job-name="imagenet-autoft-layer" # Name the job (for easier monitoring)
-#SBATCH --output=imagenet-autoft-layer.log  # Name of the output log file
+#SBATCH --job-name="imagenet-autoft-layer-relflyp" # Name the job (for easier monitoring)
+#SBATCH --output=imagenet-autoft-layer-relflyp.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -27,4 +27,5 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --ft_data /iris/u/cchoi1/Data/csv/imagenet.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
+--relative_to_flyp --regenerate_head --no_regenerate_head \
 --num_workers 8

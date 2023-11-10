@@ -95,6 +95,44 @@ class CsvDataset(Dataset):
         return images, texts
 
 
+import h5py
+import torch
+from torch.utils.data import Dataset
+from PIL import Image
+from io import BytesIO
+
+class HDF5Dataset(Dataset):
+    def __init__(self, hdf5_filename, transforms, img_key, caption_key, label_key=None):
+        self.hdf5_filename = hdf5_filename
+        self.transforms = transforms
+        self.img_key = img_key
+        self.caption_key = caption_key
+        self.label_key = label_key
+
+        # Open the HDF5 file and get the length of the dataset
+        with h5py.File(self.hdf5_filename, 'r') as hdf:
+            self.length = hdf[img_key].shape[0]
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        with h5py.File(self.hdf5_filename, 'r') as hdf:
+            # Assuming image data is stored as bytes
+            image_data = hdf[self.img_key][idx]
+            image = Image.open(BytesIO(image_data))
+            caption = hdf[self.caption_key][idx].astype(str)
+
+            if self.transforms:
+                image = self.transforms(image)
+
+            if self.label_key and self.label_key in hdf:
+                label = hdf[self.label_key][idx]
+                return image, caption, label
+            else:
+                return image, caption
+
+
 class SharedEpoch:
     def __init__(self, epoch: int = 0):
         self.shared_epoch = Value('i', epoch)
@@ -471,13 +509,18 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
     else:
         label_key = None
 
-    dataset = CsvDataset(input_filename,
-                         preprocess_fn,
-                         img_key=args.csv_img_key,
-                         caption_key=args.csv_caption_key,
-                         sep=args.csv_separator,
-                         label_key=label_key,
-                         chunksize=10000)
+    # dataset = CsvDataset(input_filename,
+    #                      preprocess_fn,
+    #                      img_key=args.csv_img_key,
+    #                      caption_key=args.csv_caption_key,
+    #                      sep=args.csv_separator,
+    #                      label_key=label_key,
+    #                      chunksize=10000)
+    dataset = HDF5Dataset(input_filename,
+                            preprocess_fn,
+                            img_key=args.csv_img_key,
+                            caption_key=args.csv_caption_key,
+                            label_key=label_key)
     num_samples = len(dataset)
     # sampler = DistributedSampler(dataset) if args.distributed and is_train else None
     sampler = None

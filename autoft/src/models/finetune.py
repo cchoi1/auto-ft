@@ -411,12 +411,6 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
             print_train_update(logger, print_every, total_steps, step, loss, batch_time)
 
         # Save checkpoints
-        opt_ckpt_path = os.path.join(args.save, f'opt_{epoch}.pt')
-        torch.save(optimizer.state_dict, opt_ckpt_path)
-        print(f"Saved optimizer to {opt_ckpt_path}")
-        sched_ckpt_path = os.path.join(args.save, f'sched_{epoch}.pt')
-        torch.save(scheduler.__dict__, sched_ckpt_path)
-        print(f"Saved scheduler to {sched_ckpt_path}")
         model.module.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
         print(f"Saved model to {args.save}")
 
