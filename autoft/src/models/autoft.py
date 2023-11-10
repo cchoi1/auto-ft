@@ -261,7 +261,7 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
         best_hparams["lossw_ce"] = 1.0
     if "flyp" in args.losses and "lossw_flyp" not in best_hparams.keys():
         best_hparams["lossw_flyp"] = 1.0
-    if "Flowers" in args.id or "StanfordCars" in args.id:
+    if "StanfordCars" in args.id:
         best_hparams["wd"] = 0.0
     loss_weights = get_loss_weights(hparams=best_hparams, layerwise=args.layerwise_loss)
     initial_params = [p for p in model.parameters()]

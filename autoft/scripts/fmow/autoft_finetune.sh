@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="fmow-autoft-flyp-500inner-500ep-620ex-class-balanced-clipgrad-relflyp-finetune" # Name the job (for easier monitoring)
-#SBATCH --output=fmow-autoft-flyp-500inner-500ep-620ex-class-balanced-clipgrad-relflyp-finetune.log  # Name of the output log file
+#SBATCH --job-name="fmow-autoft-flyp-500inner-500ep-620ex-class-balanced-clipgrad-relflyp-finetune-noregen" # Name the job (for easier monitoring)
+#SBATCH --output=fmow-autoft-flyp-500inner-500ep-620ex-class-balanced-clipgrad-relflyp-finetune-noregen.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -28,4 +28,5 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoo
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow2.pt \
 --workers 2 --clip_gradient \
 --relative_to_flyp \
---load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/FMOW/relflyp_500is_20ep_620ex.json
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/FMOW/relflyp_500is_20ep_620ex.json \
+--no_regenerate_head
