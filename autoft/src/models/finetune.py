@@ -246,22 +246,6 @@ def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders,
             torch.cuda.synchronize()
             time_counter["eval"].append(time.time() - start)
 
-    if args.val_mini_batch_size is not None:
-        # Sample a proportionate number of indices from each class
-        class_to_indices = ood_hp_dataset.class_to_indices
-        num_classes = len(class_to_indices)
-        samples_per_class = args.val_mini_batch_size // num_classes
-        sampled_indices = []
-        for class_indices in class_to_indices.values():
-            sampled_indices.extend(np.random.choice(class_indices, samples_per_class, replace=True))
-        # Ensure the total number of samples is as requested (due to rounding)
-        while len(sampled_indices) < args.val_mini_batch_size:
-            extra_class = np.random.choice(list(class_to_indices.keys()))
-            extra_index = np.random.choice(class_to_indices[extra_class])
-            sampled_indices.append(extra_index)
-        ood_hp_sampler = SubsetRandomSampler(sampled_indices)
-        dataloaders["ood_hp"] = get_dataloader(ood_hp_dataset.dataset, is_train=True, args=args, image_encoder=None, sampler=ood_hp_sampler)
-
     torch.cuda.synchronize()
     start = time.time()
     if args.regenerate_head:

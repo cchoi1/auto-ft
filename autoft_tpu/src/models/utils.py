@@ -141,11 +141,9 @@ def torch_save(classifier, save_path):
 def torch_load(save_path, device=None):
     cpu_device = torch.device('cpu')
     tpu_device = xm.xla_device()
-    print(f"Loading from device {cpu_device} and putting on device {tpu_device}")
+    xm.master_print(f"Loading from device {cpu_device} and putting on device {tpu_device}")
     classifier = torch.load(save_path, map_location=cpu_device)
-
     classifier = classifier.to(tpu_device)
-
     return classifier
 
 

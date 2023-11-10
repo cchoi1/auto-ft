@@ -13,6 +13,7 @@ import braceexpand
 import numpy as np
 import pandas as pd
 import torch
+import torch_xla.core.xla_model as xm
 import torchvision.datasets as datasets
 import webdataset as wds
 from PIL import Image
@@ -36,17 +37,22 @@ class CsvDataset(Dataset):
                  img_key,
                  caption_key,
                  sep="\t",
-                 label_key=None):
-        logging.debug(f'Loading csv data from {input_filename}.')
+                 label_key=None,
+                 chunksize=None):
+        start_time = time.time()
+        xm.master_print(f'Loading csv data from {input_filename}.')
+        self.input_filename = input_filename
+        self.img_key = img_key
+        self.caption_key = caption_key
+        self.sep = sep
+        self.label_key = label_key
+        self.chunksize = chunksize
         df = pd.read_csv(input_filename, sep=sep)
-        print("CAPTION KEY", caption_key)
 
         self.images = df[img_key].tolist()
         self.captions = df[caption_key].tolist()
-        print("CAPTIONS", self.captions[0])
 
         num_columns = len(df.columns) - 2
-
         self.captions_list = []
         for k in range(1, num_columns):
             self.captions_list.append(df[f"{caption_key}_{k}"])
@@ -56,7 +62,7 @@ class CsvDataset(Dataset):
             self.return_label = True
             self.labels = list(map(int, df[label_key].tolist()))
         self.transforms = transforms
-        logging.debug('Done loading data.')
+        xm.master_print(f'Loaded csv data in {time.time() - start_time:.2f} seconds.')
 
     def __len__(self):
         return len(self.captions)
@@ -470,7 +476,8 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
                          img_key=args.csv_img_key,
                          caption_key=args.csv_caption_key,
                          sep=args.csv_separator,
-                         label_key=label_key)
+                         label_key=label_key,
+                         chunksize=10000)
     num_samples = len(dataset)
     # sampler = DistributedSampler(dataset) if args.distributed and is_train else None
     sampler = None

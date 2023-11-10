@@ -52,7 +52,7 @@ def get_datasets(args, model, preprocess_fn):
 def get_sampler(dataset, train):
     """Helper function to create a sampler."""
     if xm.xrt_world_size() > 1:
-        print(f"Using distributed sampler for with {xm.xrt_world_size()} replicas")
+        xm.master_print(f"Using distributed sampler for with {xm.xrt_world_size()} replicas")
         sampler = DistributedSampler(dataset, num_replicas=xm.xrt_world_size(), rank=xm.get_ordinal(), shuffle=train)
     else:
         sampler = None
@@ -118,8 +118,6 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     kwargs["dataset"] = dataset
     dataloader = DataLoader(**kwargs)
     device = xm.xla_device()
-    print('hi finetune3 get_dataloader')
-    print(f"Num batches: {len(dataloader)}")
     dataloader = pl.MpDeviceLoader(dataloader, device, loader_prefetch_size=args.loader_prefetch_size, device_prefetch_size=args.device_prefetch_size)
     return dataloader
 
@@ -159,6 +157,7 @@ def _run(index, args):
     device = xm.xla_device()
     model, preprocess_fn = initialize_model(args)
     model = model.to(device)
+    xm.master_print(f"Got model in {time.time() - start_time} s")
     if args.eval_only:
         _mp_evaluate(index, model, args)
         return
@@ -167,11 +166,18 @@ def _run(index, args):
     with open(args.load_hparams, 'r') as f:
         best_hparams = json.load(f)
 
+    xm.master_print(f"Starting to fetch fine-tuning dataset...")
+    dataset_start_time = time.time()
     all_datasets = get_datasets(args, model, preprocess_fn)
+    xm.master_print(f"Finished fetching fine-tuning dataset in {time.time() - dataset_start_time} s")
+    xm.master_print(f"Starting to create fine-tuning dataloader...")
+    dataloader_start_time = time.time()
     train_loader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-    num_batches = len(train_loader)
-    print(f"{num_batches} batches in fine-tuning dataloader")
-    total_steps = (args.ft_epochs * num_batches) // xm.xrt_world_size()
+    xm.master_print(f"Finished creating fine-tuning dataloader in {time.time() - dataloader_start_time} s")
+    xm.master_print('first batch in train_loader', next(iter(train_loader)))
+    num_batches_per_epoch = len(all_datasets["id"]) // (args.batch_size * xm.xrt_world_size())
+    xm.master_print(f"{num_batches_per_epoch} batches in fine-tuning dataset...")
+    total_steps = args.ft_epochs * num_batches_per_epoch
     warmup_length = (args.warmup_length * args.accumulation_steps) // xm.xrt_world_size()
     optimizer = create_optimizer(model=model, hparams=best_hparams, layerwise=args.layerwise_opt)
     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
@@ -183,11 +189,10 @@ def _run(index, args):
     save_hparams(hparams=best_hparams, args=args)
     set_seed(seed=best_hparams["seed"])
 
-    effective_step = 0
     for epoch in range(0, args.ft_epochs):
         model.train()
         for i, batch in enumerate(train_loader):
-            step = i + epoch * (num_batches // xm.xrt_world_size())
+            step = i + epoch * num_batches_per_epoch
             scheduler(step)
 
             batch = maybe_dictionarize(batch)
@@ -204,10 +209,9 @@ def _run(index, args):
             loss = loss_fn(model, logits, labels, image_features, text_features, ls, unlabeled_logits=None)
             loss = loss / args.accumulation_steps
             loss.backward()
-            if args.clip_gradient:
-                torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
             if (i + 1) % args.accumulation_steps == 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                if args.clip_gradient:
+                    torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
                 xm.optimizer_step(optimizer)
 
             if i % 100 == 0:
@@ -227,7 +231,7 @@ def _run(index, args):
                     'base_lrs': args.lr,
                     'warmup_length': args.warmup_length,
                     'steps': total_steps,
-                    'current_step': effective_step + epoch * num_batches
+                    'current_step': step
                 },
                 'epoch': epoch
             }, ckpt_save_path)

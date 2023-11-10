@@ -157,6 +157,7 @@ def collate_fn_for_cifar(batch):
 def collate_fn_for_imagenet(batch):
     # Extract images, labels, features, and image_paths from the batch
     keys = batch[0].keys()
+    print('collate_fn_for_imagenet batch keys', keys)
     batch_dict = {k : [] for k in keys}
     for k in keys:
         batch_dict[k] = [item[k] for item in batch]
@@ -166,6 +167,8 @@ def collate_fn_for_imagenet(batch):
         batch_dict["labels"] = torch.as_tensor(batch_dict["labels"]).long()
     if "features" in keys:
         batch_dict["features"] = torch.stack(batch_dict["features"], 0)
+    if "metadata" in keys:
+        batch_dict["metadata"] = torch.stack(batch_dict["images"], 0)
 
     return batch_dict
 

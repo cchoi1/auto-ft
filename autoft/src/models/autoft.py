@@ -60,10 +60,21 @@ class HyperparameterSpace:
                 f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
             }
         else:
-            return {
-                f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-                f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 0.3, log=True)
-            }
+            if "Flowers" in self.dataset_name:
+                return {
+                    f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
+                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 1.0, log=True)
+                }
+            elif "PatchCamelyon" in self.dataset_name or "StanfordCars" in self.dataset_name:
+                return {
+                    f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
+                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 0.3)
+                }
+            else:
+                return {
+                    f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
+                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 0.3, log=True)
+                }
 
     def build_space(self, trial):
         # Global hyperparameters: loss weights, seed, batch size
@@ -250,6 +261,8 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
         best_hparams["lossw_ce"] = 1.0
     if "flyp" in args.losses and "lossw_flyp" not in best_hparams.keys():
         best_hparams["lossw_flyp"] = 1.0
+    if "Flowers" in args.id or "StanfordCars" in args.id:
+        best_hparams["wd"] = 0.0
     loss_weights = get_loss_weights(hparams=best_hparams, layerwise=args.layerwise_loss)
     initial_params = [p for p in model.parameters()]
     loss_fn = LearnedLoss(losses=args.losses, loss_weights=loss_weights, initial_params=initial_params)
