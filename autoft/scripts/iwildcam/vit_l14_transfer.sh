@@ -17,23 +17,13 @@ cd ../..
 
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
-#python3 src/main.py --method autoft --model ViT-L/14 --data-location /iris/u/cchoi1/Data \
-#--id IWildCamTrain --ood IWildCamOODVal --eval-datasets IWildCamIDVal,IWildCamIDTest,IWildCamOODTest \
-#--num_ood_hp_examples 1000 --use_class_balanced_ood --ft_epochs 20 --autoft_epochs 500 --inner_steps 100 \
-#--lr 1e-5 --wd 0.1 --batch-size 128 --warmup_length 500 --accumulation_steps 2 \
-#--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt --template iwildcam_template \
-#--ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
-#--csv-img-key filepath --csv-caption-key title --get_labeled_csv \
-#--losses ce dcm flyp --clip_gradient \
-#--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams_new.json
-
 python3 src/main.py --method autoft --model ViT-L/14 --data-location /iris/u/cchoi1/Data \
 --id IWildCamTrain --ood IWildCamOODVal --eval-datasets IWildCamIDVal,IWildCamIDTest,IWildCamOODTest \
 --num_ood_hp_examples 1000 --use_class_balanced_ood --ft_epochs 20 --autoft_epochs 500 --inner_steps 100 \
 --lr 1e-5 --wd 0.1 --batch-size 128 --warmup_length 500 --accumulation_steps 2 \
---load /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is100_ftep20_bs128_wd0.1_lr1e-05_run1_seed0_ViT-L/14/checkpoint_19.pt \
---template iwildcam_template \
+--load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt --template iwildcam_template \
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm flyp --clip_gradient \
---eval_only
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams_new.json \
+--no_regenerate_head

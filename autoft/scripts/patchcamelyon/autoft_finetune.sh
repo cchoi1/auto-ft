@@ -26,4 +26,5 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --template patchcamelyon_template \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero \
---relative_to_flyp --clip_gradient --regenerate_head
+--relative_to_flyp --clip_gradient --regenerate_head \
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/PatchCamelyonTrain/autoft/oodPatchCamelyonValHOpt_cdefhllll_relflyp/no1000_nouNone_afep100_is100_ftep20_bs128_wd0.2_lr1e-05_run1_seed0_ViT-B/16/hparams.json
