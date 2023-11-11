@@ -8,7 +8,7 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft_tpu/"
 python3 src/finetune3.py --method autoft --model ViT-B/16 \
 --data-location /home/carolinechoi/data \
 --id ImageNet --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet \
---ft_data /home/carolinechoi/data/ImageNet/imagenet.csv \
+--ft_data /home/carolinechoi/data/ImageNet/imagenet.h5 \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --num_ood_hp_examples 15000 --use_class_balanced_ood \
 --ft_epochs 10 --inner_steps 10 --autoft_epochs 1000 \

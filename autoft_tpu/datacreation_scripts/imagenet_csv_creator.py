@@ -1,17 +1,10 @@
-import requests
 import os
-import multiprocessing as mp
-from io import BytesIO
-import numpy as np
-import PIL
-from PIL import Image
-import pickle
-import sys
+
 import src.templates as templates
 
 template = getattr(templates, 'openai_imagenet_template')
-out = open(f"./datasets/csv/imagenet.csv", "w")
-out.write("title\tfilepath\n")
+out = open(f"/home/carolinechoi/data/ImageNet/imagenet.csv", "w")
+out.write("title\tfilepath\tlabel\n")
 
 openai_classnames = [
     "tench", "goldfish", "great white shark", "tiger shark",
@@ -235,11 +228,16 @@ openai_classnames = [
     "bolete", "corn cob", "toilet paper"
 ]
 
-list_folders = os.listdir(f'./datasets/data/ILSVRC2012/train/')
+DATA_DIR = "/home/carolinechoi/data/ImageNet/ILSVRC/Data/CLS-LOC/train"
+list_folders = os.listdir(DATA_DIR)
 list_folders = sorted(list_folders)
+list_folders = list_folders[3:]
+print('len list_folders', len(list_folders))
 for i in range(1000):
+    if i > len(list_folders) - 1:
+        break
     folder_name, class_name = list_folders[i], openai_classnames[i]
-    curr_path = os.path.join(f'./datasets/data/ILSVRC2012/train', folder_name)
+    curr_path = os.path.join(DATA_DIR, folder_name)
     all_files = os.listdir(curr_path)
     tot_fils = 0
     for file in all_files:
@@ -247,5 +245,5 @@ for i in range(1000):
         fp = os.path.join(curr_path, file)
         for t in template:
             caption = t(class_name)
-            out.write("%s\t%s\n" % (caption, fp))
+            out.write("%s\t%s\t%s\n" % (caption, fp, i))
 out.close()

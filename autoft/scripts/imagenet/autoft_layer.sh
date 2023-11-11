@@ -27,5 +27,4 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --ft_data /iris/u/cchoi1/Data/csv/imagenet.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
---relative_to_flyp --regenerate_head --no_regenerate_head \
---num_workers 8
+--relative_to_flyp --regenerate_head --no_regenerate_head

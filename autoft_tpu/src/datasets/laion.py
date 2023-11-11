@@ -105,13 +105,17 @@ class HDF5Dataset(Dataset):
     def __init__(self, hdf5_filename, transforms, img_key, caption_key, label_key=None):
         self.hdf5_filename = hdf5_filename
         self.transforms = transforms
-        self.img_key = img_key
+        self.img_key = "images"
         self.caption_key = caption_key
         self.label_key = label_key
+        print(f"Image key {self.img_key}, caption key {self.caption_key}, label key {self.label_key}.")
 
         # Open the HDF5 file and get the length of the dataset
+        print(f"Loading HDF5 file {self.hdf5_filename}.")
         with h5py.File(self.hdf5_filename, 'r') as hdf:
+            print(hdf[img_key])
             self.length = hdf[img_key].shape[0]
+        print(f"Length of dataset: {self.length}.")
 
     def __len__(self):
         return self.length
@@ -548,7 +552,7 @@ def get_dataset_fn(data_path, dataset_type):
         return get_csv_dataset
     elif dataset_type == "auto":
         ext = data_path.split('.')[-1]
-        if ext in ['csv', 'tsv']:
+        if ext in ['csv', 'tsv', 'h5']:
             return get_csv_dataset
         elif ext in ['tar']:
             return get_wds_dataset

@@ -240,6 +240,7 @@ list_folders = os.listdir(DATA_DIR)
 list_folders = sorted(list_folders)
 #TODO change this later
 list_folders = list_folders[3:]
+print('len list_folders', len(list_folders))
 for i in range(1000):
     folder_name, class_name = list_folders[i], openai_classnames[i]
     curr_path = os.path.join(DATA_DIR, folder_name)

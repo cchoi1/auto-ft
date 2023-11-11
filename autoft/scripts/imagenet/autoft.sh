@@ -7,8 +7,8 @@
 #SBATCH --mem=64GB # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
 #SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
-#SBATCH --job-name="imagenet-autoft-100inner-1000ep-15000ex-relflyp" # Name the job (for easier monitoring)
-#SBATCH --output=imagenet-autoft-100inner-1000ep-15000ex-relflyp.log  # Name of the output log file
+#SBATCH --job-name="imagenet-autoft-500inner-1000ep-15000ex-relflyp" # Name the job (for easier monitoring)
+#SBATCH --output=imagenet-autoft-500inner-1000ep-15000ex-relflyp.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
