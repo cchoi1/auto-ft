@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="delete-CLOC"
 #SBATCH --output="delete-CLOC.log"
-#SBATCH --partition=iris-hi
+#SBATCH --partition=iris
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4

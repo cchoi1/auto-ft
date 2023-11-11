@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="iwildcam-autoft-vitl14-500inner-500ep-1000ex-class-balanced-relflyp-regen-finetune-noregen" # Name the job (for easier monitoring)
-#SBATCH --output=iwildcam-autoft-vitl14-500inner-500ep-1000ex-class-balanced-relflyp-regen-finetune-noregen.log  # Name of the output log file
+#SBATCH --job-name="iwildcam-autoft-vitl14-500inner-500ep-1000ex-class-balanced-relflyp-finetune-noregen" # Name the job (for easier monitoring)
+#SBATCH --output=iwildcam-autoft-vitl14-500inner-500ep-1000ex-class-balanced-relflyp-finetune-noregen.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -25,5 +25,5 @@ python3 src/main.py --method autoft --model ViT-L/14 --data-location /iris/u/cch
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --relative_to_flyp --clip_gradient \
---load_hparams \
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/IWildCam/vitl14_relflyp_noregen_1000is_70os_1000ex.json \
 --no_regenerate_head
