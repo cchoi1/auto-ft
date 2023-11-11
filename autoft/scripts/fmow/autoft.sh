@@ -27,4 +27,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoo
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_fmow2.pt \
 --workers 2 --clip_gradient \
---relative_to_flyp --regenerate_head
+--relative_to_flyp --regenerate_head --no_regenerate_head
