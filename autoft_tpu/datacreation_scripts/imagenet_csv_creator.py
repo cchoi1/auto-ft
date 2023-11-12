@@ -233,6 +233,7 @@ list_folders = os.listdir(DATA_DIR)
 list_folders = sorted(list_folders)
 list_folders = list_folders[3:]
 print('len list_folders', len(list_folders))
+num_examples = 0
 for i in range(1000):
     if i > len(list_folders) - 1:
         break
@@ -246,4 +247,6 @@ for i in range(1000):
         for t in template:
             caption = t(class_name)
             out.write("%s\t%s\t%s\n" % (caption, fp, i))
+    num_examples += tot_fils
+print("num_examples", num_examples)
 out.close()

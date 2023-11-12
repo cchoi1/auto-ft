@@ -62,16 +62,16 @@ def set_seed(seed=0):
     torch.backends.cudnn.benchmark = False
 
 def print_hparams(hparams):
-    print("\nHyperparameters:")
+    xm.master_print("\nHyperparameters:")
     for key, value in hparams.items():
         if not "dataw" in key:
-            print(f"{key}: {value}")
+            xm.master_print(f"{key}: {value}")
 
 
 def save_hparams(hparams, args):
     save_file = os.path.join(args.save, 'hparams.json')
     os.makedirs(args.save, exist_ok=True)
-    print(f"\nSaving hyperparameters to {save_file}.")
+    xm.master_print(f"\nSaving hyperparameters to {save_file}.")
     hparams["seed"] = int(hparams["seed"])
     if "ce" in args.losses and "lossw_ce" not in hparams.keys(): # Save cross-entropy loss weight
         hparams["lossw_ce"] = 1.0
@@ -168,6 +168,15 @@ def get_logits(inputs, classifier):
     if hasattr(classifier, 'to'):
         classifier = classifier.to(inputs.device)
     return classifier(inputs)
+
+
+def get_logits_encoder(inputs, encoder, classification_head):
+    assert callable(encoder)
+    if hasattr(encoder, 'to'):
+        encoder = encoder.to(inputs.device)
+        classification_head = classification_head.to(inputs.device)
+    feats = encoder(inputs)
+    return classification_head(feats)
 
 
 def get_probs(inputs, classifier):

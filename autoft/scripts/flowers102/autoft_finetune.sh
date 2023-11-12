@@ -22,7 +22,7 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --num_ood_hp_examples 600 --use_class_balanced_ood --ft_epochs 100 \
 --autoft_epochs 1000 --inner_steps 350 --lr 1e-4 --wd 0.4 \
 --batch-size 128 --accumulation_steps 2 --warmup_length 500 \
---losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero \
+--losses ce dcm flyp \
 --ft_data /iris/u/cchoi1/Data/flowers102/train.csv --template flowers102_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_flowers102.pt \
@@ -30,4 +30,5 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --relative_to_flyp --regenerate_head \
 --workers 2
 
+# --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero \
 # --load_hparams ./saved/Flowers102Train/autoft/oodFlowers102ValHOpt_cdefhllll_relflyp/no500_nouNone_afep500_is350_ftep100_bs128_wd0.2_lr1e-05_run1_seed0_ViT-B/16/hparams.json

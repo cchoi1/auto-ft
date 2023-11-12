@@ -106,6 +106,7 @@ class ImageClassifier(torch.nn.Module):
     def save(self, filename):
         print(f'Saving image classifier to {filename}')
         utils.torch_save(self, filename)
+        print(f'Saved image classifier.')
 
     @classmethod
     def load(cls, filename):

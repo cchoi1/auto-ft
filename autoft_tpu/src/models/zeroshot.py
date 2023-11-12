@@ -75,7 +75,6 @@ def eval(args):
         image_encoder = ImageEncoder(args, keep_lang=True)
         classification_head = get_zeroshot_classifier(args,
                                                       image_encoder.model)
-        delattr(image_encoder.model, 'transformer')
         classifier = ImageClassifier(image_encoder,
                                      classification_head,
                                      process_images=False)
@@ -83,8 +82,8 @@ def eval(args):
     if args.save is not None:
         classifier.save(args.save)
 
-    # evaluate(classifier, classification_head, args)
-    evaluate(classifier, args)
+    evaluate(classifier, classification_head, args)
+    # evaluate(classifier, args)
 
 
 if __name__ == '__main__':

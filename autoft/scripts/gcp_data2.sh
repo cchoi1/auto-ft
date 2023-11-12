@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name="gcs_data_transfer"
-#SBATCH --output="gcs_data_transfer.log"
+#SBATCH --job-name="iwildcam_data_transfer"
+#SBATCH --output="iwildcam_data_transfer.log"
 #SBATCH --partition=iris
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -13,7 +13,7 @@
 
 echo "Starting data transfer to Google Cloud Storage..."
 
-gsutil -m rsync -r /iris/u/yoonho/data/wilds/iwildcam_v2.0 gs://robust-ft2
-gsutil -m rsync -r /iris/u/yoonho/data/wilds/iwildcam_unlabeled_v1.0 gs://robust-ft2
+gsutil -m rsync -r /iris/u/yoonho/data/wilds/iwildcam_v2.0 gs://robust-ft2/iwildcam_v2.0
+gsutil -m rsync -r /iris/u/yoonho/data/wilds/iwildcam_unlabeled_v1.0 gs://robust-ft2/iwildcam_unlabeled_v1.0
 
 echo "Data transfer to GCS completed."

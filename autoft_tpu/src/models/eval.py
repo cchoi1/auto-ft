@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 
 import numpy as np
 import src.datasets as datasets
@@ -12,19 +13,6 @@ from src.models import utils
 
 logger = logging.getLogger('main')
 
-def _move_model_to_device(image_classifier, args):
-    if args.freeze_encoder:
-        model = image_classifier.classification_head
-        input_key = 'features'
-        image_enc = image_classifier.image_encoder
-    else:
-        model = image_classifier
-        input_key = 'images'
-        image_enc = None
-    device = xm.xla_device()
-    return model.to(device), input_key, image_enc
-
-
 def _calculate_accuracy(dataset, logits, y, image_paths, args):
     if hasattr(dataset, 'accuracy'):
         acc1, num_total = dataset.accuracy(logits, y, image_paths, args)
@@ -35,14 +23,16 @@ def _calculate_accuracy(dataset, logits, y, image_paths, args):
     return acc1, num_total
 
 
-def _process_batch(data, dataset, model, input_key, args):
+def _process_batch(batch, dataset, image_encoder, classification_head, input_key, args):
     """Process batch and return results."""
+    batch = maybe_dictionarize(batch)
     device = xm.xla_device()
-    x = data[input_key].to(device)
-    y = data['labels'].to(device)
+    x = batch[input_key].to(device)
+    y = batch['labels'].to(device)
 
-    image_paths = data.get('image_paths', None)
-    logits = utils.get_logits(x, model)
+    image_paths = batch.get('image_paths', None)
+    # logits = utils.get_logits(x, model)
+    logits = utils.get_logits_encoder(x, image_encoder, classification_head)
 
     projection_fn = getattr(dataset, 'project_logits', None)
     if projection_fn:
@@ -55,24 +45,30 @@ def _process_batch(data, dataset, model, input_key, args):
     if hasattr(dataset, 'post_loop_metrics'):
         all_labels = y.cpu().clone().detach()
         all_preds = logits.cpu().clone().detach()
-        metadata = data.get('metadata', image_paths)
+        metadata = batch.get('metadata', image_paths)
         return acc1, num_total, all_labels, all_preds, metadata
 
     return acc1, num_total, None, None, None
 
 
-def eval_single_dataset(image_classifier, dataset, args):
+def eval_single_dataset(image_classifier, classification_head, dataset, args):
     """Evaluate a single dataset and return metrics."""
-    model, input_key, image_enc = _move_model_to_device(image_classifier, args)
-    model.eval()
-    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
+    device = xm.xla_device()
+    image_encoder = image_classifier.image_encoder
+    image_encoder.to(device)
+    image_encoder.eval()
+    image_classifier.to(device)
+    image_classifier.eval()
+    input_key = "images"
+    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_encoder)
 
     top1, correct, n = 0., 0., 0.
     all_labels, all_preds, all_metadata = [], [], []
-    for _, data in enumerate(dataloader):
-        with torch.no_grad():
-            data = maybe_dictionarize(data)
-            acc1, batch_size, labels, preds, metadata = _process_batch(data, dataset, model, input_key, args)
+    xm.master_print(f"Num batches in eval dataloader: {len(dataloader)}")
+    with torch.no_grad():
+        for batch in dataloader:
+            batch_start_time = time.time()
+            acc1, batch_size, labels, preds, metadata = _process_batch(batch, dataset, image_encoder, input_key, args)
             correct += acc1
             n += batch_size
 
@@ -80,6 +76,7 @@ def eval_single_dataset(image_classifier, dataset, args):
                 all_labels.append(labels)
                 all_preds.append(preds)
                 all_metadata.extend(metadata)
+            xm.master_print(f"Batch took {time.time() - batch_start_time} seconds")
 
     top1 = correct / n
     metrics = {}
@@ -98,7 +95,7 @@ def eval_single_dataset(image_classifier, dataset, args):
     return metrics
 
 
-def _mp_evaluate(rank, image_classifier, args):
+def _mp_evaluate(rank, image_classifier, classification_head, args):
     """Evaluate on multiple datasets and print results."""
     if args.eval_datasets is None:
         return
@@ -113,7 +110,7 @@ def _mp_evaluate(rank, image_classifier, args):
             location=args.data_location,
             batch_size=args.batch_size
         )
-        results = eval_single_dataset(image_classifier, dataset, args)
+        results = eval_single_dataset(image_classifier, classification_head, dataset, args)
         for key, val in results.items():
             prefix = f"{dataset_name} "
             if key == 'top1':
@@ -132,12 +129,12 @@ def _mp_evaluate(rank, image_classifier, args):
         xm.master_print(f'\nSaved evaluation results to {results_path}.')
 
 
-def evaluate(image_classifier, args, spawn_required=True):
+def evaluate(image_classifier, classification_head, args, spawn_required=True):
     """Depending on the flag, either spawn new processes or directly evaluate."""
     if spawn_required:
         # If called outside of the training loop, spawn new processes.
-        xmp.spawn(_mp_evaluate, args=(image_classifier, args,), nprocs=8, start_method='spawn')
+        xmp.spawn(_mp_evaluate, args=(image_classifier, classification_head, args,), nprocs=8, start_method='spawn')
     else:
         # If called within the training loop, use the current process.
         rank = xm.get_ordinal()
-        _mp_evaluate(rank, image_classifier, args)
+        _mp_evaluate(rank, image_classifier, classification_head, args)

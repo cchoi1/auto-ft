@@ -30,139 +30,135 @@ except ImportError:
 from open_clip import tokenize
 
 
+class CsvDataset(Dataset):
+    def __init__(self,
+                 input_filename,
+                 transforms,
+                 img_key,
+                 caption_key,
+                 sep="\t",
+                 label_key=None):
+        start_time = time.time()
+        xm.master_print(f'Loading csv data from {input_filename}.')
+        df = pd.read_csv(input_filename, sep=sep)
+
+        self.images = df[img_key].tolist()
+        self.captions = df[caption_key].tolist()
+        xm.master_print(f"Length of dataset: {len(self.captions)}.")
+        xm.master_print(f"Length of images: {len(self.images)}.")
+
+        num_columns = len(df.columns) - 2
+        self.captions_list = []
+        for k in range(1, num_columns):
+            self.captions_list.append(df[f"{caption_key}_{k}"])
+
+        self.return_label = False
+        if label_key is not None:
+            self.return_label = True
+            self.labels = list(map(int, df[label_key].tolist()))
+            xm.master_print(f"Length of labels: {len(self.labels)}.")
+        self.transforms = transforms
+        xm.master_print(f'Loaded csv data in {time.time() - start_time:.2f} seconds.')
+
+    def __len__(self):
+        return len(self.captions)
+
+    def __getitem__(self, idx):
+        images = self.transforms(Image.open(str(self.images[idx])))
+        texts = tokenize([str(self.captions[idx])])[0]
+
+        if len(self.captions_list) > 0:
+            texts_list = [
+                tokenize([str(self.captions_list[i][idx])])[0]
+                for i in range(len(self.captions_list))
+            ]
+            texts_list.append(texts)
+            texts_list = torch.stack(texts_list, dim=0)
+            perm = torch.randperm(texts_list.shape[0])
+
+            texts_list = texts_list[perm, :]
+
+        if self.return_label:
+            label = self.labels[idx]
+            if len(self.captions_list) > 0:
+                return images, label, texts, texts_list
+            else:
+                return images, label, texts
+
+        if len(self.captions_list) > 0:
+            return images, texts, texts_list
+
+        return images, texts
+
+# import pandas as pd
+# from torch.utils.data import Dataset
+#
+# def calculate_total_rows(csv_file, sep='\t'):
+#     total_rows = 0
+#     for chunk in pd.read_csv(csv_file, sep=sep, chunksize=10000):
+#         total_rows += len(chunk)
+#     return total_rows
+#
 # class CsvDataset(Dataset):
-#     def __init__(self,
-#                  input_filename,
-#                  transforms,
-#                  img_key,
-#                  caption_key,
-#                  sep="\t",
-#                  label_key=None,
-#                  chunksize=None):
-#         start_time = time.time()
-#         xm.master_print(f'Loading csv data from {input_filename}.')
+#     def __init__(self, input_filename, transforms, img_key, caption_key, sep="\t", label_key=None, chunksize=10000):
+#         xm.master_print(f'Initializing dataset from {input_filename}.')
 #         self.input_filename = input_filename
 #         self.img_key = img_key
 #         self.caption_key = caption_key
 #         self.sep = sep
 #         self.label_key = label_key
-#         self.chunksize = chunksize
-#         df = pd.read_csv(input_filename, sep=sep)
-#
-#         self.images = df[img_key].tolist()
-#         self.captions = df[caption_key].tolist()
-#
-#         num_columns = len(df.columns) - 2
-#         self.captions_list = []
-#         for k in range(1, num_columns):
-#             self.captions_list.append(df[f"{caption_key}_{k}"])
-#
-#         self.return_label = False
-#         if label_key is not None:
-#             self.return_label = True
-#             self.labels = list(map(int, df[label_key].tolist()))
 #         self.transforms = transforms
-#         xm.master_print(f'Loaded csv data in {time.time() - start_time:.2f} seconds.')
+#         self.chunksize = chunksize
+#         self.current_chunk_index = 0
 #
-#     def __len__(self):
-#         return len(self.captions)
+#         # Initialize the iterator
+#         self.reader = pd.read_csv(input_filename, sep=sep, chunksize=chunksize, iterator=True)
+#         self.length = calculate_total_rows(input_filename, sep=sep)
+#         xm.master_print(f"Dataset length: {self.length}.")
+#         self._load_next_chunk()
+#
+#     def _load_next_chunk(self):
+#         try:
+#             df = next(self.reader)
+#             self.images = df[self.img_key].tolist()
+#             self.captions = df[self.caption_key].tolist()
+#
+#             num_columns = len(df.columns) - 2
+#             self.captions_list = []
+#             for k in range(1, num_columns):
+#                 self.captions_list.append(df[f"{self.caption_key}_{k}"])
+#
+#             self.return_label = False
+#             if self.label_key is not None:
+#                 self.return_label = True
+#                 self.labels = list(map(int, df[self.label_key].tolist()))
+#
+#         except StopIteration:
+#             # Handle end of the dataset
+#             self.images = []
+#             self.captions = []
+#             self.captions_list = []
+#             self.labels = []
+#             self.return_label = False
 #
 #     def __getitem__(self, idx):
-#         images = self.transforms(Image.open(str(self.images[idx])))
-#         texts = tokenize([str(self.captions[idx])])[0]
+#         # If idx is outside the current chunk, load the next chunk
+#         if idx >= self.current_chunk_index + self.chunksize:
+#             self._load_next_chunk()
+#             self.current_chunk_index += self.chunksize
 #
-#         if len(self.captions_list) > 0:
-#             texts_list = [
-#                 tokenize([str(self.captions_list[i][idx])])[0]
-#                 for i in range(len(self.captions_list))
-#             ]
-#             texts_list.append(texts)
-#             texts_list = torch.stack(texts_list, dim=0)
-#             perm = torch.randperm(texts_list.shape[0])
+#         # Adjust idx for the current chunk
+#         chunk_relative_idx = idx - self.current_chunk_index
 #
-#             texts_list = texts_list[perm, :]
+#         # Process and return the relevant data
+#         image = self.transforms(self.images[chunk_relative_idx])
+#         caption = self.captions[chunk_relative_idx]
+#         label = self.labels[chunk_relative_idx] if self.return_label else None
 #
-#         if self.return_label:
-#             label = self.labels[idx]
-#             if len(self.captions_list) > 0:
-#                 return images, label, texts, texts_list
-#             else:
-#                 return images, label, texts
+#         return image, caption, label
 #
-#         if len(self.captions_list) > 0:
-#             return images, texts, texts_list
-#
-#         return images, texts
-
-import pandas as pd
-from torch.utils.data import Dataset
-
-def calculate_total_rows(csv_file, sep='\t'):
-    total_rows = 0
-    for chunk in pd.read_csv(csv_file, sep=sep, chunksize=10000):
-        total_rows += len(chunk)
-    return total_rows
-
-class CsvDataset(Dataset):
-    def __init__(self, input_filename, transforms, img_key, caption_key, sep="\t", label_key=None, chunksize=10000):
-        xm.master_print(f'Initializing dataset from {input_filename}.')
-        self.input_filename = input_filename
-        self.img_key = img_key
-        self.caption_key = caption_key
-        self.sep = sep
-        self.label_key = label_key
-        self.transforms = transforms
-        self.chunksize = chunksize
-        self.current_chunk_index = 0
-
-        # Initialize the iterator
-        self.reader = pd.read_csv(input_filename, sep=sep, chunksize=chunksize, iterator=True)
-        self.length = calculate_total_rows(input_filename, sep=sep)
-        xm.master_print(f"Dataset length: {self.length}.")
-        self._load_next_chunk()
-
-    def _load_next_chunk(self):
-        try:
-            df = next(self.reader)
-            self.images = df[self.img_key].tolist()
-            self.captions = df[self.caption_key].tolist()
-
-            num_columns = len(df.columns) - 2
-            self.captions_list = []
-            for k in range(1, num_columns):
-                self.captions_list.append(df[f"{self.caption_key}_{k}"])
-
-            self.return_label = False
-            if self.label_key is not None:
-                self.return_label = True
-                self.labels = list(map(int, df[self.label_key].tolist()))
-
-        except StopIteration:
-            # Handle end of the dataset
-            self.images = []
-            self.captions = []
-            self.captions_list = []
-            self.labels = []
-            self.return_label = False
-
-    def __getitem__(self, idx):
-        # If idx is outside the current chunk, load the next chunk
-        if idx >= self.current_chunk_index + self.chunksize:
-            self._load_next_chunk()
-            self.current_chunk_index += self.chunksize
-
-        # Adjust idx for the current chunk
-        chunk_relative_idx = idx - self.current_chunk_index
-
-        # Process and return the relevant data
-        image = self.transforms(self.images[chunk_relative_idx])
-        caption = self.captions[chunk_relative_idx]
-        label = self.labels[chunk_relative_idx] if self.return_label else None
-
-        return image, caption, label
-
-    def __len__(self):
-        return self.length
+#     def __len__(self):
+#         return self.length
 
 
 import h5py
@@ -588,22 +584,13 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
                          img_key=args.csv_img_key,
                          caption_key=args.csv_caption_key,
                          sep=args.csv_separator,
-                         label_key=label_key,
-                         chunksize=10000)
-    # dataset = HDF5Dataset(input_filename,
-    #                         preprocess_fn,
-    #                         img_key=args.csv_img_key,
-    #                         caption_key=args.csv_caption_key,
-    #                         label_key=label_key)
+                         label_key=label_key)
     num_samples = len(dataset)
-    # sampler = DistributedSampler(dataset) if args.distributed and is_train else None
-    sampler = None
-    shuffle = is_train and sampler is None
+    sampler = DistributedSampler(dataset, num_replicas=xm.xrt_world_size(), rank=xm.get_ordinal(), shuffle=is_train)
 
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,
-        shuffle=shuffle,
         num_workers=args.workers,
         pin_memory=True,
         sampler=sampler,

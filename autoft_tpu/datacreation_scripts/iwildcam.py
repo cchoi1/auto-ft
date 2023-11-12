@@ -16,9 +16,9 @@ def main(args):
 
     assert len(df) == 129809, 'number of samples incorrect'
 
-    label_to_name['prompt1'] = label_to_name['english'].map(
+    label_to_name['prompt1'] = label_to_name['name'].map(
         iwildcam_template[0])
-    label_to_name['prompt2'] = label_to_name['english'].map(
+    label_to_name['prompt2'] = label_to_name['name'].map(
         iwildcam_template[1])
 
     df1 = pd.merge(df, label_to_name[['y', 'prompt1']],
@@ -60,7 +60,5 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir',
                         default='./datasets/data/iwildcam_v2.0/train')
     args = parser.parse_args()
-
-    os.makedirs('./datasets/csv/iwildcam_v2.0', exist_ok=True)
 
     main(args)

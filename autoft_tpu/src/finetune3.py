@@ -52,7 +52,7 @@ def get_datasets(args, model, preprocess_fn):
 def get_sampler(dataset, train):
     """Helper function to create a sampler."""
     if xm.xrt_world_size() > 1:
-        xm.master_print(f"Using distributed sampler for with {xm.xrt_world_size()} replicas")
+        xm.master_print(f"Using distributed sampler with {xm.xrt_world_size()} replicas")
         sampler = DistributedSampler(dataset, num_replicas=xm.xrt_world_size(), rank=xm.get_ordinal(), shuffle=train)
     else:
         sampler = None
@@ -83,43 +83,6 @@ def get_loss_weights(hparams, layerwise):
         loss_weights = global_loss_weights
     return loss_weights
 
-def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
-    """
-    Get a DataLoader for the given dataset.
-
-    Args:
-        dataset: Dataset object to be loaded.
-        is_train: Boolean indicating if the dataset is for training.
-        args: Arguments containing configurations.
-        image_encoder: Optional image encoder for feature extraction.
-
-    Returns:
-        DataLoader for the given dataset.
-    """
-    kwargs = {"batch_size": args.batch_size, "num_workers": args.workers, "persistent_workers": args.persistent_workers,
-              "prefetch_factor": args.prefetch_factor}
-    if sampler is not None:
-        kwargs["sampler"] = sampler
-    else:
-        kwargs["sampler"] = get_sampler(dataset, is_train)
-    if is_train and kwargs["sampler"] is None:
-        kwargs["shuffle"] = True
-    else:
-        kwargs["shuffle"] = False
-    if "ImageNet" in args.id:
-        kwargs["collate_fn"] = collate_fn_for_imagenet
-    elif "CIFAR" in args.id:
-        kwargs["collate_fn"] = collate_fn_for_cifar
-    if image_encoder is not None:
-        kwargs["collate_fn"] = collate_fn_for_imagenet
-        dataset = FeatureDataset(args, is_train, image_encoder, dataset, args.device)
-    elif hasattr(dataset, 'dataset'):
-        dataset = dataset.dataset
-    kwargs["dataset"] = dataset
-    dataloader = DataLoader(**kwargs)
-    device = xm.xla_device()
-    dataloader = pl.MpDeviceLoader(dataloader, device, loader_prefetch_size=args.loader_prefetch_size, device_prefetch_size=args.device_prefetch_size)
-    return dataloader
 
 def create_optimizer(model, hparams, layerwise=False):
     if layerwise:
@@ -172,9 +135,8 @@ def _run(index, args):
     xm.master_print(f"Finished fetching fine-tuning dataset in {time.time() - dataset_start_time} s")
     xm.master_print(f"Starting to create fine-tuning dataloader...")
     dataloader_start_time = time.time()
-    train_loader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
+    train_loader = all_datasets["id"]["train_ft"].dataloader
     xm.master_print(f"Finished creating fine-tuning dataloader in {time.time() - dataloader_start_time} s")
-    xm.master_print('first batch in train_loader', next(iter(train_loader)))
     num_batches_per_epoch = len(all_datasets["id"]) // (args.batch_size * xm.xrt_world_size())
     xm.master_print(f"{num_batches_per_epoch} batches in fine-tuning dataset...")
     total_steps = args.ft_epochs * num_batches_per_epoch
@@ -196,7 +158,6 @@ def _run(index, args):
             scheduler(step)
 
             batch = maybe_dictionarize(batch)
-            print('batch keys', batch.keys())
             images = batch['images'].to(device)
             labels = batch['labels'].to(device)
             text = batch['metadata'].to(device)
@@ -223,7 +184,7 @@ def _run(index, args):
                 model = model.to('cpu')
                 model.save(model_save_path)
                 model = model.to(device)
-                print("Saved model to", model_save_path)
+                xm.master_print("Saved model to", model_save_path)
             ckpt_save_path = os.path.join(args.save, f"opt_sched_{epoch}.pt")
             xm.save({
                 'optimizer_state': optimizer.state_dict(),
