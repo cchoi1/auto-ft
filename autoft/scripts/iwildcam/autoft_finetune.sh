@@ -6,8 +6,8 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="iwildcam-autoft-500inner-200ep-1000ex-class-balanced-relflyp-finetune-noregen" # Name the job (for easier monitoring)
-#SBATCH --output=iwildcam-autoft-500inner-200ep-1000ex-class-balanced-relflyp-finetune-noregen.log  # Name of the output log file
+#SBATCH --job-name="iwildcam-autoft-500inner-200ep-1000ex-class-balanced-relflyp-finetune-noregen-noclipgrad" # Name the job (for easier monitoring)
+#SBATCH --output=iwildcam-autoft-500inner-200ep-1000ex-class-balanced-relflyp-finetune-noregen-noclipgrad.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 

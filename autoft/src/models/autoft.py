@@ -63,7 +63,7 @@ class HyperparameterSpace:
             if "Flowers" in self.dataset_name:
                 return {
                     f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 1.0, log=True)
+                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
                 }
             elif "PatchCamelyon" in self.dataset_name or "StanfordCars" in self.dataset_name:
                 return {

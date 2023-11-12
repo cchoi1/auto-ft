@@ -13,7 +13,7 @@
 
 echo "Starting data transfer to Google Cloud Storage..."
 
-# Transfer ImageNet-21k dataset
-gsutil -m rsync -r /iris/u/yoonho/data/ImageNet/ILSVRC/Data/CLS-LOC/train gs://robust-ft2
+gsutil -m rsync -r /iris/u/yoonho/data/wilds/iwildcam_v2.0 gs://robust-ft2
+gsutil -m rsync -r /iris/u/yoonho/data/wilds/iwildcam_unlabeled_v1.0 gs://robust-ft2
 
 echo "Data transfer to GCS completed."
