@@ -2,14 +2,15 @@
 #SBATCH --partition=iris-hi # Run on IRIS nodes
 #SBATCH --account=iris # Run on IRIS nodes
 #SBATCH --exclude=iris1,iris2,iris3,iris4
-#SBATCH --time=120:00:00 # Max job length is 5 days
-#SBATCH --nodes=1 # Only use one node (machine)
-#SBATCH --mem=64G # Request 16GB of memory
-#SBATCH --gres=gpu:1 # Request one GPU
-#SBATCH --job-name="flowers102-autoft-400inner-500ep-600ex-class-balanced-relflyp-regen-noregen" # Name the job (for easier monitoring)
-#SBATCH --output=flowers102-autoft-400inner-500ep-600ex-class-balanced-relflyp-regen-noregen.log  # Name of the output log file
-#SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
-#SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
+#SBATCH --time=72:00:00 # Reduced job length to 3 days, assuming optimization
+#SBATCH --nodes=1 # Use one node (machine)
+#SBATCH --mem=64G # 64GB of memory is typically sufficient, but adjust based on the model and batch size
+#SBATCH --gres=gpu:4 # Request 4 GPUs for parallel processing
+#SBATCH --cpus-per-task=16 # Increase the number of CPU cores per task to better handle data loading and preprocessing
+#SBATCH --job-name="imagenet-autoft" # Renamed for clarity
+#SBATCH --output=imagenet-autoft.log  # Renamed output log file
+#SBATCH --mail-type=END,FAIL # Mail events (NONE, BEGIN, END, FAIL, ALL)
+#SBATCH --mail-user=cchoi1@stanford.edu
 
 source /iris/u/cchoi1/robust-optimizer/ropt/bin/activate
 

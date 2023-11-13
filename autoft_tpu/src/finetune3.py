@@ -187,8 +187,7 @@ def _run(index, args):
                     torch.nn.utils.clip_grad_norm_(list(model.parameters()), 1.0)
                 xm.optimizer_step(optimizer)
 
-            if i % 100 == 0:
-                xm.master_print(f"Epoch [{epoch + 1}/{args.ft_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {loss.item():.2f}, Step Time: {time.time() - step_start_time:.2f} s")
+            xm.master_print(f"Epoch [{epoch + 1}/{args.ft_epochs}], Step [{step}/{total_steps}], Loss: {loss.item():.2f}, Step Time: {time.time() - step_start_time:.2f} s")
         # Save the current checkpoint along with optimizer and scheduler
         if epoch == args.ft_epochs - 1:
             if xm.is_master_ordinal():

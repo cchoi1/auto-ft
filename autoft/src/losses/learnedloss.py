@@ -15,7 +15,7 @@ class LearnedLoss(nn.Module):
         self.loss_weights = loss_weights.cuda().float()
         self.param_sum = sum(param.numel() for param in initial_params)
         self.device = initial_params[0].device
-        self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=self.device,
+        self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=0,
                                      world_size=1, use_horovod=False)
 
     def forward(self, model, logits, labels, image_features, text_features=None, logit_scale=None, unlabeled_logits=None, pseudolabels=None):

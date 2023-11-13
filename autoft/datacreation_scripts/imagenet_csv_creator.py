@@ -1,16 +1,9 @@
-import requests
 import os
-import multiprocessing as mp
-from io import BytesIO
-import numpy as np
-import PIL
-from PIL import Image
-import pickle
-import sys
 import src.templates as templates
 
+k = 4
 template = getattr(templates, 'openai_imagenet_template')
-out = open(f"/iris/u/cchoi1/Data/csv/imagenet.csv", "w")
+out = open(f"/iris/u/cchoi1/Data/csv/imagenet{k}.csv", "w")
 out.write("title\tfilepath\tlabel\n")
 
 openai_classnames = [
@@ -241,15 +234,27 @@ list_folders = sorted(list_folders)
 #TODO change this later
 list_folders = list_folders[3:]
 print('len list_folders', len(list_folders))
+tot_fils = 0
 for i in range(1000):
     folder_name, class_name = list_folders[i], openai_classnames[i]
     curr_path = os.path.join(DATA_DIR, folder_name)
     all_files = os.listdir(curr_path)
-    tot_fils = 0
+    count_examples = 0
     for file in all_files:
-        tot_fils += 1
+        if count_examples >= k:
+            break
         fp = os.path.join(curr_path, file)
         for t in template:
             caption = t(class_name)
             out.write("%s\t%s\t%s\n" % (caption, fp, i))
+        count_examples += 1
+        tot_fils += 1
+    # tot_fils = 0
+    # for file in all_files:
+    #     tot_fils += 1
+    #     fp = os.path.join(curr_path, file)
+    #     for t in template:
+    #         caption = t(class_name)
+    #         out.write("%s\t%s\t%s\n" % (caption, fp, i))
+print("Total examples: ", tot_fils)
 out.close()

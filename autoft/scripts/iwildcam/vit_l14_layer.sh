@@ -5,7 +5,8 @@
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
-#SBATCH --gres=gpu:1 # Request one GPU
+#SBATCH --gres=gpu:2 # Request one GPU
+#SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
 #SBATCH --job-name="iwildcam-autoft-vitl14-500inner-500ep-1000ex-class-balanced-layer" # Name the job (for easier monitoring)
 #SBATCH --output=iwildcam-autoft-vitl14-500inner-500ep-1000ex-class-balanced-layer.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
@@ -25,4 +26,5 @@ python3 src/main.py --method autoft --model ViT-L/14 --data-location /iris/u/cch
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --relative_to_flyp --clip_gradient \
---layerwise_loss --layerwise_opt
+--layerwise_loss --layerwise_opt \
+--workers 8

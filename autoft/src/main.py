@@ -67,6 +67,7 @@ def extract_fewshot_samples(iterator, args):
 
     return torch.stack(images0 + images1, dim=0), torch.stack(labels0 + labels1, dim=0), torch.stack(texts0 + texts1, dim=0)
 
+
 def extract_fewshot_samples2(iterator, args):
     class_samples = {}
     num_classes = get_num_classes(args)
