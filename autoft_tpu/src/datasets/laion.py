@@ -12,11 +12,9 @@ from multiprocessing import Value
 import braceexpand
 import numpy as np
 import pandas as pd
-import torch
 import torch_xla.core.xla_model as xm
 import torchvision.datasets as datasets
 import webdataset as wds
-from PIL import Image
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler, IterableDataset, get_worker_info
 from torch.utils.data.distributed import DistributedSampler
 from webdataset.filters import _shuffle
@@ -592,9 +590,10 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
         dataset,
         batch_size=args.batch_size,
         num_workers=args.workers,
-        pin_memory=True,
         sampler=sampler,
         drop_last=False,
+        persistent_workers=args.persistent_workers,
+        prefetch_factor=args.prefetch_factor,
     )
     dataloader.num_samples = num_samples
     dataloader.num_batches = len(dataloader)

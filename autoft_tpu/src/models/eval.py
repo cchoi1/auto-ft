@@ -54,21 +54,23 @@ def _process_batch(batch, dataset, image_encoder, classification_head, input_key
 def eval_single_dataset(image_classifier, classification_head, dataset, args):
     """Evaluate a single dataset and return metrics."""
     device = xm.xla_device()
+    image_classifier.eval()
     image_encoder = image_classifier.image_encoder
     image_encoder.to(device)
     image_encoder.eval()
-    image_classifier.to(device)
-    image_classifier.eval()
+    classification_head.to(device)
+    classification_head.eval()
     input_key = "images"
+    start_time = time.time()
     dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_encoder)
+    xm.master_print(f"Got dataloader in {time.time() - start_time:.2f} s")
 
     top1, correct, n = 0., 0., 0.
     all_labels, all_preds, all_metadata = [], [], []
     xm.master_print(f"Num batches in eval dataloader: {len(dataloader)}")
     with torch.no_grad():
         for batch in dataloader:
-            batch_start_time = time.time()
-            acc1, batch_size, labels, preds, metadata = _process_batch(batch, dataset, image_encoder, input_key, args)
+            acc1, batch_size, labels, preds, metadata = _process_batch(batch, dataset, image_encoder, classification_head, input_key, args)
             correct += acc1
             n += batch_size
 
@@ -76,7 +78,6 @@ def eval_single_dataset(image_classifier, classification_head, dataset, args):
                 all_labels.append(labels)
                 all_preds.append(preds)
                 all_metadata.extend(metadata)
-            xm.master_print(f"Batch took {time.time() - batch_start_time} seconds")
 
     top1 = correct / n
     metrics = {}
@@ -101,6 +102,7 @@ def _mp_evaluate(rank, image_classifier, classification_head, args):
         return
     info = vars(args)
     for dataset_name in args.eval_datasets:
+        start_time = time.time()
         xm.master_print('Evaluating on', dataset_name)
         dataset_class = getattr(datasets, dataset_name)
         dataset = dataset_class(
@@ -110,6 +112,7 @@ def _mp_evaluate(rank, image_classifier, classification_head, args):
             location=args.data_location,
             batch_size=args.batch_size
         )
+        xm.master_print(f"Got dataset class in {time.time() - start_time:.2f} s")
         results = eval_single_dataset(image_classifier, classification_head, dataset, args)
         for key, val in results.items():
             prefix = f"{dataset_name} "
@@ -119,7 +122,6 @@ def _mp_evaluate(rank, image_classifier, classification_head, args):
                 xm.master_print(f"{prefix}{key}: {val:.4f}")
             info[f"{dataset_name}:{key}"] = val
 
-    xm.master_print(info)
     if xm.is_master_ordinal():
         logger.info(json.dumps(info, indent=4))
         os.makedirs(args.save, exist_ok=True)
@@ -129,12 +131,7 @@ def _mp_evaluate(rank, image_classifier, classification_head, args):
         xm.master_print(f'\nSaved evaluation results to {results_path}.')
 
 
-def evaluate(image_classifier, classification_head, args, spawn_required=True):
+def evaluate(image_classifier, classification_head, args):
     """Depending on the flag, either spawn new processes or directly evaluate."""
-    if spawn_required:
-        # If called outside of the training loop, spawn new processes.
-        xmp.spawn(_mp_evaluate, args=(image_classifier, classification_head, args,), nprocs=8, start_method='spawn')
-    else:
-        # If called within the training loop, use the current process.
-        rank = xm.get_ordinal()
-        _mp_evaluate(rank, image_classifier, classification_head, args)
+    rank = xm.get_ordinal()
+    _mp_evaluate(rank, image_classifier, classification_head, args)

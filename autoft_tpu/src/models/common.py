@@ -1,16 +1,14 @@
-import os
-import torch
-import json
-import glob
 import collections
+import glob
+import os
 import random
 
-import numpy as np
-
-from tqdm import tqdm
-
+import torch
 import torchvision.datasets as datasets
 from torch.utils.data import Dataset, DataLoader, Sampler
+from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
+import torch_xla.core.xla_model as xm
 
 
 class SubsetSampler(Sampler):
@@ -70,7 +68,7 @@ def get_features_helper(image_encoder, dataloader, device, noscale):
     with torch.no_grad():
         for batch in tqdm(dataloader):
             batch = maybe_dictionarize(batch)
-            inputs = batch['images'].cuda()
+            inputs = batch['images'].to(inputs.device)
             image_encoder = image_encoder.to(inputs.device)
             features = image_encoder(inputs)
             # if noscale:
@@ -146,13 +144,57 @@ class FeatureDataset(Dataset):
         return data, idx
 
 
-def get_dataloader(dataset, is_train, args, image_encoder=None):
-    if image_encoder is not None:
-        feature_dataset = FeatureDataset(is_train, image_encoder, dataset,
-                                         args.device)
-        dataloader = DataLoader(feature_dataset,
-                                batch_size=args.batch_size,
-                                shuffle=is_train)
+def create_dataloader(dataset, kwargs):
+    """Helper function to create a DataLoader."""
+    return DataLoader(dataset, **kwargs)
+
+def collate_fn_for_cifar(batch):
+    data, labels = zip(*batch)
+    return torch.stack(data, 0), torch.tensor(labels).long()
+
+def collate_fn_for_imagenet(batch):
+    # Extract images, labels, features, and image_paths from the batch
+    keys = batch[0].keys()
+    batch_dict = {k : [] for k in keys}
+    for k in keys:
+        batch_dict[k] = [item[k] for item in batch]
+    if "images" in keys:
+        batch_dict["images"] = torch.stack(batch_dict["images"], 0)
+    if "labels" in keys:
+        batch_dict["labels"] = torch.tensor(batch_dict["labels"]).long()
+    if "features" in keys:
+        batch_dict["features"] = torch.stack(batch_dict["features"], 0)
+
+    return batch_dict
+
+def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
+    """
+    Get a DataLoader for the given dataset.
+
+    Args:
+        dataset: Dataset object to be loaded.
+        is_train: Boolean indicating if the dataset is for training.
+        args: Arguments containing configurations.
+        image_encoder: Optional image encoder for feature extraction.
+
+    Returns:
+        DataLoader for the given dataset.
+    """
+    kwargs = {"num_workers": args.workers, "persistent_workers": args.persistent_workers, "prefetch_factor": args.prefetch_factor}
+    kwargs["batch_size"] = args.batch_size
+    kwargs["sampler"] = DistributedSampler(dataset, num_replicas=xm.xrt_world_size(), rank=xm.get_ordinal(), shuffle=is_train)
+    if "ImageNet" in args.id:
+        kwargs["collate_fn"] = collate_fn_for_imagenet
+    elif "CIFAR" in args.id:
+        kwargs["collate_fn"] = collate_fn_for_cifar
+    elif "IWildCam" in args.id or "FMOW" in args.id:
+        kwargs["collate_fn"] = dataset.dataset.collate
+
+    if hasattr(dataset, 'dataset'):
+        inner_dataset = dataset.dataset
+    elif isinstance(dataset, torch.utils.data.ConcatDataset):
+        inner_dataset = dataset
     else:
-        dataloader = dataset.train_loader if is_train else dataset.test_loader
-    return dataloader
+        inner_dataset = dataset
+
+    return create_dataloader(inner_dataset, kwargs)

@@ -9,12 +9,53 @@ import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
 import json
 
+def test_metric_str(args):
+    if "sst2" in args.id:
+        metric = "sst2Test:top1"
+    elif "PatchCamelyon" in args.id:
+        metric = "PatchCamelyonTest:top1"
+    elif "ImageNet" in args.id:
+        metric = f"ImageNet{args.k}Shot:top1"
+    elif "IWildCam" in args.id:
+        metric = "IWildCamOODTest:F1-macro_all"
+    elif "FMOW" in args.id:
+        metric = "FMOWOODTest:acc_worst_region"
+    elif "Caltech101" in args.id:
+        metric = "Caltech101Test:top1"
+    elif "Flowers102" in args.id:
+        metric = "Flowers102Test:top1"
+    elif "StanfordCars" in args.id:
+        metric = "StanfordCarsTest:top1"
+    return metric
+
+
+def val_metric_str(args):
+    if "IWildCam" in args.id:
+        metric = "IWildCamIDVal:F1-macro_all"
+    elif "FMOW" in args.id:
+        metric = "FMOWIDVal:acc_worst_region"
+    elif "ImageNet" in args.id:
+        metric = "ImageNet:top1"
+    elif "sst2" in args.id:
+        metric = "sst2ValEarlyStopping:top1"
+    elif "PatchCamelyon" in args.id:
+        metric = "PatchCamelyonValEarlyStopping:top1"
+    elif "Caltech101" in args.id:
+        metric = "Caltech101ValEarlyStopping:top1"
+    elif "Flowers102" in args.id:
+        metric = "Flowers102ValEarlyStopping:top1"
+    elif "StanfordCars" in args.id:
+        metric = "StanfordCarsValEarlyStopping:top1"
+    return metric
+
 def _get_device_spec(device):
   ordinal = xm.get_ordinal(defval=-1)
   return str(device) if ordinal < 0 else '{}/{}'.format(device, ordinal)
 
+
 def now(format='%H:%M:%S'):
   return datetime.now().strftime(format)
+
 
 def print_train_update(device, tracker, loss, step, total_steps, epoch=None):
   """Prints the training metrics at a given step.
@@ -37,11 +78,13 @@ def print_train_update(device, tracker, loss, step, total_steps, epoch=None):
   ]
   xm.master_print('|', ' '.join(item for item in update_data if item), flush=True)
 
+
 def setup_dataloader(dataloader, device):
     """Configure the dataloader for multi-core TPU or multi-GPU if available."""
     if is_tpu_available():
         dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
     return dataloader
+
 
 def is_tpu_available():
     return len(xm.get_xla_supported_devices()) >= 8
@@ -60,6 +103,7 @@ def set_seed(seed=0):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
 
 def print_hparams(hparams):
     xm.master_print("\nHyperparameters:")
@@ -82,6 +126,7 @@ def save_hparams(hparams, args):
 def get_subset(dataset, num_datapoints):
     rand_idxs = torch.randperm(len(dataset))[:num_datapoints]
     return torch.utils.data.Subset(dataset, rand_idxs)
+
 
 def save_model(args, model, logger):
     os.makedirs(args.save, exist_ok=True)

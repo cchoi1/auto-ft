@@ -47,7 +47,6 @@ class ImageFolderWithPaths(datasets.ImageFolder):
 
 
 def maybe_dictionarize(batch):
-    print('batch', batch)
     if isinstance(batch, dict):
         return batch
 
@@ -61,81 +60,81 @@ def maybe_dictionarize(batch):
     return batch
 
 
-def get_features_helper(image_encoder, dataloader, device, noscale):
-    all_data = collections.defaultdict(list)
-    image_encoder = image_encoder.to(device)
-    image_encoder = torch.nn.DataParallel(image_encoder, device_ids=[x for x in range(torch.cuda.device_count())])
-    image_encoder.eval()
-
-    with torch.no_grad():
-        for batch in tqdm(dataloader):
-            batch = maybe_dictionarize(batch)
-            inputs = batch['images'].cuda()
-            image_encoder = image_encoder.to(inputs.device)
-            features = image_encoder(inputs)
-            if noscale:
-                features = features / features.norm(dim=-1, keepdim=True)
-            else:
-                logit_scale = image_encoder.module.model.logit_scale
-                features = logit_scale.exp() * features
-
-            all_data['features'].append(features.cpu())
-
-            for key, val in batch.items():
-                if key == 'images':
-                    continue
-                if hasattr(val, 'cpu'):
-                    val = val.cpu()
-                    all_data[key].append(val)
-                else:
-                    all_data[key].extend(val)
-
-    for key, val in all_data.items():
-        if torch.is_tensor(val[0]):
-            all_data[key] = torch.cat(val).numpy()
-
-    return all_data
-
-
-def get_features(args, is_train, image_encoder, dataset, device, cache_dir, noscale):
-    split = 'train' if is_train else 'val'
-    dname = type(dataset).__name__
-    # import pdb;pdb.set_trace()
-    if cache_dir is not None:
-        cache_dir = f'{cache_dir}/{dname}/{split}'
-        cached_files = glob.glob(f'{cache_dir}/*')
-    if cache_dir is not None and len(cached_files) > 0:
-        print(f'Getting features from {cache_dir}')
-        data = {}
-        for cached_file in cached_files:
-            name = os.path.splitext(os.path.basename(cached_file))[0]
-            data[name] = torch.load(cached_file)
-    else:
-        print(f'Did not find cached features at {cache_dir}. Building from scratch.')
-        # loader = dataset.train_loader if is_train else dataset.test_loader
-        loader = get_dataloader(dataset, is_train, args, image_encoder=None)
-        data = get_features_helper(image_encoder, loader, device, noscale)
-        if cache_dir is None:
-            print('Not caching because no cache directory was passed.')
-        else:
-            os.makedirs(cache_dir, exist_ok=True)
-            print(f'Caching data at {cache_dir}')
-            for name, val in data.items():
-                torch.save(val, f'{cache_dir}/{name}.pt')
-    return data
-
-
-class FeatureDataset(Dataset):
-    def __init__(self, args, is_train, image_encoder, dataset, device, cache_dir=None, noscale=True):
-        self.data = get_features(args, is_train, image_encoder, dataset, device, cache_dir, noscale)
-
-    def __len__(self):
-        return len(self.data['features'])
-
-    def __getitem__(self, idx):
-        data = {k: v[idx] for k, v in self.data.items()}
-        data['features'] = torch.from_numpy(data['features']).float()
-        return data
+# def get_features_helper(image_encoder, dataloader, device, noscale):
+#     all_data = collections.defaultdict(list)
+#     image_encoder = image_encoder.to(device)
+#     image_encoder = torch.nn.DataParallel(image_encoder, device_ids=[x for x in range(torch.cuda.device_count())])
+#     image_encoder.eval()
+#
+#     with torch.no_grad():
+#         for batch in tqdm(dataloader):
+#             batch = maybe_dictionarize(batch)
+#             inputs = batch['images'].cuda()
+#             image_encoder = image_encoder.to(inputs.device)
+#             features = image_encoder(inputs)
+#             if noscale:
+#                 features = features / features.norm(dim=-1, keepdim=True)
+#             else:
+#                 logit_scale = image_encoder.module.model.logit_scale
+#                 features = logit_scale.exp() * features
+#
+#             all_data['features'].append(features.cpu())
+#
+#             for key, val in batch.items():
+#                 if key == 'images':
+#                     continue
+#                 if hasattr(val, 'cpu'):
+#                     val = val.cpu()
+#                     all_data[key].append(val)
+#                 else:
+#                     all_data[key].extend(val)
+#
+#     for key, val in all_data.items():
+#         if torch.is_tensor(val[0]):
+#             all_data[key] = torch.cat(val).numpy()
+#
+#     return all_data
+#
+#
+# def get_features(args, is_train, image_encoder, dataset, device, cache_dir, noscale):
+#     split = 'train' if is_train else 'val'
+#     dname = type(dataset).__name__
+#     # import pdb;pdb.set_trace()
+#     if cache_dir is not None:
+#         cache_dir = f'{cache_dir}/{dname}/{split}'
+#         cached_files = glob.glob(f'{cache_dir}/*')
+#     if cache_dir is not None and len(cached_files) > 0:
+#         print(f'Getting features from {cache_dir}')
+#         data = {}
+#         for cached_file in cached_files:
+#             name = os.path.splitext(os.path.basename(cached_file))[0]
+#             data[name] = torch.load(cached_file)
+#     else:
+#         print(f'Did not find cached features at {cache_dir}. Building from scratch.')
+#         # loader = dataset.train_loader if is_train else dataset.test_loader
+#         loader = get_dataloader(dataset, is_train, args, image_encoder=None)
+#         data = get_features_helper(image_encoder, loader, device, noscale)
+#         if cache_dir is None:
+#             print('Not caching because no cache directory was passed.')
+#         else:
+#             os.makedirs(cache_dir, exist_ok=True)
+#             print(f'Caching data at {cache_dir}')
+#             for name, val in data.items():
+#                 torch.save(val, f'{cache_dir}/{name}.pt')
+#     return data
+#
+#
+# class FeatureDataset(Dataset):
+#     def __init__(self, args, is_train, image_encoder, dataset, device, cache_dir=None, noscale=True):
+#         self.data = get_features(args, is_train, image_encoder, dataset, device, cache_dir, noscale)
+#
+#     def __len__(self):
+#         return len(self.data['features'])
+#
+#     def __getitem__(self, idx):
+#         data = {k: v[idx] for k, v in self.data.items()}
+#         data['features'] = torch.from_numpy(data['features']).float()
+#         return data
 
 
 # def get_dataloader(dataset, is_train, args, image_encoder=None):
@@ -157,7 +156,6 @@ def collate_fn_for_cifar(batch):
 def collate_fn_for_imagenet(batch):
     # Extract images, labels, features, and image_paths from the batch
     keys = batch[0].keys()
-    print('collate_fn_for_imagenet batch keys', keys)
     batch_dict = {k : [] for k in keys}
     for k in keys:
         batch_dict[k] = [item[k] for item in batch]
@@ -215,10 +213,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     elif "CIFAR" in args.id:
         kwargs["collate_fn"] = collate_fn_for_cifar
 
-    if image_encoder is not None:
-        kwargs["collate_fn"] = collate_fn_for_imagenet
-        dataset = FeatureDataset(args, is_train, image_encoder, dataset, args.device)
-    elif hasattr(dataset, 'dataset'):
+    if hasattr(dataset, 'dataset'):
         dataset = dataset.dataset
     kwargs["dataset"] = dataset
 

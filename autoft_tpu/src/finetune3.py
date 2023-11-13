@@ -5,22 +5,19 @@ import time
 
 import torch
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
 import torch_xla.distributed.xla_multiprocessing as xmp
-from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 import src.datasets as datasets
 from src.args import parse_arguments
-from src.datasets.common import collate_fn_for_imagenet, collate_fn_for_cifar, FeatureDataset
 from src.datasets.common import maybe_dictionarize
 from src.logger import setup_logging
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import _mp_evaluate
 from src.models.modeling import ImageClassifier
-from src.models.utils import cosine_lr
-from src.models.utils import set_seed, print_hparams, save_hparams
+from src.models.utils import cosine_lr, set_seed, print_hparams, save_hparams, val_metric_str, test_metric_str
 from src.datasets.laion import get_data
+from src.models.zeroshot import get_zeroshot_classifier
 
 
 def initialize_model(args):
@@ -117,27 +114,38 @@ def create_optimizer(model, hparams, layerwise=False):
 
 def _run(index, args):
     start_time = time.time()
+    torch.distributed.init_process_group(
+        backend='xla',
+        world_size=xm.xrt_world_size(),
+        rank=xm.get_ordinal()
+    )
+
     device = xm.xla_device()
     model, preprocess_fn = initialize_model(args)
     model = model.to(device)
     xm.master_print(f"Got model in {time.time() - start_time} s")
     if args.eval_only:
-        _mp_evaluate(index, model, args)
+        if not args.no_regenerate_head:
+            with torch.no_grad():
+                classification_head = get_zeroshot_classifier(args, model.image_encoder.model)
+                classification_head = classification_head.cuda()
+        else:
+            classification_head = model.classification_head
+        _mp_evaluate(index, model, classification_head, args)
         return
 
     assert args.load_hparams is not None
     with open(args.load_hparams, 'r') as f:
         best_hparams = json.load(f)
 
-    xm.master_print(f"Starting to fetch fine-tuning dataset...")
     dataset_start_time = time.time()
     all_datasets = get_datasets(args, model, preprocess_fn)
-    xm.master_print(f"Finished fetching fine-tuning dataset in {time.time() - dataset_start_time} s")
-    xm.master_print(f"Starting to create fine-tuning dataloader...")
+    xm.master_print(f"Finished fetching fine-tuning dataset in {time.time() - dataset_start_time:.2f} s")
     dataloader_start_time = time.time()
     train_loader = all_datasets["id"]["train_ft"].dataloader
-    xm.master_print(f"Finished creating fine-tuning dataloader in {time.time() - dataloader_start_time} s")
-    num_batches_per_epoch = len(all_datasets["id"]) // (args.batch_size * xm.xrt_world_size())
+    xm.master_print(f"Finished creating fine-tuning dataloader in {time.time() - dataloader_start_time:.2f} s")
+    xm.master_print(f"Size of fine-tuning dataset: {all_datasets['id']['train_ft'].dataloader.num_samples} samples")
+    num_batches_per_epoch = all_datasets['id']["train_ft"].dataloader.num_samples // (args.batch_size * xm.xrt_world_size())
     xm.master_print(f"{num_batches_per_epoch} batches in fine-tuning dataset...")
     total_steps = args.ft_epochs * num_batches_per_epoch
     warmup_length = (args.warmup_length * args.accumulation_steps) // xm.xrt_world_size()
@@ -151,9 +159,13 @@ def _run(index, args):
     save_hparams(hparams=best_hparams, args=args)
     set_seed(seed=best_hparams["seed"])
 
+    val_metrics = {}
+    best_val_metric = -float('inf')
+    model.train()
     for epoch in range(0, args.ft_epochs):
-        model.train()
+        epoch_start_time = time.time()
         for i, batch in enumerate(train_loader):
+            step_start_time = time.time()
             step = i + epoch * num_batches_per_epoch
             scheduler(step)
 
@@ -176,7 +188,7 @@ def _run(index, args):
                 xm.optimizer_step(optimizer)
 
             if i % 100 == 0:
-                xm.master_print(f"Epoch [{epoch + 1}/{args.ft_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {loss.item()}")
+                xm.master_print(f"Epoch [{epoch + 1}/{args.ft_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {loss.item():.2f}, Step Time: {time.time() - step_start_time:.2f} s")
         # Save the current checkpoint along with optimizer and scheduler
         if epoch == args.ft_epochs - 1:
             if xm.is_master_ordinal():
@@ -198,8 +210,21 @@ def _run(index, args):
             }, ckpt_save_path)
             xm.master_print(f"Saved optimizer and scheduler to {ckpt_save_path}")
         # Evaluate
-        _mp_evaluate(index, model, args)
-        xm.master_print(f"Finished training epoch: {epoch + 1} | Time: {time.time() - start_time} s")
+        # _mp_evaluate(index, model, args)
+        if not args.no_regenerate_head:
+            with torch.no_grad():
+                classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
+                classification_head = classification_head.cuda()
+        else:
+            classification_head = model.module.classification_head
+        eval_results = _mp_evaluate(model, classification_head, args)
+        val_metrics[epoch] = eval_results
+        curr_val_metric = eval_results[val_metric_str(args)]
+        if curr_val_metric > best_val_metric:
+            print(f"Best val metric of {curr_val_metric} at epoch {epoch}.")
+            best_val_metric = curr_val_metric
+        print(f"Epoch {epoch}, Time: {time.time() - epoch_start_time:.3f}")
+        xm.master_print(f"Finished training epoch: {epoch + 1} | Time: {time.time() - start_time:.2f} s")
 
 
 def main(args):

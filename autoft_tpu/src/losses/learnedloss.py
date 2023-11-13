@@ -10,14 +10,14 @@ class LearnedLoss(nn.Module):
         super().__init__()
         self.losses = losses
         self.device = xm.xla_device()
-        print(f"LearnedLoss device: {self.device}")
         self.initial_params = [param.clone().detach().to(self.device) for param in initial_params]
         if isinstance(loss_weights, list):
             loss_weights = torch.stack(loss_weights)
         self.loss_weights = loss_weights.float().to(self.device)
         self.param_sum = sum(param.numel() for param in initial_params)
-        self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=xm.get_ordinal(),
-                                     world_size=xm.xrt_world_size(), use_horovod=False)
+        if "flyp" in self.losses:
+            self.clip_loss_fn = ClipLoss(local_loss=False, gather_with_grad=False, cache_labels=True, rank=xm.get_ordinal(),
+                                        world_size=xm.xrt_world_size(), use_horovod=False)
 
     def forward(self, model, logits, labels, image_features, text_features=None, logit_scale=None, unlabeled_logits=None, pseudolabels=None):
         losses = []
@@ -64,6 +64,5 @@ class LearnedLoss(nn.Module):
 
         losses = torch.stack(losses)
         weighted_losses = torch.matmul(self.loss_weights, losses)
-        reduced_losses = xm.mesh_reduce('reduced_losses', weighted_losses, torch.sum)
 
-        return reduced_losses
+        return weighted_losses
