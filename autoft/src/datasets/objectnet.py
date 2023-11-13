@@ -103,7 +103,7 @@ class ObjectNetBase(ImageNet):
 
     def get_test_dataset(self):
         subdir = 'ObjectNet/images'
-        valdir = os.path.join(self.location, subdir)
+        valdir = os.path.join("/iris/u/cchoi1/Data", subdir)
         label_map = {name: idx for idx, name in enumerate(sorted(list(self.folders_to_ids.keys())))}
         return ObjectNetDataset(label_map, valdir, transform=self.preprocess)
 

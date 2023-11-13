@@ -5,7 +5,7 @@
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Use one node (machine)
 #SBATCH --mem=64G # 64GB of memory is typically sufficient, but adjust based on the model and batch size
-#SBATCH --gres=gpu:2 # Request 4 GPUs for parallel processing
+#SBATCH --gres=gpu:3 # Request 4 GPUs for parallel processing
 #SBATCH --cpus-per-task=16 # Increase the number of CPU cores per task to better handle data loading and preprocessing
 #SBATCH --job-name="imagenet-autoft-finetune" # Renamed for clarity
 #SBATCH --output=imagenet-autoft-finetune.log  # Renamed output log file
@@ -27,4 +27,4 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
 --workers 16 --relative_to_flyp --regenerate_head --no_regenerate_head \
---load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/ImageNet/100is_500os_15000ex.json
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/ImageNet/500is_150os_15000_relflyp.json

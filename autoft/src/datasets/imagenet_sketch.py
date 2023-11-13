@@ -14,7 +14,7 @@ class ImageNetSketch(ImageNet):
         pass
 
     def get_test_path(self):
-        return os.path.join(self.location, 'ImageNet-Sketch')
+        return os.path.join("/iris/u/cchoi1/Data", 'ImageNet-Sketch')
 
     def __str__(self):
         return "ImageNetSketch"

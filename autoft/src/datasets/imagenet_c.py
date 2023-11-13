@@ -60,9 +60,9 @@ class ImageNetC(ImageNet):
                 self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)
 
     def get_test_path(self):
-        test_path = os.path.join(self.location, 'ImageNet-C', IMAGENET_CORRUPTIONS[0], str(self.severity))
+        test_path = os.path.join("/iris/u/cchoi1/Data", 'ImageNet-C', IMAGENET_CORRUPTIONS[0], str(self.severity))
         if not os.path.exists(test_path):
-            test_path = os.path.join(self.location, 'ImageNet-C', IMAGENET_CORRUPTIONS[0], str(self.severity))
+            test_path = os.path.join("/iris/u/cchoi1/Data", 'ImageNet-C', IMAGENET_CORRUPTIONS[0], str(self.severity))
         return test_path
 
     def name(self):

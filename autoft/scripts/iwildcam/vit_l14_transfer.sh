@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --partition=iris-hi # Run on IRIS nodes
+#SBATCH --partition=iris # Run on IRIS nodes
 #SBATCH --account=iris # Run on IRIS nodes
 #SBATCH --exclude=iris1,iris2,iris3,iris4
 #SBATCH --time=120:00:00 # Max job length is 5 days
@@ -7,8 +7,8 @@
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:2 # Request one GPU
 #SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
-#SBATCH --job-name="iwildcam-autoft-vitl14-ce-dcm-flyp-transfer-4gpu" # Name the job (for easier monitoring)
-#SBATCH --output=iwildcam-autoft-vitl14-ce-dcm-flyp-transfer-4gpu.log  # Name of the output log file
+#SBATCH --job-name="iwildcam-autoft-vitl14-ce-dcm-flyp-transfer-nolrwd" # Name the job (for easier monitoring)
+#SBATCH --output=iwildcam-autoft-vitl14-ce-dcm-flyp-transfer-nolrwd.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -26,5 +26,7 @@ python3 src/main.py --method autoft --model ViT-L/14 --data-location /iris/u/cch
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm flyp --clip_gradient \
---load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams.json \
---no_regenerate_head --workers 8
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams_new.json \
+--no_regenerate_head --workers 4
+
+# --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams.json \

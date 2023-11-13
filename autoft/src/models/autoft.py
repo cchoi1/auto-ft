@@ -54,32 +54,15 @@ class HyperparameterSpace:
     def _base_lr_wd_space(self, trial, prefix):
         lr_lower_bound = 1e-2 * self.orig_lr
         lr_upper_bound = 1e2 * self.orig_lr
-        if self.layerwise_opt:
-            return {
-                f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-                f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
-            }
-        else:
-            if "Flowers" in self.dataset_name:
-                return {
-                    f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
-                }
-            elif "PatchCamelyon" in self.dataset_name or "StanfordCars" in self.dataset_name or "IWildCam" in self.dataset_name:
-                return {
-                    f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 0.3)
-                }
-            else:
-                return {
-                    f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
-                    f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 1e-2, 0.3, log=True)
-                }
+        return {
+            f"{prefix}lr": trial.suggest_float(f"{prefix}lr", lr_lower_bound, lr_upper_bound, log=True),
+            f"{prefix}wd": trial.suggest_float(f"{prefix}wd", 0.0, 1.0)
+        }
 
     def build_space(self, trial):
         # Global hyperparameters: loss weights, seed, batch size
         hparams = self._base_loss_weight_space(trial, "")
-        hparams["seed"] = trial.suggest_int("seed", 0, 10)
+        hparams["seed"] = trial.suggest_int("seed", 0, 100)
         if self.layerwise_loss: # per-layer LRs, WDs, L1/L2 norms
             layer_idx = 0
             self.model = extract_from_data_parallel(self.model)

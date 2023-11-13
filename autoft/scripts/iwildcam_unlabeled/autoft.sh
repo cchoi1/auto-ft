@@ -20,9 +20,9 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
 --id IWildCamTrain --unlabeled_id IWildCamUnlabeledTrain --ood IWildCamOODVal --eval-datasets IWildCamIDVal,IWildCamIDTest,IWildCamOODTest \
 --num_id_unlabeled_examples 10000 --num_ood_hp_examples 1000 --use_class_balanced_ood --ft_epochs 20 --autoft_epochs 500 --inner_steps 50 \
---lr 1e-5 --wd 0.1 --batch-size 64 --warmup_length 500 --accumulation_steps 4 \
+--lr 1e-5 --wd 0.2 --batch-size 128 --warmup_length 500 --accumulation_steps 2 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_iwildcam2.pt \
 --template iwildcam_template --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --clip_gradient \
+--losses ce dcm flyp --clip_gradient \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams.json
