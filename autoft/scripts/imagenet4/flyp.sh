@@ -25,5 +25,5 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_imagenet2.pt \
 --ft_data /iris/u/cchoi1/Data/csv/imagenet4.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---losses ce flyp --template openai_imagenet_template \
+--losses flyp --template openai_imagenet_template \
 --relative_to_flyp --regenerate_head --workers 16
