@@ -195,7 +195,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     Returns:
         DataLoader for the given dataset.
     """
-    kwargs = {"num_workers": args.workers, "pin_memory": True} if torch.cuda.is_available() else {}
+    kwargs = {"num_workers": args.workers, "pin_memory": True, "prefetch_factor": args.prefetch_factor} if torch.cuda.is_available() else {}
     kwargs["batch_size"] = args.batch_size
     if args.distributed:
         kwargs["sampler"] = DistributedSampler(dataset)

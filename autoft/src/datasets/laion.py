@@ -39,9 +39,13 @@ class CsvDataset(Dataset):
                  label_key=None):
         logging.debug(f'Loading csv data from {input_filename}.')
         df = pd.read_csv(input_filename, sep=sep)
+        print(f"length of csv dataset: {len(df)}")
+        print(f"{df.head()}")
 
         self.images = df[img_key].tolist()
         self.captions = df[caption_key].tolist()
+        print(f"CsvDataset length of self.images: {len(self.images)}")
+        print(f"CsvDataset length of self.captions: {len(self.captions)}")
 
         num_columns = len(df.columns) - 2
 
@@ -482,7 +486,10 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
         pin_memory=True,
         sampler=sampler,
         drop_last=False,
+        prefetch_factor=args.prefetch_factor,
     )
+    print(f"laion.py get_dataloader batch size {args.batch_size}, workers {args.workers}, prefetch_factor {args.prefetch_factor}")
+    print(f"laion.py get_dataloader num_samples {num_samples}, num_batches {len(dataloader)}")
     dataloader.num_samples = num_samples
     dataloader.num_batches = len(dataloader)
 

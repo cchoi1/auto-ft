@@ -193,6 +193,7 @@ def inner_finetune_full(args, model, loss_fn, optimizer, input_key, dataloaders,
 
     val_metrics = {}
     model.train()
+    dataloaders["id"].dataset.offset = np.random.randint(len(dataloaders["id"].dataset))
     for step, batch in enumerate(dataloaders["id"]):
         if step >= num_steps:
             break
@@ -343,6 +344,7 @@ def finetune_fewshot(args, model, loss_fn, optimizer, dataloaders, id_dataset, v
 def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_every):
     assert args.load is not None, "Please provide the patch to a checkpoint through --load."
     num_batches = len(dataloaders["id"])
+    num_samples = dataloaders["id"]
     print(f"{num_batches} batches in fine-tuning dataloader")
     total_steps = args.ft_epochs * num_batches
     warmup_length = args.warmup_length * args.accumulation_steps
@@ -372,7 +374,11 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
     model.train()
     for epoch in range(0, args.ft_epochs):
         epoch_start_time = time.time()
+        data_loading_start = time.time()
+        print(f"Starting epoch {epoch}")
         for i, batch in enumerate(dataloaders["id"]):
+            data_loading_time = time.time() - data_loading_start
+            # print(f"Data loading time: {data_loading_time:.3f}")
             start_time = time.time()
             step = i + epoch * num_batches
             scheduler(step)
@@ -409,6 +415,7 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
                 optimizer.zero_grad()
             batch_time = time.time() - start_time
             print_train_update(logger, print_every, total_steps, step, loss, batch_time)
+            data_loading_start = time.time()
 
         # Save checkpoints
         model.module.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))

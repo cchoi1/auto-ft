@@ -14,7 +14,8 @@ from .imagenet import ImageNet, ImageNetSubsampleValClasses
 
 
 def get_metadata():
-    metadata = Path(__file__).parent / 'mappings'
+    # metadata = Path(__file__).parent / 'mappings'
+    metadata = Path('/iris/u/cchoi1/Data/ObjectNet/mappings')
 
     with open(metadata / 'folder_to_objectnet_label.json', 'r') as f:
         folder_map = json.load(f)

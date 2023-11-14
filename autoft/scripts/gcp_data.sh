@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="imagenet-data-transfer"
 #SBATCH --output="imagenet-data-transfer.log"
+#SBATCH --exclude=iris1,iris2,iris3,iris4
 #SBATCH --partition=iris
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -11,4 +12,11 @@
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send ma
 
-gsutil -m rsync -r /iris/u/yoonho/data/ImageNet/ILSVRC/Data/CLS-LOC/train gs://robust-ft2/ImageNet/ILSVRC/Data/CLS-LOC/train
+cd /scr
+mkdir cchoi1
+cd cchoi1
+mkdir ImageNet
+rsync -av --include='*/' --exclude='*' /iris/u/yoonho/data/ImageNet/ /scr/cchoi1/ImageNet/
+cd /iris/u/yoonho/data/ImageNet && \
+find . -type f -print0 | parallel -j 8 -0 rsync -avzR {} /scr/cchoi1/ImageNet/
+

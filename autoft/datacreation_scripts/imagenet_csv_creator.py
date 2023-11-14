@@ -249,7 +249,6 @@ for i in range(1000):
             out.write("%s\t%s\t%s\n" % (caption, fp, i))
         count_examples += 1
         tot_fils += 1
-    # tot_fils = 0
     # for file in all_files:
     #     tot_fils += 1
     #     fp = os.path.join(curr_path, file)
