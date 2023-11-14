@@ -21,6 +21,8 @@ class CLIPEncoder(torch.nn.Module):
             self.model, self.train_preprocess, self.val_preprocess = clip.load(
                 args.model, args.device, jit=False)
         self.cache_dir = args.cache_dir
+        print("train preprocess", self.train_preprocess)
+        print("eval preprocess", self.val_preprocess)
 
     def forward(self, images, text=None):
         assert self.model is not None
@@ -151,6 +153,8 @@ class ImageEncoder(torch.nn.Module):
 
         self.model, self.train_preprocess, self.val_preprocess = clip.load(
             args.model, args.device, jit=False)
+        print("train preprocess", self.train_preprocess)
+        print("eval preprocess", self.val_preprocess)
 
         self.cache_dir = args.cache_dir
 

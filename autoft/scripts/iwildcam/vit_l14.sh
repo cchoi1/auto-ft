@@ -25,4 +25,5 @@ python3 src/main.py --method autoft --model ViT-L/14 --data-location /iris/u/cch
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_iwildcam2.pt --template iwildcam_template \
 --ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
---losses ce dcm flyp --clip_gradient --workers 4
+--losses ce dcm flyp --clip_gradient --workers 8 --no_regenerate_head \
+--load_hparams /iris/u/asc8/workspace/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_afep100_is50_ftep20_bs64_wd0.2_lr1e-05_run1_seed0_ViT-L/14/hparams.json
