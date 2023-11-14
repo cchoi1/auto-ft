@@ -7,8 +7,8 @@
 #SBATCH --mem=64GB # Request 16GB of memory
 #SBATCH --gres=gpu:2 # Request one GPU
 #SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
-#SBATCH --job-name="imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus" # Name the job (for easier monitoring)
-#SBATCH --output=imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus.log  # Name of the output log file
+#SBATCH --job-name="imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus-nowarmup" # Name the job (for easier monitoring)
+#SBATCH --output=imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus-nowarmup.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -21,7 +21,7 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoonho/data \
 --id ImageNet4 --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet \
 --num_ood_hp_examples 1000 --inner_steps 5 --autoft_epochs 100 --ft_epochs 10 \
---lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 500 --accumulation_steps 2 \
+--lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 0 --accumulation_steps 2 \
 --load ./zeroshot/clip_vitb16_imagenet2.pt \
 --ft_data /iris/u/cchoi1/Data/csv/imagenet4.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \

@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --partition=iris-hi # Run on IRIS nodes
 #SBATCH --account=iris # Run on IRIS nodes
-#SBATCH --exclude=iris1,iris2,iris3,iris4
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
-#SBATCH --gres=gpu:1 # Request one GPU
+#SBATCH --gres=gpu:2 # Request one GPU
 #SBATCH --job-name="stanfordcars-autoft-500inner-300ep-1000ex-class-balanced-regen-finetune-noregen" # Name the job (for easier monitoring)
 #SBATCH --output=stanfordcars-autoft-500inner-300ep-1000ex-class-balanced-regen-finetune-noregen.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
@@ -27,4 +26,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_stanfordcars.pt \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/StanfordCarsTrain/autoft/oodStanfordCarsValHOpt_cdefhllll_relflyp/no1000_nouNone_afep500_is50_ftep100_bs128_wd0.0_lr1e-05_run1_seed0_ViT-B/16/hparams.json \
---workers 2 --relative_to_flyp --regenerate_head --no_regenerate_head
+--workers 8 --relative_to_flyp --regenerate_head --no_regenerate_head
