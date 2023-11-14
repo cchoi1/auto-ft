@@ -5,6 +5,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:2 # Request one GPU
+#SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
 #SBATCH --job-name="stanfordcars-autoft-500inner-300ep-1000ex-class-balanced-regen-finetune-noregen" # Name the job (for easier monitoring)
 #SBATCH --output=stanfordcars-autoft-500inner-300ep-1000ex-class-balanced-regen-finetune-noregen.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
@@ -25,5 +26,5 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --ft_data /iris/u/cchoi1/Data/stanford-cars/train.csv --template stanfordcars_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_stanfordcars.pt \
---load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/StanfordCarsTrain/autoft/oodStanfordCarsValHOpt_cdefhllll_relflyp/no1000_nouNone_afep500_is50_ftep100_bs128_wd0.0_lr1e-05_run1_seed0_ViT-B/16/hparams.json \
---workers 8 --relative_to_flyp --regenerate_head --no_regenerate_head
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/StanfordCars/100is_200os_1000ex_relflyp.json \
+--workers 16 --relative_to_flyp --regenerate_head --no_regenerate_head

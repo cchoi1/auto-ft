@@ -26,4 +26,4 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
 --relative_to_flyp --regenerate_head \
---layerwise_loss --layerwise_opt
+--layerwise_loss --layerwise_opt --workers 16

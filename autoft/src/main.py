@@ -27,6 +27,7 @@ def initialize_model(args):
         model = image_classifier
         preprocess_fn = image_classifier.train_preprocess
         image_classifier.process_images = True
+
     devices = list(range(torch.cuda.device_count()))
     print(f"Using devices {devices}.")
 
