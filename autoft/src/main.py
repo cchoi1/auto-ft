@@ -27,6 +27,7 @@ def initialize_model(args):
         model = image_classifier
         preprocess_fn = image_classifier.train_preprocess
         image_classifier.process_images = True
+    print('preprocess fn', preprocess_fn)
 
     devices = list(range(torch.cuda.device_count()))
     print(f"Using devices {devices}.")
@@ -150,6 +151,8 @@ def get_datasets(args, model, preprocess_fn):
     if args.ft_data is not None:
         train_preprocess_fn = model.module.image_encoder.train_preprocess
         val_preprocess_fn = model.module.image_encoder.val_preprocess
+        print('train_preprocess_fn', train_preprocess_fn)
+        print('val_preprocess_fn', val_preprocess_fn)
         id_dataset = get_data(args, (train_preprocess_fn, val_preprocess_fn), epoch=0)
     else:
         id_dataset = id_dataset_class(preprocess=preprocess_fn, train=True, n_examples=args.num_id_examples,

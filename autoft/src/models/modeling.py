@@ -151,20 +151,6 @@ class ImageEncoder(torch.nn.Module):
 
         self.model, self.train_preprocess, self.val_preprocess = clip.load(
             args.model, args.device, jit=False)
-        if args.model == "ViT-L/14":
-            new_size = 336
-            self.train_preprocess = transforms.Compose([
-                transforms.Resize(new_size),
-                transforms.RandomCrop(new_size),
-                transforms.ToTensor(),
-                transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
-            ])
-            self.val_preprocess = transforms.Compose([
-                transforms.Resize(new_size),
-                transforms.CenterCrop(new_size),
-                transforms.ToTensor(),
-                transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
-            ])
         print("train preprocess", self.train_preprocess)
         print("eval preprocess", self.val_preprocess)
 

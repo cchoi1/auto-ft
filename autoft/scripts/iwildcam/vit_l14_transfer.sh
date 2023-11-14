@@ -26,6 +26,6 @@ python3 src/main.py --method autoft --model ViT-L/14 --data-location /iris/u/cch
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm flyp --clip_gradient \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams_new.json \
---no_regenerate_head --workers 16
+--no_regenerate_head --workers 4
 
 # --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/IWildCamTrain/autoft/oodIWildCamOODVal_cdf/no1000_nouNone_afep500_is10_ftep20_bs128_wd0.2_lr1e-05_run1_seed0/hparams.json \
