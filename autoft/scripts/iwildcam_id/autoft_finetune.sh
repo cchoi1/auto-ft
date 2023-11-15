@@ -5,7 +5,7 @@
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
-#SBATCH --gres=gpu:4 # Request one GPU
+#SBATCH --gres=gpu:2 # Request one GPU
 #SBATCH --job-name="iwildcam-id-autoft-50inner-500ep-1000ex-class-balanced-finetune" # Name the job (for easier monitoring)
 #SBATCH --output=iwildcam-id-autoft-50inner-500ep-1000ex-class-balanced-finetune.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
