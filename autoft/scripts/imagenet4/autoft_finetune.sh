@@ -7,8 +7,8 @@
 #SBATCH --mem=64GB # Request 16GB of memory
 #SBATCH --gres=gpu:2 # Request one GPU
 #SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
-#SBATCH --job-name="imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus-nowarmup" # Name the job (for easier monitoring)
-#SBATCH --output=imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus-nowarmup.log  # Name of the output log file
+#SBATCH --job-name="imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus-noregen" # Name the job (for easier monitoring)
+#SBATCH --output=imagenet4-autoft-5inner-100ep-1000ex-finetune-2gpus-noregen.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -26,6 +26,6 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --ft_data /iris/u/cchoi1/Data/csv/imagenet4.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
---relative_to_flyp --regenerate_head \
+--relative_to_flyp --regenerate_head --no_regenerate_head \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/ImageNet4/relflyp_5is_100os_1000ex_unbalanced.json \
 --workers 4
