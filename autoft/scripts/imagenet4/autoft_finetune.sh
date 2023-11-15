@@ -28,4 +28,4 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --template openai_imagenet_template \
 --relative_to_flyp --regenerate_head \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/ImageNet4/relflyp_5is_100os_1000ex_unbalanced.json \
---workers 16
+--workers 4

@@ -27,4 +27,4 @@ python3 src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/cch
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_stanfordcars.pt \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/StanfordCars/100is_200os_1000ex_relflyp.json \
---workers 16 --relative_to_flyp --regenerate_head --no_regenerate_head
+--workers 4 --relative_to_flyp --regenerate_head
