@@ -202,6 +202,9 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     else:
         if sampler is not None:
             kwargs["sampler"] = sampler
+        elif args.id in ["ImageNet4", "ImageNet16", "ImageNet32"] and is_train:
+            print(f"Using few-shot class-balanced sampler for {args.id}.")
+            kwargs["sampler"] = dataset.get_train_sampler()
         else:
             kwargs["shuffle"] = is_train
     if "ImageNet" in args.id:

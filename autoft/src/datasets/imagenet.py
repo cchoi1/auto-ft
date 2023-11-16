@@ -112,8 +112,8 @@ class ImageNetTrain(ImageNet):
 
 class ImageNetK(ImageNet):
     def get_train_sampler(self):
-        idxs = np.zeros(len(self.train_dataset.targets))
-        target_array = np.array(self.train_dataset.targets)
+        idxs = np.zeros(len(self.dataset.targets))
+        target_array = np.array(self.dataset.targets)
         for c in range(1000):
             m = target_array == c
             n = len(idxs[m])
