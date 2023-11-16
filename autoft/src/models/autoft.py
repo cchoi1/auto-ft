@@ -213,10 +213,9 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
             best_hparams["lossw_flyp"] = 1.0
             best_hparams["lr"] = args.lr
             best_hparams["wd"] = args.wd
-        elif args.losses == ["ce", "flyp"]:
+        elif args.losses == ["ce"]:
             best_hparams = {"seed": 0}
             best_hparams["lossw_ce"] = 1.0
-            best_hparams["lossw_flyp"] = 1.0
             best_hparams["lr"] = args.lr
             best_hparams["wd"] = args.wd
         else:

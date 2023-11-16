@@ -227,7 +227,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
 def get_autoft_dataloaders(args, all_datasets):
     if args.ft_data is not None and args.k is None:
         id_dataloader = all_datasets["id"]["train_ft"].dataloader
-    elif args.ft_data is not None and args.k is not None:
+    elif args.ft_data is not None and args.k is not None or args.ft_data is None:
         id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
 
     if args.k is not None:

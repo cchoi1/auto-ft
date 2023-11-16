@@ -6,8 +6,8 @@
 #SBATCH --mem=64GB # Request 16GB of memory
 #SBATCH --gres=gpu:4 # Request one GPU
 #SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
-#SBATCH --job-name="imagenet4-flyp" # Name the job (for easier monitoring)
-#SBATCH --output=imagenet4-flyp.log  # Name of the output log file
+#SBATCH --job-name="imagenet4-flyp-noregen" # Name the job (for easier monitoring)
+#SBATCH --output=imagenet4-flyp-noregen.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send mail
 
@@ -25,4 +25,4 @@ python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoon
 --ft_data /iris/u/cchoi1/Data/csv/imagenet4.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses flyp --template openai_imagenet_template \
---relative_to_flyp --workers 4
+--relative_to_flyp --no_regenerate_head --workers 4

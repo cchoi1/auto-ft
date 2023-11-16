@@ -1,5 +1,6 @@
 import os
 import src.templates as templates
+import random
 
 k = 4
 template = getattr(templates, 'openai_imagenet_template')
@@ -239,15 +240,12 @@ for i in range(1000):
     folder_name, class_name = list_folders[i], openai_classnames[i]
     curr_path = os.path.join(DATA_DIR, folder_name)
     all_files = os.listdir(curr_path)
-    count_examples = 0
-    for file in all_files:
-        if count_examples >= k:
-            break
+    random.shuffle(all_files)
+    for file in all_files[:k]:
         fp = os.path.join(curr_path, file)
         for t in template:
             caption = t(class_name)
             out.write("%s\t%s\t%s\n" % (caption, fp, i))
-        count_examples += 1
         tot_fils += 1
     # for file in all_files:
     #     tot_fils += 1
