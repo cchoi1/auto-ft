@@ -14,10 +14,6 @@
 
 echo "Running on node: $(hostname)"
 
-cd /scr
-mkdir cchoi1
-cd cchoi1
-mkdir ImageNet
 rsync -av --include='*/' --exclude='*' /iris/u/yoonho/data/ImageNet/ /scr/cchoi1/ImageNet/
 cd /iris/u/yoonho/data/ImageNet && \
 find . -type f -print0 | parallel -j 8 -0 rsync -avzR {} /scr/cchoi1/ImageNet/

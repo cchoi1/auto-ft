@@ -349,17 +349,20 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
     warmup_length = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
 
+    model.eval()
     if not args.no_regenerate_head:
         with torch.no_grad():
             classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
             classification_head = classification_head.cuda()
     else:
         if args.freeze_encoder:
-            classification_head = copy.deepcopy(model)
-            model = torch.nn.DataParallel(ImageClassifier.load(args.load), device_ids=list(range(torch.cuda.device_count())))
+            classification_head = model
+            model = ImageClassifier.load(args.load)
+            model = torch.nn.DataParallel(model, device_ids=list(range(torch.cuda.device_count())))
         else:
             classification_head = model.module.classification_head
     eval_results = evaluate(model, classification_head, args)
+    print(f"Pre-finetuning {val_metric_str(args)}:\n {eval_results}")
 
     val_metrics = {}
     best_val_metric = -float('inf')

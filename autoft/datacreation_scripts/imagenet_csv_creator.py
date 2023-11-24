@@ -3,9 +3,9 @@ import src.templates as templates
 import random
 
 k = 4
-# template = getattr(templates, 'openai_imagenet_template')
-template = getattr(templates, 'openai_imagenet_template_reduced')
-out = open(f"/iris/u/cchoi1/Data/csv/imagenet{k}_medium.csv", "w")
+template = getattr(templates, 'openai_imagenet_template')
+# template = getattr(templates, 'openai_imagenet_template_reduced')
+out = open(f"/iris/u/cchoi1/Data/csv/imagenet{k}.csv", "w")
 out.write("title\tfilepath\tlabel\n")
 
 openai_classnames = [

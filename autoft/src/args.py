@@ -93,6 +93,12 @@ def parse_arguments():
         help="Path to csv filewith training data",
     )
     parser.add_argument(
+        "--val_data",
+        type=str,
+        default=None,
+        help="Path to csv filewith training data",
+    )
+    parser.add_argument(
         "--template",
         type=str,
         default=None,

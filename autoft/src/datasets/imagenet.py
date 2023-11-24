@@ -126,6 +126,9 @@ class ImageNetK(ImageNet):
         sampler = SubsetSampler(np.where(idxs)[0])
         return sampler
 
+    def __str__(self):
+        return f"ImageNet{self.k()}"
+
 
 def project_logits(logits, class_sublist_mask, device):
     if isinstance(logits, list):

@@ -46,8 +46,14 @@ def val_metric_str(args):
         metric = "IWildCamIDVal:F1-macro_all"
     elif "FMOW" in args.id:
         metric = "FMOWIDVal:acc_worst_region"
-    elif "ImageNet" in args.id:
+    elif args.id == "ImageNet":
         metric = "ImageNet:top1"
+    elif args.id == "ImageNet4":
+        metric = "ImageNet4:top1"
+    elif args.id == "ImageNet16":
+        metric = "ImageNet16:top1"
+    elif args.id == "ImageNet32":
+        metric = "ImageNet32:top1"
     elif "sst2" in args.id:
         metric = "sst2ValEarlyStopping:top1"
     elif "PatchCamelyon" in args.id:

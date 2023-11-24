@@ -6,7 +6,7 @@
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
 #SBATCH --gres=gpu:4 # Request one GPU
-#SBATCH --cpus-per-task=8 # Request 8 CPUs for this task
+#SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
 #SBATCH --job-name="fmow-autoft-vitl14-transfer-10inner-500ep-1000ex" # Name the job (for easier monitoring)
 #SBATCH --output=fmow-autoft-vitl14-transfer-10inner-500ep-1000ex.log  # Name of the output log file
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
@@ -27,5 +27,5 @@ python3 src/main.py --method autoft --model ViT-L/14@336px --data-location /iris
 --ft_data /iris/u/cchoi1/Data/csv/fmow_v1.1/fmow.csv --template fmow_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_fmow336px.pt \
---workers 8 --clip_gradient --regenerate_head --no_regenerate \
+--workers 4 --clip_gradient --regenerate_head --no_regenerate \
 --load_hparams /iris/u/cchoi1/robust-optimizer/autoft/hparams/FMOW/100is_500os_620ex_new.json

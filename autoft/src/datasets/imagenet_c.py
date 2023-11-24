@@ -18,7 +18,7 @@ class ImageNetC(ImageNet):
         preprocess,
         train,
         n_examples,
-        use_class_balanced,
+        use_class_balanced=False,
         severity=5,
         location = os.path.expanduser('~/data'),
         batch_size = 32,

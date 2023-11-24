@@ -486,6 +486,11 @@ def get_csv_dataset(args, preprocess_fn, is_train, epoch=0):
     # sampler = DistributedSampler(dataset) if args.distributed and is_train else None
     sampler = None
     shuffle = is_train and sampler is None
+    # if args.id in ["ImageNet4", "ImageNet16", "ImageNet32"] and is_train:
+    #     print(f"Using few-shot class-balanced sampler for {args.id}.")
+    #     sampler = dataset.get_train_sampler()
+    # else:
+    #     shuffle = is_train
 
     dataloader = DataLoader(
         dataset,

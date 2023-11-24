@@ -1,6 +1,7 @@
 import src.datasets as datasets
 import torch
 from src.datasets.common import get_dataloader, maybe_dictionarize
+from src.datasets.laion import get_dataset_fn, DataInfo
 from src.models import utils
 
 def eval_single_dataset(image_classifier, classification_head, dataset, args):
@@ -15,7 +16,10 @@ def eval_single_dataset(image_classifier, classification_head, dataset, args):
     classification_head = classification_head.cuda()
     model.eval()
     classification_head.eval()
-    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
+    if isinstance(dataset, DataInfo):
+        dataloader = dataset.dataloader
+    else:
+        dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=image_enc)
     batched_data = enumerate(dataloader)
 
     if hasattr(dataset, 'post_loop_metrics'):
@@ -159,13 +163,19 @@ def evaluate(image_classifier, classification_head, args):
     for i, dataset_name in enumerate(eval_datasets):
         print('Evaluating on', dataset_name)
         dataset_class = getattr(datasets, dataset_name)
-        dataset = dataset_class(
-            preprocess_fn,
-            train=False,
-            n_examples=-1,
-            location=args.data_location,
-            batch_size=args.batch_size
-        )
+        if dataset_name in ["ImageNet4", "ImageNet16", "ImageNet32"]:
+            # train_preprocess_fn = image_classifier.module.image_encoder.train_preprocess
+            val_preprocess_fn = image_classifier.module.image_encoder.val_preprocess
+            # dataset = get_data(args, (train_preprocess_fn, val_preprocess_fn), epoch=0)
+            dataset = get_dataset_fn(args.ft_data, args.dataset_type)(args, val_preprocess_fn, is_train=False, epoch=0)
+        else:
+            dataset = dataset_class(
+                preprocess_fn,
+                train=False,
+                n_examples=-1,
+                location=args.data_location,
+                batch_size=args.batch_size
+            )
         print('loaded dataset')
         results = eval_single_dataset(image_classifier, classification_head, dataset, args)
         torch.cuda.empty_cache()
