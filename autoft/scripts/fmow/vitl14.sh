@@ -27,4 +27,4 @@ python3 src/main.py --method autoft --model ViT-L/14@336px --data-location /iris
 --ft_data /iris/u/cchoi1/Data/csv/fmow_v1.1/fmow.csv --template fmow_template \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitl14_fmow336px.pt \
---workers 8 --clip_gradient --regenerate_head
+--workers 8 --clip_gradient --regenerate_head --no_regenerate
