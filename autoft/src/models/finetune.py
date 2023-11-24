@@ -9,9 +9,9 @@ import torch
 from src.datasets.common import maybe_dictionarize, get_dataloader
 from src.losses.learnedloss import LearnedLoss
 from src.models.eval import evaluate, eval_single_batch_dataset
+from src.models.modeling import ImageClassifier
 from src.models.utils import cosine_lr, extract_from_data_parallel, val_metric_str, test_metric_str
 from src.models.zeroshot import get_zeroshot_classifier
-from torch.utils.data import SubsetRandomSampler
 
 logger = logging.getLogger('main')
 
@@ -344,41 +344,30 @@ def finetune_fewshot(args, model, loss_fn, optimizer, dataloaders, id_dataset, v
 def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_every):
     assert args.load is not None, "Please provide the patch to a checkpoint through --load."
     num_batches = len(dataloaders["id"])
-    num_samples = dataloaders["id"]
     print(f"{num_batches} batches in fine-tuning dataloader")
     total_steps = args.ft_epochs * num_batches
     warmup_length = args.warmup_length * args.accumulation_steps
     scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
 
-    # # Find the latest checkpoint and resume fine-tuning from there
-    # start_epoch = 0
-    # model_ckpt_path, model_latest_epoch = find_latest_checkpoint(save_dir=args.save)
-    # opt_checkpoint, opt_latest_epoch = find_latest_checkpoint(save_dir=args.save, prefix="opt_")
-    # latest_epoch = min(model_latest_epoch, opt_latest_epoch)
-    # if model_ckpt_path:
-    #     try:
-    #         print(f"\nResuming from epoch {start_epoch} using model checkpoint {model_ckpt_path} and optimizer checkpoint {opt_checkpoint}...")
-    #         unwrapped_model = extract_from_data_parallel(model)
-    #         unwrapped_model.load(model_ckpt_path)
-    #         model = torch.nn.DataParallel(unwrapped_model).cuda()
-    #         optimizer.load_state_dict(opt_checkpoint)
-    #         scheduler = cosine_lr(optimizer, args.lr, warmup_length, total_steps)
-    #         start_epoch = latest_epoch + 1
-    #     except:
-    #         print("\nFailed to load model checkpoint. Starting from epoch 0.")
-    # else:
-    #     print("\nNo checkpoint found. Starting from epoch 0.")
+    if not args.no_regenerate_head:
+        with torch.no_grad():
+            classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
+            classification_head = classification_head.cuda()
+    else:
+        if args.freeze_encoder:
+            classification_head = copy.deepcopy(model)
+            model = torch.nn.DataParallel(ImageClassifier.load(args.load), device_ids=list(range(torch.cuda.device_count())))
+        else:
+            classification_head = model.module.classification_head
+    eval_results = evaluate(model, classification_head, args)
 
     val_metrics = {}
     best_val_metric = -float('inf')
     model.train()
     for epoch in range(0, args.ft_epochs):
         epoch_start_time = time.time()
-        data_loading_start = time.time()
         print(f"Starting epoch {epoch}")
         for i, batch in enumerate(dataloaders["id"]):
-            data_loading_time = time.time() - data_loading_start
-            # print(f"Data loading time: {data_loading_time:.3f}")
             start_time = time.time()
             step = i + epoch * num_batches
             scheduler(step)
@@ -387,7 +376,10 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
             images, labels, text = batch[input_key].cuda(), batch['labels'].cuda(), None
             if args.ft_data is not None and 'metadata' in batch.keys():
                 text = batch['metadata'].cuda()
-            logits, image_features, text_features, logit_scale = model(images, text)
+            if args.freeze_encoder:
+                logits = model(images)
+            else:
+                logits, image_features, text_features, logit_scale = model(images, text)
             unlabeled_logits = None
             if dataloaders["unlabeled"] is not None:
                 unlabeled_batch = next(iter(dataloaders["unlabeled"]))
@@ -415,7 +407,6 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
                 optimizer.zero_grad()
             batch_time = time.time() - start_time
             print_train_update(logger, print_every, total_steps, step, loss, batch_time)
-            data_loading_start = time.time()
 
         # Save checkpoints
         model.module.save(os.path.join(args.save, f'checkpoint_{epoch}.pt'))
@@ -428,7 +419,12 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
                 classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
                 classification_head = classification_head.cuda()
         else:
-            classification_head = model.module.classification_head
+            if args.freeze_encoder:
+                classification_head = model
+                model = ImageClassifier.load(args.load)
+                model = torch.nn.DataParallel(model, device_ids=list(range(torch.cuda.device_count())))
+            else:
+                classification_head = model.module.classification_head
         eval_results = evaluate(model, classification_head, args)
         val_metrics[epoch] = eval_results
         curr_val_metric = eval_results[val_metric_str(args)]

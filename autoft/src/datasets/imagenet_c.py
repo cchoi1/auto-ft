@@ -53,8 +53,11 @@ class ImageNetC(ImageNet):
             datasets.append(dataset)
             self.dataset = ConcatDataset(datasets)
         else:
-            traindir = os.path.join(self.location, 'ImageNet-C', IMAGENET_CORRUPTIONS[0], str(self.severity))
-            self.dataset = ImageFolderWithPaths(traindir, transform=self.preprocess)
+            corruption_datasets = []
+            for corruption in IMAGENET_CORRUPTIONS:
+                traindir = os.path.join(self.location, 'ImageNet-C', corruption, str(self.severity))
+                corruption_datasets.append(ImageFolderWithPaths(traindir, transform=self.preprocess))
+            self.dataset = ConcatDataset(corruption_datasets)
             if self.n_examples > -1:
                 rand_idxs = torch.randperm(len(self.dataset))[:self.n_examples]
                 self.dataset = torch.utils.data.Subset(self.dataset, rand_idxs)

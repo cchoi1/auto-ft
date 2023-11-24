@@ -12,6 +12,8 @@
 #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=cchoi1@stanford.edu     # Where to send ma
 
+echo "Running on node: $(hostname)"
+
 cd /scr
 mkdir cchoi1
 cd cchoi1

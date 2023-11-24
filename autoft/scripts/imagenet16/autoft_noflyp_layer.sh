@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --partition=iris-hi # Run on IRIS nodes
+#SBATCH --partition=iris # Run on IRIS nodes
 #SBATCH --account=iris # Run on IRIS nodes
 #SBATCH --exclude=iris1,iris2,iris3,iris4
 #SBATCH --time=120:00:00 # Max job length is 5 days

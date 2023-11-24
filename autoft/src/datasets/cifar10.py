@@ -40,7 +40,7 @@ class CIFAR10:
                 indices = np.random.choice(len(self.dataset), n_examples, replace=False)
                 self.dataset = torch.utils.data.Subset(self.dataset, indices)
 
-        # self.classnames = self.dataset.classes
+        self.classnames = CIFAR_CLASSNAMES
     
     def __len__(self):
         return len(self.dataset)

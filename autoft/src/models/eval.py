@@ -5,15 +5,13 @@ from src.models import utils
 
 def eval_single_dataset(image_classifier, classification_head, dataset, args):
     if args.freeze_encoder:
-        model = image_classifier.module.classification_head
         input_key = 'features'
         image_enc = image_classifier.module.image_encoder
     else:
-        model = image_classifier
         input_key = 'images'
         image_enc = None
 
-    model = model.cuda()
+    model = image_classifier.cuda()
     classification_head = classification_head.cuda()
     model.eval()
     classification_head.eval()
@@ -39,6 +37,8 @@ def eval_single_dataset(image_classifier, classification_head, dataset, args):
             # image_features = encoder(x)
             # print(image_features)
             # logits = classification_head(image_features)
+            if args.freeze_encoder:
+                breakpoint()
             logits = utils.get_logits_encoder(x, model.module.image_encoder, classification_head)
 
             projection_fn = getattr(dataset, 'project_logits', None)

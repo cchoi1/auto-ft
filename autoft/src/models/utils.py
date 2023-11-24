@@ -58,6 +58,8 @@ def val_metric_str(args):
         metric = "Flowers102ValEarlyStopping:top1"
     elif "StanfordCars" in args.id:
         metric = "StanfordCarsValEarlyStopping:top1"
+    elif "CIFAR10" in args.id:
+        metric = "CIFAR10:top1"
     return metric
 
 

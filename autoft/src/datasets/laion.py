@@ -21,6 +21,8 @@ from torch.utils.data.distributed import DistributedSampler
 from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
 
+import dask.dataframe as dd
+
 try:
     import horovod.torch as hvd
 except ImportError:
@@ -37,10 +39,17 @@ class CsvDataset(Dataset):
                  caption_key,
                  sep="\t",
                  label_key=None):
-        logging.debug(f'Loading csv data from {input_filename}.')
-        df = pd.read_csv(input_filename, sep=sep)
+        start_time = time.time()
+        print(f'Loading csv data from {input_filename}.')
+        ddf = dd.read_csv(input_filename, sep=sep,
+                          usecols=[img_key, caption_key, label_key] if label_key else [img_key, caption_key])
+
+        # Compute to get pandas dataframe (efficiently handles large datasets)
+        df = ddf.compute()
+        # df = pd.read_csv(input_filename, sep=sep)
         print(f"length of csv dataset: {len(df)}")
         print(f"{df.head()}")
+        print(f"Time to load csv data: {time.time() - start_time:.2f} seconds.")
 
         self.images = df[img_key].tolist()
         self.captions = df[caption_key].tolist()

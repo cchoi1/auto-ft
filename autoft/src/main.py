@@ -195,12 +195,13 @@ def train(args, model, preprocess_fn):
     print(f"Got datasets with size {dataset_size_str}")
 
     params = [p for p in model.parameters() if p.requires_grad]
+    image_encoder = None if not args.freeze_encoder else ImageClassifier.load(args.load).image_encoder
     if args.method == "ft-id":
         loss_fn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=None)
-        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
-        dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader}
+        id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=image_encoder)
+        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=image_encoder)
+        dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader, "unlabeled": None}
         ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every=100)
     elif args.method == "ft-id-ood":
         loss_fn = torch.nn.CrossEntropyLoss()
@@ -209,9 +210,9 @@ def train(args, model, preprocess_fn):
         else:
             id_ood_dataset = torch.utils.data.ConcatDataset([all_datasets["id"].dataset, all_datasets["ood_subset_for_hp"]])
         optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-        id_dataloader = get_dataloader(id_ood_dataset, is_train=True, args=args, image_encoder=None)
-        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
-        dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader}
+        id_dataloader = get_dataloader(id_ood_dataset, is_train=True, args=args, image_encoder=image_encoder)
+        id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=image_encoder)
+        dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader, "unlabeled": None}
         ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every=100)
     elif args.method == "autoft":
         fs_id_dataset, fs_val_dataset = None, None
