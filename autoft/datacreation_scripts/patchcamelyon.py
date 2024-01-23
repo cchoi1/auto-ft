@@ -12,7 +12,6 @@ templates = [lambda c: f'this is a photo of {c}']
 
 
 def main(args):
-
     for typ in ['train', 'valid', 'test']:
         name = typ
         if typ == 'valid':
@@ -77,9 +76,6 @@ if __name__ == '__main__':
     parser.add_argument('--data_name', default='patchcamelyon')
 
     args = parser.parse_args()
-
     args.data_dir = os.path.join(args.data_dir, args.data_name)
-
     os.makedirs(args.save_dir, exist_ok=True)
-
     main(args)

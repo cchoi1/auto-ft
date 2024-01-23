@@ -1,8 +1,8 @@
-import os
 import argparse
-from scipy.io import loadmat
-
+import os
 import shutil
+
+from scipy.io import loadmat
 
 final_classes = [
     'air plant', 'alpine sea holly', 'anthurium', 'artichoke', 'azalea',
@@ -64,7 +64,6 @@ templates = [
 
 
 def main(args):
-
     classes = [a.replace(' ', '_') for a in open_ai_classes]
 
     all_y = list(
@@ -120,7 +119,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
     parser.add_argument('--save_dir', default='./datasets/csv')

@@ -19,13 +19,15 @@ cd ../..
 export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 
 python src/main.py --method autoft --model ViT-B/16 --data-location /iris/u/yoonho/data \
---id ImageNet4 --ood ImageNetC --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet \
+--id ImageNet4 --ood ImageNetC --eval-datasets ImageNet4,ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet \
 --num_ood_hp_examples 1000 --inner_steps 1 --autoft_epochs 1 --ft_epochs 10 \
---lr 1e-5 --wd 0.1 --batch-size 64 --warmup_length 1000 --accumulation_steps 8 \
+--lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 1000 --accumulation_steps 2 \
 --load /iris/u/cchoi1/robust-optimizer/autoft/zeroshot/clip_vitb16_imagenet2.pt \
---ft_data /iris/u/cchoi1/Data/csv/imagenet4.csv \
+--ft_data /iris/u/cchoi1/Data/csv/imagenet4_onecap.csv --val_data /iris/u/cchoi1/Data/csv/imagenet4_onecap.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
 --losses flyp --template openai_imagenet_template \
---relative_to_flyp --no_regenerate_head --workers 4
+--relative_to_flyp --regenerate_head --no_regenerate_head \
+--load_hparams /iris/u/cchoi1/robust-optimizer/autoft/saved/ImageNet4/autoft/oodImageNetC_cdefhllll_relflyp/no1000_afep100_is10_ftep10_bs256_wd0.1_lr1e-05_run1_seed0_ViT-B/16/hparams.json \
+--workers 4
 
 # --ft_data /iris/u/cchoi1/Data/csv/imagenet4.csv \

@@ -10,7 +10,6 @@ from wilds.common.data_loaders import get_train_loader, get_eval_loader
 
 class FMOW:
     test_subset = None
-
     def __init__(self,
                  preprocess,
                  train,

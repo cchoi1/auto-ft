@@ -1,6 +1,0 @@
-sbatch scripts/iwildcam_correlation/correlation_300.sh
-sbatch scripts/iwildcam_correlation/correlation_300_small.sh
-sbatch scripts/iwildcam_correlation/correlation_300_random.sh
-sbatch scripts/iwildcam_correlation/correlation_300_random_small.sh
-sbatch scripts/iwildcam_correlation/correlation_layer_300.sh
-sbatch scripts/iwildcam_correlation/correlation_layer_300_small.sh

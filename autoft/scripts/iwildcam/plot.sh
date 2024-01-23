@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --partition=iris-hi # Run on IRIS nodes
 #SBATCH --account=iris # Run on IRIS nodes
-#SBATCH --exclude=iris1,iris2,iris3,iris4,iris7
+#SBATCH --exclude=iris1,iris2,iris3,iris4
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --mem=64G # Request 16GB of memory
@@ -25,7 +25,7 @@ export PYTHONPATH="${PYTHONPATH}:/iris/u/cchoi1/robust-optimizer/autoft/"
 #--alpha 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.85 0.9 0.95 1.0 \
 #--losses ce dcm flyp --clip_gradient --template iwildcam_template
 
-python3 src/wise_ft.py --method autoft --model ViT-B/16 --data-location /iris/u/cchoi1/Data \
+python3 src/wise_ft.py --method autoft --model ViT-L/14 --data-location /iris/u/cchoi1/Data \
 --id IWildCamTrain --ood IWildCamOODVal --eval-datasets IWildCamIDTest,IWildCamOODTest \
 --num_ood_hp_examples 1000 --autoft_epochs 200 --inner_steps 10 --ft_epochs 20 \
 --lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 500 --workers 2 \

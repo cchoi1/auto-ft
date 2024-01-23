@@ -1,7 +1,7 @@
+import argparse
 import os
 
 import pandas as pd
-import argparse
 
 
 def main(args):
@@ -41,7 +41,7 @@ def main(args):
         'filename': 'filepath',
         'y': 'label'
     },
-                               axis='columns')[['title', 'filepath', 'label']]
+        axis='columns')[['title', 'filepath', 'label']]
 
     assert len(df_final) == 129809 * 2, 'number of samples incorrect'
 
@@ -50,26 +50,15 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-
-    # parser.add_argument('--save_file',
-    #                     default='./datasets/csv/iwildcam_v2.0/train.csv')
-    # parser.add_argument('--english_label_path',
-    #                     default='./src/datasets/iwildcam_metadata/labels.csv')
-    # parser.add_argument('--metadata',
-    #                     default='./datasets/data/iwildcam_v2.0/metadata.csv')
-    # parser.add_argument('--data_dir',
-    #                     default='./datasets/data/iwildcam_v2.0/train')
     parser.add_argument('--save_file',
-                        default='/iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv')
+                        default='./datasets/csv/iwildcam_v2.0/train.csv')
     parser.add_argument('--english_label_path',
-                        default='/iris/u/cchoi1/Data/iwildcam_v2.0/categories.csv')
+                        default='./src/datasets/iwildcam_metadata/labels.csv')
     parser.add_argument('--metadata',
-                        default='/iris/u/cchoi1/Data/iwildcam_v2.0/metadata.csv')
+                        default='./datasets/data/iwildcam_v2.0/metadata.csv')
     parser.add_argument('--data_dir',
-                        default='/iris/u/cchoi1/Data/iwildcam_v2.0/train')
+                        default='./datasets/data/iwildcam_v2.0/train')
     args = parser.parse_args()
 
-    # os.makedirs('./datasets/csv/iwildcam_v2.0', exist_ok=True)
-    os.makedirs('/iris/u/cchoi1/Data/csv/iwildcam_v2.0', exist_ok=True)
-
+    os.makedirs('./datasets/csv/iwildcam_v2.0', exist_ok=True)
     main(args)

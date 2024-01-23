@@ -7,6 +7,21 @@ from src.datasets.utils import SampledDataset
 from src.datasets.utils import split_validation_set
 
 
+CALTECH101_CLASSNAMES = [
+    'off-center face', 'centered face', 'leopard', 'motorbike', 'accordion', 'airplane', 'anchor', 'ant', 'barrel',
+    'bass', 'beaver', 'binocular', 'bonsai', 'brain', 'brontosaurus', 'buddha', 'butterfly', 'camera', 'cannon',
+    'side of a car', 'ceiling fan', 'cellphone', 'chair', 'chandelier', 'body of a cougar cat', 'face of a cougar cat',
+    'crab', 'crayfish', 'crocodile', 'head of a  crocodile', 'cup', 'dalmatian', 'dollar bill', 'dolphin',
+    'dragonfly', 'electric guitar', 'elephant', 'emu', 'euphonium', 'ewer', 'ferry', 'flamingo', 'head of a flamingo',
+    'garfield', 'gerenuk', 'gramophone', 'grand piano', 'hawksbill', 'headphone', 'hedgehog', 'helicopter', 'ibis',
+    'inline skate', 'joshua tree', 'kangaroo', 'ketch', 'lamp', 'laptop', 'llama', 'lobster', 'lotus', 'mandolin',
+    'mayfly', 'menorah', 'metronome', 'minaret',     'nautilus', 'octopus', 'okapi', 'pagoda', 'panda', 'pigeon',
+    'pizza', 'platypus', 'pyramid', 'revolver', 'rhino', 'rooster', 'saxophone', 'schooner', 'scissors', 'scorpion',
+    'sea horse', 'snoopy (cartoon beagle)',     'soccer ball', 'stapler', 'starfish', 'stegosaurus', 'stop sign',
+    'strawberry', 'sunflower', 'tick', 'trilobite', 'umbrella', 'watch', 'water lilly', 'wheelchair', 'wild cat',
+    'windsor chair', 'wrench', 'yin and yang symbol'
+]
+
 class Caltech101:
     def __init__(self,
                  preprocess,
@@ -50,127 +65,29 @@ class Caltech101:
 
         print(f"Loading {subset} Data from ", self.data_location)
 
-        self.classnames = [
-            'off-center face',
-            'centered face',
-            'leopard',
-            'motorbike',
-            'accordion',
-            'airplane',
-            'anchor',
-            'ant',
-            'barrel',
-            'bass',
-            'beaver',
-            'binocular',
-            'bonsai',
-            'brain',
-            'brontosaurus',
-            'buddha',
-            'butterfly',
-            'camera',
-            'cannon',
-            'side of a car',
-            'ceiling fan',
-            'cellphone',
-            'chair',
-            'chandelier',
-            'body of a cougar cat',
-            'face of a cougar cat',
-            'crab',
-            'crayfish',
-            'crocodile',
-            'head of a  crocodile',
-            'cup',
-            'dalmatian',
-            'dollar bill',
-            'dolphin',
-            'dragonfly',
-            'electric guitar',
-            'elephant',
-            'emu',
-            'euphonium',
-            'ewer',
-            'ferry',
-            'flamingo',
-            'head of a flamingo',
-            'garfield',
-            'gerenuk',
-            'gramophone',
-            'grand piano',
-            'hawksbill',
-            'headphone',
-            'hedgehog',
-            'helicopter',
-            'ibis',
-            'inline skate',
-            'joshua tree',
-            'kangaroo',
-            'ketch',
-            'lamp',
-            'laptop',
-            'llama',
-            'lobster',
-            'lotus',
-            'mandolin',
-            'mayfly',
-            'menorah',
-            'metronome',
-            'minaret',
-            'nautilus',
-            'octopus',
-            'okapi',
-            'pagoda',
-            'panda',
-            'pigeon',
-            'pizza',
-            'platypus',
-            'pyramid',
-            'revolver',
-            'rhino',
-            'rooster',
-            'saxophone',
-            'schooner',
-            'scissors',
-            'scorpion',
-            'sea horse',
-            'snoopy (cartoon beagle)',
-            'soccer ball',
-            'stapler',
-            'starfish',
-            'stegosaurus',
-            'stop sign',
-            'strawberry',
-            'sunflower',
-            'tick',
-            'trilobite',
-            'umbrella',
-            'watch',
-            'water lilly',
-            'wheelchair',
-            'wild cat',
-            'windsor chair',
-            'wrench',
-            'yin and yang symbol'
-        ]
+        self.classnames = CALTECH101_CLASSNAMES
 
     def __len__(self):
         return len(self.dataset)
+
 
 class Caltech101Train(Caltech101):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'train'
         super().__init__(*args, **kwargs)
 
+
 class Caltech101ValHOpt(Caltech101):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'val_hopt'
         super().__init__(*args, **kwargs)
 
+
 class Caltech101ValEarlyStopping(Caltech101):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'val_early_stopping'
         super().__init__(*args, **kwargs)
+
 
 class Caltech101Test(Caltech101):
     def __init__(self, *args, **kwargs):

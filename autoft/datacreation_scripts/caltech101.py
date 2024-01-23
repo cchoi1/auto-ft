@@ -1,6 +1,5 @@
-import os
-import pandas as pd
 import argparse
+import os
 
 classes = [
     'off-center face', 'centered face', 'leopard', 'motorbike', 'accordion',

@@ -3,15 +3,11 @@ import glob
 import os
 import random
 
-import numpy as np
 import torch
 import torchvision.datasets as datasets
-from torch.utils.data import Dataset, DataLoader, Sampler, SubsetRandomSampler, TensorDataset
+from torch.utils.data import Dataset, DataLoader, Sampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
-
-from src.datasets.laion import get_data
-from src.models.utils import extract_from_data_parallel
 
 
 class SubsetSampler(Sampler):
@@ -23,6 +19,7 @@ class SubsetSampler(Sampler):
 
     def __len__(self):
         return len(self.indices)
+
 
 class ImageFolderWithPaths(datasets.ImageFolder):
     def __init__(self, path, transform, flip_label_prob=0.0):
@@ -136,9 +133,11 @@ class FeatureDataset(Dataset):
         data['features'] = torch.from_numpy(data['features']).float()
         return data
 
+
 def collate_fn_for_cifar(batch):
     data, labels = zip(*batch)
     return torch.stack(data, 0), torch.tensor(labels).long()
+
 
 def collate_fn_for_imagenet(batch):
     # Extract images, labels, features, and image_paths from the batch

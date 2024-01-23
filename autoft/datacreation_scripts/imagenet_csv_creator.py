@@ -1,12 +1,7 @@
+import argparse
 import os
-import src.templates as templates
 import random
-
-k = 4
-template = getattr(templates, 'openai_imagenet_template')
-# template = getattr(templates, 'openai_imagenet_template_reduced')
-out = open(f"/iris/u/cchoi1/Data/csv/imagenet{k}.csv", "w")
-out.write("title\tfilepath\tlabel\n")
+import src.templates as templates
 
 openai_classnames = [
     "tench", "goldfish", "great white shark", "tiger shark",
@@ -230,32 +225,47 @@ openai_classnames = [
     "bolete", "corn cob", "toilet paper"
 ]
 
-DATA_DIR = "/iris/u/yoonho/data/ImageNet/ILSVRC/Data/CLS-LOC/train"
-list_folders = os.listdir(DATA_DIR)
-list_folders = sorted(list_folders)
-#TODO change this later
-list_folders = list_folders[3:]
-print('len list_folders', len(list_folders))
-tot_fils = 0
-for i in range(1000):
-    folder_name, class_name = list_folders[i], openai_classnames[i]
-    curr_path = os.path.join(DATA_DIR, folder_name)
-    all_files = os.listdir(curr_path)
-    random.shuffle(all_files)
-    for file in all_files[:k]:
-        fp = os.path.join(curr_path, file)
-        print(f"label {i}, file {file}")
-        # caption = random.choice(template)(class_name)
-        # out.write("%s\t%s\t%s\n" % (caption, fp, i))
-        for t in template:
+def main(args):
+    template = getattr(templates, 'openai_imagenet_template')
+    os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+    out = open(args.output_csv, "w")
+    out.write("title\tfilepath\tlabel\n")
+
+    list_folders = sorted(os.listdir(args.data_dir))
+    list_folders = list_folders[3:]
+    tot_fils = 0
+    for i in range(1000):
+        folder_name, class_name = list_folders[i], openai_classnames[i]
+        curr_path = os.path.join(args.data_dir, folder_name)
+        all_files = os.listdir(curr_path)
+        random.shuffle(all_files)
+        for file in all_files:
+            tot_fils += 1
+            fp = os.path.join(curr_path, file)
+            t = random.choice(template)
             caption = t(class_name)
             out.write("%s\t%s\t%s\n" % (caption, fp, i))
-        tot_fils += 1
-    # for file in all_files:
-    #     tot_fils += 1
-    #     fp = os.path.join(curr_path, file)
-    #     for t in template:
-    #         caption = t(class_name)
-    #         out.write("%s\t%s\t%s\n" % (caption, fp, i))
-print("Total examples: ", tot_fils)
-out.close()
+    out.close()
+
+    list_folders = sorted(os.listdir(args.data_dir))
+    list_folders = list_folders[3:] # Skip the first 3 folders
+    for i in range(1000):
+        folder_name, class_name = list_folders[i], openai_classnames[i]
+        curr_path = os.path.join(args.data_dir, folder_name)
+        all_files = os.listdir(curr_path)
+        random.shuffle(all_files)
+        for file in all_files:
+            fp = os.path.join(curr_path, file)
+            for t in template:
+                caption = t(class_name)
+                out.write("%s\t%s\t%s\n" % (caption, fp, i))
+    out.close()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='ImageNet Dataset Processing')
+    parser.add_argument('--data_dir', type=str, required=True, help='Directory containing image data')
+    parser.add_argument('--output_csv', type=str, required=True, help='File path to save the output CSV')
+    args = parser.parse_args()
+
+    main(args)

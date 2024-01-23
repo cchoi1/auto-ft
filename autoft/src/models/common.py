@@ -1,16 +1,12 @@
-import os
-import torch
-import json
-import glob
 import collections
+import glob
+import os
 import random
 
-import numpy as np
-
-from tqdm import tqdm
-
+import torch
 import torchvision.datasets as datasets
 from torch.utils.data import Dataset, DataLoader, Sampler
+from tqdm import tqdm
 
 
 class SubsetSampler(Sampler):

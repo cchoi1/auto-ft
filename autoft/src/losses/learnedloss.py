@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from .utils import compute_hinge_loss
 from clip.loss import ClipLoss
 
-devices = list(range(torch.cuda.device_count()))
+
 class LearnedLoss(nn.Module):
     def __init__(self, losses, loss_weights, initial_params):
         super().__init__()

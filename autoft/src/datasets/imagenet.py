@@ -8,7 +8,6 @@ from PIL import Image
 
 from .common import ImageFolderWithPaths, SubsetSampler
 from .imagenet_classnames import get_classnames
-from .utils import SampledDataset
 
 
 class CustomDataset(torchvision.datasets.ImageFolder):
@@ -46,16 +45,16 @@ class CustomDataset(torchvision.datasets.ImageFolder):
 
 class ImageNet:
     def __init__(
-        self,
-        preprocess,
-        train,
-        n_examples,
-        use_class_balanced=False,
-        location=os.path.expanduser('~/data'),
-        batch_size=32,
-        num_workers=32,
-        classnames='openai',
-        custom=False,
+            self,
+            preprocess,
+            train,
+            n_examples,
+            use_class_balanced=False,
+            location=os.path.expanduser('~/data'),
+            batch_size=32,
+            num_workers=32,
+            classnames='openai',
+            custom=False,
     ):
         self.preprocess = preprocess
         self.train = train
@@ -190,7 +189,7 @@ ks = [1, 2, 4, 8, 16, 25, 32, 50, 64, 128, 600]
 
 for k in ks:
     cls_name = f"ImageNet{k}"
-    dyn_cls = type(cls_name, (ImageNetK, ), {
+    dyn_cls = type(cls_name, (ImageNetK,), {
         "k": lambda self, num_samples=k: num_samples,
     })
     globals()[cls_name] = dyn_cls

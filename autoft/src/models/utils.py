@@ -6,67 +6,66 @@ import random
 import numpy as np
 import torch
 
+NUM_DATASET_CLASSES = {
+    "sst2Train": 2,
+    "PatchCamelyonTrain": 2,
+    "Caltech101Train": 101,
+    "Flowers102Train": 102,
+    "IWildCamTrain": 294,
+    "FMOWTrain": 62,
+    "ImageNet": 1000,
+    "CIFAR10": 10
+}
+
+TEST_METRICS = {
+    "sst2": "sst2Test:top1",
+    "PatchCamelyon": "PatchCamelyonTest:top1",
+    "IWildCam": "IWildCamOODTest:F1-macro_all",
+    "FMOW": "FMOWOODTest:acc_worst_region",
+    "ImageNet": "ImageNet:top1",
+    "ImageNet4": "ImageNet4:top1",
+    "ImageNet16": "ImageNet16:top1",
+    "ImageNet32": "ImageNet32:top1",
+    "Caltech101": "Caltech101Test:top1",
+    "Flowers102": "Flowers102Test:top1",
+    "StanfordCars": "StanfordCarsTest:top1"
+}
+
+VAL_METRICS = {
+    "IWildCam": "IWildCamIDVal:F1-macro_all",
+    "FMOW": "FMOWIDVal:acc_worst_region",
+    "ImageNet": "ImageNet:top1",
+    "ImageNet4": "ImageNet4:top1",
+    "ImageNet16": "ImageNet16:top1",
+    "ImageNet32": "ImageNet32:top1",
+    "sst2": "sst2ValEarlyStopping:top1",
+    "PatchCamelyon": "PatchCamelyonValEarlyStopping:top1",
+    "Caltech101": "Caltech101ValEarlyStopping:top1",
+    "Flowers102": "Flowers102ValEarlyStopping:top1",
+    "StanfordCars": "StanfordCarsValEarlyStopping:top1",
+    "CIFAR10": "CIFAR10:top1"
+}
+
+
 def get_num_classes(args):
-    if args.id in ["sst2Train", "PatchCamelyonTrain"]:
-        return 2
-    elif args.id in ["ImageNetKShot"]:
-        return 1000
-    elif args.id == "IWildCamTrain":
-        return 294
-    elif args.id == "FMOWTrain":
-        return 62
-    elif args.id == "CIFAR10":
-        return 10
-    else:
+    try:
+        return NUM_DATASET_CLASSES[args.id]
+    except KeyError:
         raise ValueError("Invalid dataset")
 
 
 def test_metric_str(args):
-    if "sst2" in args.id:
-        metric = "sst2Test:top1"
-    elif "PatchCamelyon" in args.id:
-        metric = "PatchCamelyonTest:top1"
-    elif "ImageNet" in args.id:
-        metric = f"ImageNet{args.k}Shot:top1"
-    elif "IWildCam" in args.id:
-        metric = "IWildCamOODTest:F1-macro_all"
-    elif "FMOW" in args.id:
-        metric = "FMOWOODTest:acc_worst_region"
-    elif "Caltech101" in args.id:
-        metric = "Caltech101Test:top1"
-    elif "Flowers102" in args.id:
-        metric = "Flowers102Test:top1"
-    elif "StanfordCars" in args.id:
-        metric = "StanfordCarsTest:top1"
-    return metric
+    for key in TEST_METRICS:
+        if key in args.id:
+            return TEST_METRICS[key]
+    raise ValueError("Invalid dataset for test metric")
 
 
 def val_metric_str(args):
-    if "IWildCam" in args.id:
-        metric = "IWildCamIDVal:F1-macro_all"
-    elif "FMOW" in args.id:
-        metric = "FMOWIDVal:acc_worst_region"
-    elif args.id == "ImageNet":
-        metric = "ImageNet:top1"
-    elif args.id == "ImageNet4":
-        metric = "ImageNet4:top1"
-    elif args.id == "ImageNet16":
-        metric = "ImageNet16:top1"
-    elif args.id == "ImageNet32":
-        metric = "ImageNet32:top1"
-    elif "sst2" in args.id:
-        metric = "sst2ValEarlyStopping:top1"
-    elif "PatchCamelyon" in args.id:
-        metric = "PatchCamelyonValEarlyStopping:top1"
-    elif "Caltech101" in args.id:
-        metric = "Caltech101ValEarlyStopping:top1"
-    elif "Flowers102" in args.id:
-        metric = "Flowers102ValEarlyStopping:top1"
-    elif "StanfordCars" in args.id:
-        metric = "StanfordCarsValEarlyStopping:top1"
-    elif "CIFAR10" in args.id:
-        metric = "CIFAR10:top1"
-    return metric
+    for key in VAL_METRICS:
+        if key in args.id:
+            return VAL_METRICS[key]
+    raise ValueError("Invalid dataset for validation metric")
 
 
 def print_hparams(hparams):
@@ -85,6 +84,16 @@ def save_hparams(hparams, args):
         hparams["lossw_ce"] = 1.0
     with open(save_file, 'w') as f:
         json.dump(hparams, f)
+
+
+def print_train_update(logger, print_every, total_steps, step, loss, batch_time):
+    should_print = (print_every is not None and step % print_every == 0)
+    if should_print:
+        percent_complete = 100 * step / total_steps
+        print(f"Train Iter: {step}/{total_steps} [{percent_complete:.0f}% ]\t"
+            f"Loss: {loss.item():.6f}\tBatch (t) {batch_time:.3f}")
+        logger.info(f"Train Iter: {step}/{total_steps} [{percent_complete:.0f}% ]\t"
+                    f"Loss: {loss.item():.6f}\tBatch (t) {batch_time:.3f}")
 
 
 def extract_from_data_parallel(model):
@@ -174,6 +183,7 @@ def get_logits(inputs, classifier):
         classifier = classifier.to(inputs.device)
     return classifier(inputs)
 
+
 def get_logits_encoder(inputs, encoder, classification_head):
     assert callable(encoder)
     if hasattr(encoder, 'to'):
@@ -189,19 +199,3 @@ def get_probs(inputs, classifier):
         return torch.from_numpy(probs)
     logits = get_logits(inputs, classifier)
     return logits.softmax(dim=1)
-
-
-class LabelSmoothing(torch.nn.Module):
-    def __init__(self, smoothing=0.0):
-        super(LabelSmoothing, self).__init__()
-        self.confidence = 1.0 - smoothing
-        self.smoothing = smoothing
-
-    def forward(self, x, target):
-        logprobs = torch.nn.functional.log_softmax(x, dim=-1)
-
-        nll_loss = -logprobs.gather(dim=-1, index=target.unsqueeze(1))
-        nll_loss = nll_loss.squeeze(1)
-        smooth_loss = -logprobs.mean(dim=-1)
-        loss = self.confidence * nll_loss + self.smoothing * smooth_loss
-        return loss.mean()

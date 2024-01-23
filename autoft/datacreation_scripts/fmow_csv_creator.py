@@ -1,23 +1,11 @@
-import requests
-import os
-import multiprocessing as mp
-from io import BytesIO
-import numpy as np
-import PIL
-from PIL import Image
-import pickle
-import sys
-import pandas as pd
-import src.templates as templates
+import argparse
 import datetime
+import os
+
+import numpy as np
+import pandas as pd
 import pytz
-
-template = getattr(templates, 'fmow_template')
-
-# out = open(f"./datasets/csv/fmow.csv", "w")
-out = open(f"/iris/u/cchoi1/Data/csv/fmow_v1.1/fmow.csv", "w")
-
-out.write("title\tfilepath\tlabel\n")
+import src.templates as templates
 
 categories = [
     "airport", "airport_hangar", "airport_terminal", "amusement_park",
@@ -38,35 +26,51 @@ categories = [
     "wind_farm", "zoo"
 ]
 
-# metadata = pd.read_csv('./datasets/data/fmow_v1.1/rgb_metadata.csv')
-metadata = pd.read_csv('/iris/u/yoonho/data/wilds/fmow_v1.1/rgb_metadata.csv')
-####Filtering out the Training ID samples from the meta data (Code borrowed from WILDS Github)
-split_array = np.zeros(len(metadata))
-year = 2016
-year_dt = datetime.datetime(year, 1, 1, tzinfo=pytz.UTC)
-test_ood_mask = np.asarray(pd.to_datetime(metadata['timestamp']) >= year_dt)
-# use 3 years of the training set as validation
-year_minus_3_dt = datetime.datetime(year - 3, 1, 1, tzinfo=pytz.UTC)
-val_ood_mask = np.asarray(
-    pd.to_datetime(metadata['timestamp']) >= year_minus_3_dt) & ~test_ood_mask
-ood_mask = test_ood_mask | val_ood_mask
-idxs = np.arange(len(metadata))
-split_mask = np.asarray(metadata['split'] == 'train')
-idxs = idxs[~ood_mask & split_mask]
-split_array[idxs] = 1
-seq_mask = np.asarray(metadata['split'] == 'seq')
-split_array = split_array[~seq_mask]
-train_idx = np.where(split_array)[0]
+def main(args):
+    template = getattr(templates, 'fmow_template')
+    # Ensure the output directory exists
+    os.makedirs(os.path.dirname(args.save_file), exist_ok=True)
+    out = open(args.save_file, "w")
+    out.write("title\tfilepath\tlabel\n")
+    metadata = pd.read_csv(args.metadata)
 
-#root = './datasets/data/fmow_v1.1/images/'
-root = '/iris/u/yoonho/data/wilds/fmow_v1.1/images/'
-count = 0
-for idx in train_idx:
-    img_file = f'rgb_img_{idx}.png'
-    fp = os.path.join(root, img_file)
-    class_name = metadata['category'][idx]
-    y = categories.index(class_name)
-    for t in template:
-        count += 1
-        caption = t(class_name)
-        out.write("%s\t%s\t%s\n" % (caption, fp, y))
+    #### Filter out the train ID samples from the metadata (code borrowed from https://github.com/p-lambda/wilds)
+    split_array = np.zeros(len(metadata))
+    year = 2016
+    year_dt = datetime.datetime(year, 1, 1, tzinfo=pytz.UTC)
+    test_ood_mask = np.asarray(pd.to_datetime(metadata['timestamp']) >= year_dt)
+    # Use 3 years of the training set as validation
+    year_minus_3_dt = datetime.datetime(year - 3, 1, 1, tzinfo=pytz.UTC)
+    val_ood_mask = np.asarray(
+        pd.to_datetime(metadata['timestamp']) >= year_minus_3_dt) & ~test_ood_mask
+    ood_mask = test_ood_mask | val_ood_mask
+    idxs = np.arange(len(metadata))
+    split_mask = np.asarray(metadata['split'] == 'train')
+    idxs = idxs[~ood_mask & split_mask]
+    split_array[idxs] = 1
+    seq_mask = np.asarray(metadata['split'] == 'seq')
+    split_array = split_array[~seq_mask]
+    train_idx = np.where(split_array)[0]
+
+    root = args.data_dir
+    count = 0
+    for idx in train_idx:
+        img_file = f'rgb_img_{idx}.png'
+        fp = os.path.join(root, img_file)
+        class_name = metadata['category'][idx]
+        y = categories.index(class_name)
+        for t in template:
+            count += 1
+            caption = t(class_name)
+            out.write("%s\t%s\t%s\n" % (caption, fp, y))
+    out.close()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='FMOW Dataset Processing')
+    parser.add_argument('--save_file', default='./datasets/csv/fmow.csv', help='File path to save the output CSV')
+    parser.add_argument('--metadata', default='./datasets/data/fmow_v1.1/rgb_metadata.csv', help='Metadata CSV file path')
+    parser.add_argument('--data_dir', default='./datasets/data/fmow_v1.1/images/', help='Directory containing image data')
+    args = parser.parse_args()
+
+    main(args)

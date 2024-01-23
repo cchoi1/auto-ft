@@ -1,12 +1,11 @@
-import torchvision
-import os
-import pandas as pd
 import argparse
-from scipy.io import loadmat
-import numpy as np
-from sklearn.model_selection import train_test_split
-
+import os
 import shutil
+
+import numpy as np
+import pandas as pd
+from scipy.io import loadmat
+from sklearn.model_selection import train_test_split
 
 final_classes = [
     'AM General Hummer SUV 2000', 'Acura Integra Type R 2001',
@@ -231,8 +230,6 @@ templates = [
 
 
 def main(args):
-
-    # classes = loadmat(os.path.join(args.data_dir, 'devkit', 'cars_meta.mat'))
     classes = loadmat(os.path.join(args.data_dir, 'cars_annos.mat'))
     print('classes', classes)
     classes = [
@@ -306,15 +303,11 @@ def main(args):
 
 
 if __name__ == '__main__':
-    # dataset = torchvision.datasets.StanfordCars(root="/iris/u/cchoi1/Data", split="train", download=True)
-
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-
     parser.add_argument('--save_dir', default='./datasets/csv')
     parser.add_argument('--data_dir', default='./datasets/data')
     parser.add_argument('--data_name', default='stanford-cars')
+
     args = parser.parse_args()
-
     args.data_dir = os.path.join(args.data_dir, args.data_name)
-
     main(args)

@@ -10,7 +10,6 @@ import numpy as np
 import optuna
 import torch
 
-from src.datasets.common import get_autoft_dataloaders
 from src.losses import LearnedLoss
 from src.models.finetune import inner_finetune, finetune_final
 from src.models.modeling import ImageClassifier
@@ -126,6 +125,7 @@ def create_optimizer(model, hparams, layerwise=False):
 
 
 def get_loss_weights(hparams, layerwise):
+    """Get loss weights from hparams."""
     global_loss_weight_keys = [k for k in sorted(hparams.keys()) if "lossw" in k and "_lossw" not in k]
     global_loss_weights = torch.tensor([hparams[k] for k in global_loss_weight_keys])
     if layerwise:
@@ -258,6 +258,7 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
     ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, fs_id_dataset, fs_val_dataset)
 
     return {"model": ft_model, "val_metric": val_metric, "hparams": best_hparams}
+
 
 def auto_ft(args, _model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_id_dataset=None, fs_val_dataset=None):
     best_val_metric = np.inf

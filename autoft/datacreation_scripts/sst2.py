@@ -10,6 +10,7 @@ templates = [
     lambda c: f'a {c} review of a movie.'
 ]
 
+
 def main(args):
     classes_in_dir = sorted(next(os.walk(os.path.join(args.data_dir, 'train')))[1])
     print(classes_in_dir)
@@ -30,6 +31,7 @@ def main(args):
 
     print('done')
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
     parser.add_argument('--save_dir', default='./datasets/csv')
@@ -37,9 +39,6 @@ if __name__ == '__main__':
     parser.add_argument('--data_name', default='sst2')
 
     args = parser.parse_args()
-
     args.data_dir = os.path.join(args.data_dir, args.data_name)
-
     os.makedirs(args.save_dir, exist_ok=True)
-
     main(args)

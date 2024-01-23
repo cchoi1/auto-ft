@@ -23,7 +23,6 @@ class Flowers102:
         if subset == 'train':
             self.data_location = os.path.join(location, 'flowers102', 'train')
             self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
-            print('len train dataset', len(self.dataset))
         elif 'val' in subset:
             self.data_location = os.path.join(location, 'flowers102', 'val')
             save_path = os.path.join(self.data_location, 'val_split_indices.npy')
@@ -47,8 +46,7 @@ class Flowers102:
         else:
             raise ValueError(f'Subset must be one of "train", "val", or "test".')
 
-        print(f"Loading {subset} Data from ", self.data_location)
-
+        print(f"Loading {subset} data from ", self.data_location)
 
         self.classnames = [
             'air plant', 'alpine sea holly', 'anthurium', 'artichoke',

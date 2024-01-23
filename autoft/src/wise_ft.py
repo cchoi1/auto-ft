@@ -96,7 +96,10 @@ def wise_ft(args):
         finetuned.save(os.path.join(args.save, f'wise_ft_alpha={alpha:.3f}.pt'))
 
         # evaluate
-        classification_head = finetuned.classification_head
+        if "ImageNet" in args.id:
+            classification_head = get_zeroshot_classifier(args, finetuned.image_encoder.model)
+        else:
+            classification_head = finetuned.classification_head
         finetuned = torch.nn.DataParallel(finetuned)
         evaluate(finetuned, classification_head, args)
 
