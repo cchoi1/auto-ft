@@ -26,6 +26,10 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 
 To download datasets, please refer to these [these instructions](https://github.com/mlfoundations/wise-ft/blob/master/datasets.md) and follow the dataset directory structures described [here](https://github.com/locuslab/FLYP/blob/main/DATA.md).
 
+### Generating zero-shot CLIP models
+
+Scripts to generate zero-shot clip models are in autoft/scripts/zeroshot.
+
 ### Run Auto-FT
 
 Sample scripts are in `auto-ft/scripts`:
