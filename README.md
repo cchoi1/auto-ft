@@ -28,7 +28,22 @@ To download datasets, please refer to these [these instructions](https://github.
 
 ### Generating zero-shot CLIP models
 
-Scripts to generate zero-shot clip models are in autoft/scripts/zeroshot.
+To generate zero-shot CLIP models, run src/models/zeroshot.py with the additional arguments `--template` and `--save`. 
+
+Sample command:
+```
+python src/models/zeroshot.py \
+    --method autoft \
+    --model ViT-B/16 \
+    --data-location DATA_DIR \
+    --id ImageNet \
+    --ood ImageNetC \
+    --eval-datasets ImageNetA,ImageNetR,ImageNetSketch,ImageNetV2,ObjectNet,ImageNet,ImageNetC \
+    --ft_data DATA_DIR/csv/imagenet.csv \
+    --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+    --save ./zeroshot/clip_vitb16_imagenet.pt \
+    --template openai_imagenet_template
+```
 
 ### Run Auto-FT
 
@@ -40,9 +55,9 @@ Sample scripts are in `auto-ft/scripts`:
 - [Layerwise AutoFT with FLYP](https://github.com/cchoi1/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_layer_is10_flyp.sh)
 
 
-The `--inner_steps` and `--hopt_evals` parameters control the number of inner steps and outer steps respectively.
-The `--num_ood_hp_examples` parameter controls the number of OOD val examples for hyperparameter optimization.
-The effective batch size is controlled by `--batch-size` and `--accumulation_steps`. 
+The `--inner_steps` and `--hopt_evals` arguments specify the number of inner steps and outer loop evaluations respectively.
+The `--num_ood_hp_examples` argument specifies the number of OOD val examples for hyperparameter optimization.
+Effective batch size is controlled by `--batch-size` and `--accumulation_steps`. 
 We use a batch size of 256 for all datasets except ImageNet, for which we use a batch size of 512.
 
 To run Auto-FT with a FLYP loss term, use the following additional arguments:
