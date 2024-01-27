@@ -11,37 +11,26 @@ import optuna
 import torch
 
 from src.losses import LearnedLoss
-from src.models.finetune import inner_finetune, finetune_final
-from src.models.modeling import ImageClassifier
+from src.models.finetune import inner_finetune, finetune
 from src.models.utils import extract_from_data_parallel, set_seed, print_hparams, save_hparams
 
 logger = logging.getLogger('main')
 
 class HyperparameterSpace:
-    def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False, learn_lr_wd=True, relative_to_flyp=False):
+    def __init__(self, model, losses, dataset_name, orig_lr, layerwise_loss=False, layerwise_opt=False):
         self.model = model
         self.losses = sorted(losses)
         self.dataset_name = dataset_name
         self.orig_lr = orig_lr
         self.layerwise_loss = layerwise_loss
         self.layerwise_opt = layerwise_opt
-        self.learn_lr_wd = learn_lr_wd
-        self.relative_to_flyp = relative_to_flyp
 
     def _base_loss_weight_space(self, trial, prefix):
         base_loss_weight_space = {}
-        if "ce" in self.losses and not self.relative_to_flyp:
-            base_loss_weight_space[f"{prefix}lossw_ce"] = 1.0
-            for loss_type in self.losses:
-                if loss_type in ["dcm", "entropy", "hinge", "flyp"]:
-                    base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
-                        f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
-        elif "flyp" in self.losses and self.relative_to_flyp:
-            base_loss_weight_space[f"{prefix}lossw_flyp"] = 1.0
-            for loss_type in self.losses:
-                if loss_type in ["ce", "dcm", "entropy", "hinge"]:
-                    base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
-                        f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
+        for loss_type in self.losses:
+            base_loss_weight_space[f"{prefix}lossw_{loss_type}"] = trial.suggest_float(
+                f"{prefix}lossw_{loss_type}", 1e-4, 10, log=True)
+        base_loss_weight_space[f"{prefix}lossw_{self.losses[0]}"] = 1.0
         return base_loss_weight_space
 
     def _base_norm_space(self, trial, prefix):
@@ -61,7 +50,7 @@ class HyperparameterSpace:
     def build_space(self, trial):
         # Global hyperparameters: loss weights, seed, batch size
         hparams = self._base_loss_weight_space(trial, "")
-        hparams["seed"] = trial.suggest_int("seed", 0, 100)
+        hparams["seed"] = trial.suggest_int("seed", 0, 10)
         if self.layerwise_loss: # per-layer LRs, WDs, L1/L2 norms
             layer_idx = 0
             self.model = extract_from_data_parallel(self.model)
@@ -85,18 +74,16 @@ class HyperparameterSpace:
                     # Classification head of the model
                     hparams.update(self._base_lr_wd_space(trial, f"{layer_idx}_"))
         else:
-            if self.learn_lr_wd:
-                hparams.update(self._base_lr_wd_space(trial, ""))
+            hparams.update(self._base_lr_wd_space(trial, ""))
         return hparams
 
 
-def create_optimizer(model, hparams, layerwise=False):
+def create_optimizer(args, model, hparams, layerwise=False):
     model = extract_from_data_parallel(model)
-    assert isinstance(model, ImageClassifier), "Expected model to be an instance of ImageClassifier"
     if layerwise:
         layerwise_params = []
         layer_idx = 0
-        # Extract layers from the image_encoder (CLIPEncoder) of the model
+        # Extract layers from the image encoder (CLIPEncoder)
         for name, module in model.image_encoder.named_children():
             if name == 'model':
                 for sub_module in [module.visual.conv1, module.visual.ln_pre, *module.visual.transformer.resblocks]:
@@ -107,8 +94,7 @@ def create_optimizer(model, hparams, layerwise=False):
                     }
                     layerwise_params.append(params_for_layer)
                     layer_idx += 1
-
-        # Classification head of the model
+        # Classification head
         params_for_layer = {
             'params': model.classification_head.parameters(),
             'lr': hparams[f"{layer_idx}_lr"],
@@ -117,17 +103,25 @@ def create_optimizer(model, hparams, layerwise=False):
         layerwise_params.append(params_for_layer)
         optimizer = torch.optim.AdamW(layerwise_params)
     else:
-        if "lr" not in hparams.keys() and "wd" not in hparams.keys():
-            hparams["lr"] = 1e-5
-            hparams["wd"] = 0.2
+        if "lr" not in hparams.keys():
+            hparams["lr"] = args.lr
+        if "wd" not in hparams.keys():
+            hparams["wd"] = args.wd
         optimizer = torch.optim.AdamW(model.parameters(), lr=hparams["lr"], weight_decay=hparams["wd"])
     return optimizer
 
 
-def get_loss_weights(hparams, layerwise):
-    """Get loss weights from hparams."""
+def get_loss_weights(args, hparams, layerwise):
+    """Get loss weights from hparams, setting missing loss weight to 1.0."""
     global_loss_weight_keys = [k for k in sorted(hparams.keys()) if "lossw" in k and "_lossw" not in k]
-    global_loss_weights = torch.tensor([hparams[k] for k in global_loss_weight_keys])
+    # Check for missing loss weight and set it to 1.0
+    for loss_type in args.losses:
+        loss_weight_key = f"lossw_{loss_type}"
+        if loss_weight_key not in global_loss_weight_keys:
+            hparams[loss_weight_key] = 1.0
+            global_loss_weight_keys.append(loss_weight_key)
+    global_loss_weights = torch.tensor([hparams[k] for k in sorted(global_loss_weight_keys)])
+
     if layerwise:
         layerwise_loss_weight_keys = [k for k in hparams.keys() if "_lossw" in k]
         layerwise_loss_weight_keys = sorted(layerwise_loss_weight_keys,
@@ -150,16 +144,16 @@ def get_loss_weights(hparams, layerwise):
     return loss_weights
 
 
-def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key, fs_id_dataset=None, fs_val_dataset=None):
+def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, fs_id_dataset=None, fs_val_dataset=None):
     """Evaluate a given set of hyperparameters on ood_subset_for_hp."""
     current_net = copy.deepcopy(net)
-    optimizer = create_optimizer(model=current_net, hparams=hparams, layerwise=args.layerwise_opt)
+    optimizer = create_optimizer(args=args, model=current_net, hparams=hparams, layerwise=args.layerwise_opt)
     initial_params = [p for p in net.parameters()]
-    loss_weights = get_loss_weights(hparams=hparams, layerwise=args.layerwise_loss)
+    loss_weights = get_loss_weights(args=args, hparams=hparams, layerwise=args.layerwise_loss)
     loss_fn = LearnedLoss(losses=args.losses, loss_weights=loss_weights, initial_params=initial_params)
 
     set_seed(hparams["seed"])
-    current_net, all_metrics = inner_finetune(args, current_net, loss_fn, optimizer, input_key, dataloaders, ood_hp_dataset, fs_id_dataset, fs_val_dataset)
+    current_net, all_metrics = inner_finetune(args, current_net, loss_fn, optimizer, dataloaders, ood_hp_dataset, fs_id_dataset, fs_val_dataset)
     set_seed(args.seed)
     if "IWildCam" in args.id:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['F1-macro_all']
@@ -172,9 +166,6 @@ def evaluate_hparams(args, net, hparams, dataloaders, ood_hp_dataset, input_key,
     else:
         all_metrics[f"meta_learning_objective"] = all_metrics["meta_objective"]['acc']
 
-    if args.xent_meta_objective:
-        all_metrics[f"meta_learning_objective"] = -all_metrics["meta_objective"]['xent']
-
     return all_metrics
 
 
@@ -183,14 +174,14 @@ def clear_memory(study: optuna.study.Study, trial: optuna.trial.Trial):
     torch.cuda.empty_cache()
 
 
-def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_id_dataset=None, fs_val_dataset=None):
+def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, fs_id_dataset=None, fs_val_dataset=None):
     """Automated fine-tuning process using Optuna."""
     def hp_objective_fn(trial, hspace):
         full_loop_start_time = time.time()
         hparams = hspace.build_space(trial)
         _net = copy.deepcopy(model).cuda()
         val_results = [
-            evaluate_hparams(args, _net, hparams, dataloaders, ood_hp_dataset, input_key, fs_id_dataset, fs_val_dataset)
+            evaluate_hparams(args, _net, hparams, dataloaders, ood_hp_dataset, fs_id_dataset, fs_val_dataset)
         ]
         print(f" Total time for autoft iteration: {time.time() - full_loop_start_time:.3f}")
 
@@ -224,8 +215,7 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
             else:
                 learn_lr_wd = True
             hspace = HyperparameterSpace(model=model, losses=args.losses, dataset_name=args.id, orig_lr=args.lr,
-                                        layerwise_loss=args.layerwise_loss, layerwise_opt=args.layerwise_opt,
-                                        learn_lr_wd=learn_lr_wd, relative_to_flyp=args.relative_to_flyp)
+                                        layerwise_loss=args.layerwise_loss, layerwise_opt=args.layerwise_opt)
             partial_hp_objective_fn = partial(hp_objective_fn, hspace=hspace)
 
             pruner_kwargs = {'n_startup_trials': 5, 'n_warmup_steps': 30, 'interval_steps': 10}
@@ -239,28 +229,19 @@ def auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input
             study.optimize(partial_hp_objective_fn, n_trials=max_evals, callbacks=[clear_memory])
             best_hparams = study.best_params
 
-    if "ce" in args.losses and "lossw_ce" not in best_hparams.keys():
-        best_hparams["lossw_ce"] = 1.0
-    if "flyp" in args.losses and "lossw_flyp" not in best_hparams.keys():
-        best_hparams["lossw_flyp"] = 1.0
-    loss_weights = get_loss_weights(hparams=best_hparams, layerwise=args.layerwise_loss)
+    loss_weights = get_loss_weights(args=args, hparams=best_hparams, layerwise=args.layerwise_loss)
     initial_params = [p for p in model.parameters()]
     loss_fn = LearnedLoss(losses=args.losses, loss_weights=loss_weights, initial_params=initial_params)
-    optimizer = create_optimizer(model=model, hparams=best_hparams, layerwise=args.layerwise_opt)
+    optimizer = create_optimizer(args=args, model=model, hparams=best_hparams, layerwise=args.layerwise_opt)
     print_hparams(hparams=best_hparams)
     save_hparams(hparams=best_hparams, args=args)
     set_seed(seed=best_hparams["seed"])
-    if args.k is None:
-        print_every = 100
-    else:
-        print_every = 1
-
-    ft_model, val_metric = finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, fs_id_dataset, fs_val_dataset)
+    ft_model, val_metric = finetune(args, model, loss_fn, optimizer, dataloaders, fs_id_dataset=None, fs_val_dataset=None)
 
     return {"model": ft_model, "val_metric": val_metric, "hparams": best_hparams}
 
 
-def auto_ft(args, _model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_id_dataset=None, fs_val_dataset=None):
+def auto_ft(args, _model, dataloaders, ood_hp_dataset, max_evals, fs_id_dataset=None, fs_val_dataset=None):
     best_val_metric = np.inf
     best_hparams = None
     best_model = None
@@ -269,7 +250,7 @@ def auto_ft(args, _model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_
         seed = np.random.randint(0, 1000)
         set_seed(seed)
         model = copy.deepcopy(_model)
-        results = auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, input_key, fs_id_dataset, fs_val_dataset)
+        results = auto_ft_iteration(args, model, dataloaders, ood_hp_dataset, max_evals, fs_id_dataset, fs_val_dataset)
         print(f"\nIteration {i} has val loss {results['val_metric']}")
         if results["val_metric"] < best_val_metric:
             best_val_metric = results["val_metric"]

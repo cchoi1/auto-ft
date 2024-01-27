@@ -6,20 +6,49 @@ import torchvision
 from src.datasets.utils import SampledDataset
 from src.datasets.utils import split_validation_set
 
+FLOWERS102_CLASSNAMES = [
+    'air plant', 'alpine sea holly', 'anthurium', 'artichoke',
+    'azalea', 'balloon flower', 'barbeton daisy', 'bearded iris',
+    'bee balm', 'bird of paradise', 'bishop of llandaff',
+    'black-eyed susan', 'blackberry lily', 'blanket flower',
+    'bolero deep blue', 'bougainvillea', 'bromelia', 'buttercup',
+    'californian poppy', 'camellia', 'canna lily', 'canterbury bells',
+    'cape flower', 'carnation', 'cautleya spicata', 'clematis',
+    "colt's foot", 'columbine', 'common dandelion', 'corn poppy',
+    'cyclamen', 'daffodil', 'desert-rose', 'english marigold',
+    'fire lily', 'foxglove', 'frangipani', 'fritillary',
+    'garden phlox', 'gaura', 'gazania', 'geranium',
+    'giant white arum lily', 'globe flower', 'globe thistle',
+    'grape hyacinth', 'great masterwort', 'hard-leaved pocket orchid',
+    'hibiscus', 'hippeastrum', 'japanese anemone', 'king protea',
+    'lenten rose', 'lotus', 'love in the mist', 'magnolia', 'mallow',
+    'marigold', 'mexican aster', 'mexican petunia', 'monkshood',
+    'moon orchid', 'morning glory', 'orange dahlia', 'osteospermum',
+    'oxeye daisy', 'passion flower', 'pelargonium', 'peruvian lily',
+    'petunia', 'pincushion flower', 'pink and yellow dahlia',
+    'pink primrose', 'poinsettia', 'primula',
+    'prince of wales feathers', 'purple coneflower', 'red ginger',
+    'rose', 'ruby-lipped cattleya', 'siam tulip', 'silverbush',
+    'snapdragon', 'spear thistle', 'spring crocus', 'stemless gentian',
+    'sunflower', 'sweet pea', 'sweet william', 'sword lily',
+    'thorn apple', 'tiger lily', 'toad lily', 'tree mallow',
+    'tree poppy', 'trumpet creeper', 'wallflower', 'water lily',
+    'watercress', 'wild pansy', 'windflower', 'yellow iris'
+]
+
 
 class Flowers102:
     def __init__(self,
                  preprocess,
                  n_examples,
+                 subset,
                  use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
-                 batch_size=128,
-                 num_workers=2,
-                 subset='test',
                  **kwargs):
-
+        assert subset in ['train', 'val_hopt', 'val_early_stopping', 'test'], f'Invalid subset: {subset}'
         self.n_examples = n_examples
-        self.n_classes = 102
+        self.classnames = FLOWERS102_CLASSNAMES
+        self.num_classes = len(self.classnames)
         if subset == 'train':
             self.data_location = os.path.join(location, 'flowers102', 'train')
             self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
@@ -30,9 +59,10 @@ class Flowers102:
             self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
             if subset == 'val_hopt':
                 self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
+                # Sample a subset if n_examples is specified
                 if self.n_examples > -1:
                     if use_class_balanced:
-                        n_examples_per_class = self.n_examples // self.n_classes
+                        n_examples_per_class = self.n_examples // self.num_classes
                         sampled_dataset = SampledDataset(self.dataset, "Flowers102ValHOpt", n_examples_per_class)
                         self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
                     else:
@@ -47,36 +77,6 @@ class Flowers102:
             raise ValueError(f'Subset must be one of "train", "val", or "test".')
 
         print(f"Loading {subset} data from ", self.data_location)
-
-        self.classnames = [
-            'air plant', 'alpine sea holly', 'anthurium', 'artichoke',
-            'azalea', 'balloon flower', 'barbeton daisy', 'bearded iris',
-            'bee balm', 'bird of paradise', 'bishop of llandaff',
-            'black-eyed susan', 'blackberry lily', 'blanket flower',
-            'bolero deep blue', 'bougainvillea', 'bromelia', 'buttercup',
-            'californian poppy', 'camellia', 'canna lily', 'canterbury bells',
-            'cape flower', 'carnation', 'cautleya spicata', 'clematis',
-            "colt's foot", 'columbine', 'common dandelion', 'corn poppy',
-            'cyclamen', 'daffodil', 'desert-rose', 'english marigold',
-            'fire lily', 'foxglove', 'frangipani', 'fritillary',
-            'garden phlox', 'gaura', 'gazania', 'geranium',
-            'giant white arum lily', 'globe flower', 'globe thistle',
-            'grape hyacinth', 'great masterwort', 'hard-leaved pocket orchid',
-            'hibiscus', 'hippeastrum', 'japanese anemone', 'king protea',
-            'lenten rose', 'lotus', 'love in the mist', 'magnolia', 'mallow',
-            'marigold', 'mexican aster', 'mexican petunia', 'monkshood',
-            'moon orchid', 'morning glory', 'orange dahlia', 'osteospermum',
-            'oxeye daisy', 'passion flower', 'pelargonium', 'peruvian lily',
-            'petunia', 'pincushion flower', 'pink and yellow dahlia',
-            'pink primrose', 'poinsettia', 'primula',
-            'prince of wales feathers', 'purple coneflower', 'red ginger',
-            'rose', 'ruby-lipped cattleya', 'siam tulip', 'silverbush',
-            'snapdragon', 'spear thistle', 'spring crocus', 'stemless gentian',
-            'sunflower', 'sweet pea', 'sweet william', 'sword lily',
-            'thorn apple', 'tiger lily', 'toad lily', 'tree mallow',
-            'tree poppy', 'trumpet creeper', 'wallflower', 'water lily',
-            'watercress', 'wild pansy', 'windflower', 'yellow iris'
-        ]
 
     def __len__(self):
         return len(self.dataset)

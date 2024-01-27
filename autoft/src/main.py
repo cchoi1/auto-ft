@@ -9,10 +9,8 @@ from src.datasets.common import get_dataloader, get_autoft_dataloaders
 from src.logger import setup_logging
 from src.models.autoft import auto_ft
 from src.models.eval import evaluate
-from src.models.finetune import finetune_final
 from src.models.modeling import ImageClassifier
 from src.models.utils import get_num_classes, test_metric_str, set_seed
-from src.models.zeroshot import get_zeroshot_classifier
 from src.get_data import get_datasets
 
 
@@ -44,38 +42,20 @@ def get_training_components(params, args):
     return loss_fn, optimizer
 
 
-def prepare_dataloaders(all_datasets, args, image_encoder):
-    id_dataloader = get_dataloader(all_datasets["id"], is_train=True, args=args, image_encoder=image_encoder)
-    id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=image_encoder)
-    return {"id": id_dataloader, "id_val": id_val_dataloader, "unlabeled": None}
-
-
 def train(args, model, preprocess_fn):
-    input_key = 'features' if args.freeze_encoder else 'images'
     all_datasets = get_datasets(args, model, preprocess_fn)
     print_dataset_sizes(all_datasets)
-
-    params = [p for p in model.parameters() if p.requires_grad]
-    image_encoder = ImageClassifier.load(args.load).image_encoder if args.freeze_encoder else None
-    loss_fn, optimizer = get_training_components(params, args)
-    dataloaders = prepare_dataloaders(all_datasets, args, image_encoder)
-
-    if args.method == "autoft" and args.k is not None:
+    dataloaders = get_autoft_dataloaders(args, all_datasets)
+    fs_id_dataset, fs_val_dataset = None, None
+    if args.k is not None:
         fs_id_dataset, fs_val_dataset = all_datasets["id"], all_datasets["id_val"]
-        return auto_ft(args, model, dataloaders, all_datasets["ood_subset_for_hp"], args.autoft_epochs, input_key, fs_id_dataset, fs_val_dataset)
-
-    return finetune_final(args, model, loss_fn, optimizer, dataloaders, input_key, print_every=100)
+    return auto_ft(args, model, dataloaders, all_datasets["ood_subset_for_hp"], args.hopt_evals, fs_id_dataset, fs_val_dataset)
 
 
 def test(model, args):
     model.eval()
     args.current_epoch = args.ft_epochs
-    if not args.no_regenerate_head:
-        with torch.no_grad():
-            classification_head = get_zeroshot_classifier(args, model.module.image_encoder.model)
-            classification_head = classification_head.cuda()
-    else:
-        classification_head = model.module.classification_head
+    classification_head = model.module.classification_head
     eval_results = evaluate(model, classification_head, args)
     os.makedirs(args.save, exist_ok=True)
     results_path = os.path.join(args.save, "eval_results.json")
@@ -94,9 +74,9 @@ def main(args):
     logger.info(f"args:\n{args_str}")
 
     test_metrics = []
-    for i in range(args.repeats):
+    for i in range(args.runs):
         set_seed(args.seed + i)
-        print(f"\nRun {i + 1} / {args.repeats}")
+        print(f"\nRun {i + 1} / {args.runs}")
         model, preprocess_fn = initialize_model(args)
         if not args.eval_only:
             model, val_metric = train(args, model, preprocess_fn)

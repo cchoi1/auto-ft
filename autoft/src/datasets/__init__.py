@@ -13,5 +13,5 @@ from .stanfordcars import StanfordCarsTrain, StanfordCarsValHOpt, StanfordCarsVa
 from .flowers102 import Flowers102Train, Flowers102ValHOpt, Flowers102ValEarlyStopping, Flowers102Test
 from .patchcamelyon import PatchCamelyonTrain, PatchCamelyonValHOpt, PatchCamelyonValEarlyStopping, PatchCamelyonTest
 from .sst2 import sst2Train, sst2ValHOpt, sst2ValEarlyStopping, sst2Test
-from .cifar10 import CIFAR10, CIFAR101, CIFAR102, CIFAR10C, CINIC
+from .cifar10 import CIFAR10, CIFAR101, CIFAR102, CIFAR10C
 from .mnist import MNIST, MNISTC, ColoredMNIST, RotatedMNIST, EMNIST

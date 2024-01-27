@@ -12,7 +12,7 @@ from src.models.zeroshot import get_zeroshot_classifier
 logger = logging.getLogger('main')
 
 
-def compute_accuracy(model, dataloader, input_key):
+def compute_accuracy(model, dataloader):
     """Compute the accuracy of a model on a given dataloader."""
     model.eval()
     correct, total = 0, 0
@@ -20,7 +20,7 @@ def compute_accuracy(model, dataloader, input_key):
     with torch.no_grad():
         for batch in dataloader:
             batch = maybe_dictionarize(batch)
-            inputs, labels = batch[input_key].cuda(), batch['labels'].cuda()
+            inputs, labels = batch['images'].cuda(), batch['labels'].cuda()
             outputs = model(inputs)
             _, predicted = torch.max(outputs.data, 1)
             correct += (predicted == labels).sum().item()
@@ -48,7 +48,7 @@ def get_batch(dataloaders, args, fs_id_dataset=None):
         text = None
     else:
         batch = maybe_dictionarize(next(iter(dataloaders["id"])))
-        images, labels = batch[args.input_key].cuda(), batch['labels'].cuda()
+        images, labels = batch['images'].cuda(), batch['labels'].cuda()
         text = batch['metadata'].cuda() if 'metadata' in batch and args.ft_data else None
 
     return images, labels, text
@@ -61,16 +61,13 @@ def evaluate_net(net, dataloader, dataset, args, is_fewshot=False):
     all_labels, all_preds, all_metadata = [], [], []
 
     net = net.cuda().eval()
-    if args.regenerate_head:
-        net.module.classification_head = get_zeroshot_classifier(args, net.module.image_encoder.model)
-
     if is_fewshot:
         dataloader = [(dataset[0], dataset[1])]
 
     for batch in dataloader:
-        data = maybe_dictionarize(batch, is_fewshot)
+        data = maybe_dictionarize(batch)
         x, y = data['images'].cuda(), data['labels'].cuda()
-        outputs = net(x)
+        outputs, _, _, _ = net(x)
         predictions = outputs.argmax(dim=1)
         total_correct += (predictions == y).sum().item()
         total_samples += y.size(0)
@@ -90,8 +87,7 @@ def evaluate_net(net, dataloader, dataset, args, is_fewshot=False):
     return metrics
 
 
-def inner_finetune(args, model, loss_fn, optimizer, dataloaders, ood_hp_dataset, fs_id_dataset=None,
-                   fs_val_dataset=None):
+def inner_finetune(args, model, loss_fn, optimizer, dataloaders, ood_hp_dataset, fs_id_dataset=None, fs_val_dataset=None):
     """Inner finetuning loop."""
     scheduler = cosine_lr(optimizer, args.lr, args.warmup_length * args.accumulation_steps, args.inner_steps)
     model.train()
@@ -103,27 +99,23 @@ def inner_finetune(args, model, loss_fn, optimizer, dataloaders, ood_hp_dataset,
         logits, image_features, text_features, logit_scale = model(images.cuda(), text.cuda())
         loss = calculate_loss(loss_fn, model, logits, labels, image_features, text_features, logit_scale, args)
         loss.backward()
-
         if (step + 1) % args.accumulation_steps == 0:
             if args.clip_gradient:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             optimizer.zero_grad()
-
-        if step + 1 in args.inner_loop_val_steps or step == args.inner_steps * args.accumulation_steps - 1:
-            val_dataset = fs_val_dataset if fs_id_dataset else ood_hp_dataset
-            val_metrics[step + 1] = evaluate_net(model, dataloaders["ood_hp"], val_dataset, args,
-                                                 fs_id_dataset is not None)
+    val_dataset = fs_val_dataset if fs_id_dataset else ood_hp_dataset
+    val_metrics['meta_objective'] = evaluate_net(model, dataloaders["ood_hp"], val_dataset, args, fs_id_dataset is not None)
 
     return model, val_metrics
 
 
-def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_every, fs_id_dataset=None,
-             fs_val_dataset=None):
+def finetune(args, model, loss_fn, optimizer, dataloaders, fs_id_dataset=None, fs_val_dataset=None):
     """Finetuning process for the model."""
     finetune_type = 'few-shot' if args.k is not None else 'full'
     print(f"Finetuning with {finetune_type} data.")
     assert fs_id_dataset is not None and fs_val_dataset is not None if finetune_type == 'few-shot' else True
+    print_every = 100 if args.k is None else 1
 
     num_batches = 1 if finetune_type == 'few-shot' else len(dataloaders["id"])
     total_steps = args.ft_epochs * num_batches
@@ -136,10 +128,11 @@ def finetune(args, model, loss_fn, optimizer, dataloaders, input_key, print_ever
         model.train()
 
         for i in range(num_batches):
+            start_time = time.time()
             step = i + epoch * num_batches
             scheduler(step)
             images, labels, text = get_batch(dataloaders, args, fs_id_dataset if finetune_type == 'few-shot' else None)
-            logits, image_features, text_features, logit_scale = model(images.cuda(), text.cuda() if text else None)
+            logits, image_features, text_features, logit_scale = model(images.cuda(), text.cuda() if text is not None else None)
             loss = calculate_loss(loss_fn, model, logits, labels, image_features, text_features, logit_scale, args)
             loss.backward()
 

@@ -7,22 +7,35 @@ import wilds
 from src.datasets.utils import SampledDataset
 from wilds.common.data_loaders import get_train_loader, get_eval_loader
 
+FMOW_CLASSNAMES = [
+    "airport", "airport_hangar", "airport_terminal", "amusement_park", "aquaculture",
+    "archaeological_site", "barn", "border_checkpoint", "burial_site", "car_dealership",
+    "construction_site", "crop_field", "dam", "debris_or_rubble", "educational_institution",
+    "electric_substation", "factory_or_powerplant", "fire_station", "flooded_road", "fountain",
+    "gas_station", "golf_course", "ground_transportation_station", "helipad", "hospital",
+    "impoverished_settlement", "interchange", "lake_or_pond", "lighthouse", "military_facility",
+    "multi-unit_residential", "nuclear_powerplant", "office_building", "oil_or_gas_facility", "park",
+    "parking_lot_or_garage", "place_of_worship", "police_station", "port", "prison", "race_track",
+    "railway_bridge", "recreational_facility", "road_bridge", "runway", "shipyard", "shopping_mall",
+    "single-unit_residential", "smokestack", "solar_farm", "space_facility", "stadium", "storage_tank",
+    "surface_mine", "swimming_pool", "toll_booth", "tower", "tunnel_opening", "waste_disposal",
+    "water_treatment_facility", "wind_farm", "zoo"
+]
+
 
 class FMOW:
-    test_subset = None
     def __init__(self,
                  preprocess,
-                 train,
                  n_examples,
+                 subset,
                  use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
                  batch_size=128,
                  num_workers=2,
-                 subset='train',
-                 classnames=None,
                  **kwargs):
         self.n_examples = n_examples
-        self.n_classes = 62
+        self.classnames = FMOW_CLASSNAMES
+        self.n_classes = len(self.classnames)
         dataset = wilds.get_dataset(dataset='fmow', root_dir=location)
         if subset == 'train':
             self.dataset = dataset.get_subset('train', transform=preprocess)
@@ -34,6 +47,7 @@ class FMOW:
         elif subset == 'val':
             start_time = time.time()
             self.dataset = dataset.get_subset('val', transform=preprocess)
+            # Sample a subset if n_examples is specified
             if self.n_examples > -1:
                 collate_fn = self.dataset.collate
                 if use_class_balanced:
@@ -64,22 +78,7 @@ class FMOW:
                 label = int(self.dataset[i][1])
                 if label not in self.class_to_indices.keys():
                     self.class_to_indices[label] = []
-                self.class_to_indices[label].append(i) # index relative to val set size for SubsetRandomSampler
-
-        self.classnames = [
-            "airport", "airport_hangar", "airport_terminal", "amusement_park", "aquaculture",
-            "archaeological_site", "barn", "border_checkpoint", "burial_site", "car_dealership",
-            "construction_site", "crop_field", "dam", "debris_or_rubble", "educational_institution",
-            "electric_substation", "factory_or_powerplant", "fire_station", "flooded_road", "fountain",
-            "gas_station", "golf_course", "ground_transportation_station", "helipad", "hospital",
-            "impoverished_settlement", "interchange", "lake_or_pond", "lighthouse", "military_facility",
-            "multi-unit_residential", "nuclear_powerplant", "office_building", "oil_or_gas_facility", "park",
-            "parking_lot_or_garage", "place_of_worship", "police_station", "port", "prison", "race_track",
-            "railway_bridge", "recreational_facility", "road_bridge", "runway", "shipyard", "shopping_mall",
-            "single-unit_residential", "smokestack", "solar_farm", "space_facility", "stadium", "storage_tank",
-            "surface_mine", "swimming_pool", "toll_booth", "tower", "tunnel_opening", "waste_disposal",
-            "water_treatment_facility", "wind_farm", "zoo"
-        ]
+                self.class_to_indices[label].append(i)  # index relative to val set size for SubsetRandomSampler
 
     def __len__(self):
         return len(self.dataset)
@@ -89,6 +88,7 @@ class FMOW:
         preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
+
 
 class FMOWTrain(FMOW):
     def __init__(self, *args, **kwargs):
@@ -101,6 +101,7 @@ class FMOWTrain(FMOW):
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
 
+
 class FMOWUnlabeledTrain(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'unlabeled'
@@ -112,6 +113,7 @@ class FMOWUnlabeledTrain(FMOW):
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
 
+
 class FMOWIDVal(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs["subset"] = "id_val"
@@ -122,6 +124,7 @@ class FMOWIDVal(FMOW):
         preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
+
 
 class FMOWOODVal(FMOW):
     def __init__(self, *args, **kwargs):
@@ -137,6 +140,7 @@ class FMOWOODVal(FMOW):
             results = self.dataset.eval(preds, labels, metadata)
         return results[0]
 
+
 class FMOWIDTest(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs["subset"] = "id_test"
@@ -148,6 +152,7 @@ class FMOWIDTest(FMOW):
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
 
+
 class FMOWOODTest(FMOW):
     def __init__(self, *args, **kwargs):
         kwargs["subset"] = "test"
@@ -158,6 +163,7 @@ class FMOWOODTest(FMOW):
         preds = preds.argmax(dim=1, keepdim=True).view_as(labels)
         results = self.dataset.eval(preds, labels, metadata)
         return results[0]
+
 
 class FMOWKTrain(FMOW):
     def __init__(self, *args, **kwargs):
@@ -184,14 +190,16 @@ class FMOWKTrain(FMOW):
     def k(self):
         return 1
 
+
 ks = [1, 2, 4, 8, 16, 25, 32, 50, 64, 128, 600]
 
 for k in ks:
     cls_name = f"FMOW{k}Train"
-    dyn_cls = type(cls_name, (FMOWKTrain, ), {
+    dyn_cls = type(cls_name, (FMOWKTrain,), {
         "k": lambda self, num_samples=k: num_samples,
     })
     globals()[cls_name] = dyn_cls
+
 
 class FMOWKIDVal(FMOW):
     def __init__(self, *args, **kwargs):
@@ -219,9 +227,10 @@ class FMOWKIDVal(FMOW):
     def k(self):
         return 1
 
+
 for k in ks:
     cls_name = f"FMOWK{k}IDVal"
-    dyn_cls = type(cls_name, (FMOWKIDVal, ), {
+    dyn_cls = type(cls_name, (FMOWKIDVal,), {
         "k": lambda self, num_samples=k: num_samples,
     })
     globals()[cls_name] = dyn_cls

@@ -1,16 +1,14 @@
-import os
 import json
+import os
 from pathlib import Path
-import PIL
 
 import numpy as np
-
 import torch
 from torchvision import datasets
 from torchvision.transforms import Compose
 
 from .common import ImageFolderWithPaths, SubsetSampler
-from .imagenet import ImageNet, ImageNetSubsampleValClasses
+from .imagenet import ImageNet
 
 
 def get_metadata():
@@ -31,7 +29,6 @@ def get_metadata():
         imagenet_map = {v.strip(): str(pytorch_map[i]) for i, v in enumerate(f)}
 
     folder_to_ids, class_sublist = {}, []
-    classnames = []
     for objectnet_name, imagenet_names in objectnet_map.items():
         imagenet_names = imagenet_names.split('; ')
         imagenet_ids = [int(imagenet_map[imagenet_name]) for imagenet_name in imagenet_names]
@@ -80,13 +77,8 @@ class ObjectNetDataset(datasets.ImageFolder):
 
 class ObjectNetBase(ImageNet):
     def __init__(self, *args, **kwargs):
-        (self._class_sublist,
-         self.class_sublist_mask,
-         self.folders_to_ids,
-         self.classname_map) = get_metadata()
-        
+        (self._class_sublist, self.class_sublist_mask, self.folders_to_ids, self.classname_map) = get_metadata()
         super().__init__(*args, **kwargs)
-
         self.classnames = sorted(list(self.folders_to_ids.keys()))
         self.rev_class_idx_map = {}
         self.class_idx_map = {}
@@ -142,7 +134,6 @@ def accuracy(logits, targets, img_paths, args):
 
 
 class ObjectNetValClasses(ObjectNetBase):
-
     def get_test_sampler(self):
         idx_subsample_list = [range(x * 50, (x + 1) * 50) for x in self._class_sublist]
         idx_subsample_list = sorted([item for sublist in idx_subsample_list for item in sublist])
@@ -159,7 +150,6 @@ class ObjectNetValClasses(ObjectNetBase):
 
 
 class ObjectNet(ObjectNetBase):
-
     def accuracy(self, logits, targets, img_paths, args):
         return accuracy(logits, targets, img_paths, args)
 

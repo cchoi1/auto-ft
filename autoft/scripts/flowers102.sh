@@ -1,0 +1,15 @@
+python3 src/main.py \
+--method autoft \
+--model ViT-B/16 \
+--load PATH_TO_ZEROSHOT_MODEL \
+--template flowers102_template \
+--data-location DATA_DIR \
+--id Flowers102Train \
+--ood Flowers102ValHOpt \
+--eval-datasets Flowers102ValEarlyStopping,Flowers102Test \
+--ft_data DATA_DIR/flowers102/train.csv --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+--num_ood_hp_examples 400 \
+--autoft_epochs 500 --inner_steps 350 \
+--losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero \
+--ft_epochs 100 --lr 1e-4 --wd 0.4 --batch-size 256 --warmup_length 500 \
+--xent_meta_objective

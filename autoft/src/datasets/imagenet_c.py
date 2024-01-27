@@ -16,26 +16,22 @@ class ImageNetC(ImageNet):
     def __init__(
         self,
         preprocess,
-        train,
         n_examples,
+        subset='train',
         use_class_balanced=False,
         severity=5,
-        location = os.path.expanduser('~/data'),
-        batch_size = 32,
-        num_workers = 32,
-        classnames = 'openai',
-        custom = False,
+        location=os.path.expanduser('~/data'),
+        classnames='openai',
+        custom=False,
     ):
         self.use_class_balanced = use_class_balanced
         self.severity = severity
         super(ImageNetC, self).__init__(
             preprocess,
-            train,
             n_examples,
+            subset,
             use_class_balanced,
             location,
-            batch_size,
-            num_workers,
             classnames,
             custom,
         )

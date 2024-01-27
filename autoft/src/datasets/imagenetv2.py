@@ -1,9 +1,10 @@
 import os
-from PIL import Image
 
+from PIL import Image
 from imagenetv2_pytorch import ImageNetV2Dataset
 
 from .imagenet import ImageNet
+
 
 class ImageNetV2DatasetWithPaths(ImageNetV2Dataset):
     def __getitem__(self, i):

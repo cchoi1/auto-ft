@@ -1,13 +1,12 @@
-import os
-import torch
-import torchvision.datasets as datasets
-
-from .imagenet import ImageNet
-import numpy as np
-import pathlib
 import json
+import os
+import pathlib
+
+import numpy as np
+import torch
 
 from .common import ImageFolderWithPaths, SubsetSampler
+from .imagenet import ImageNet
 
 
 class VidRobustDataset(ImageFolderWithPaths):
@@ -20,6 +19,7 @@ class VidRobustDataset(ImageFolderWithPaths):
         label_key = '/'.join(data['image_paths'].split('/')[-3:])
         data['labels'] = self.label_map[label_key][0]
         return data
+
 
 class ImageNetVidRobustBase(ImageNet):
     def __init__(self, *args, **kwargs):

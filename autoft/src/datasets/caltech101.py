@@ -26,20 +26,17 @@ class Caltech101:
     def __init__(self,
                  preprocess,
                  n_examples,
+                 subset,
                  use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
-                 batch_size=128,
-                 num_workers=2,
-                 subset='test',
                  **kwargs):
-
+        assert subset in ['train', 'val_hopt', 'val_early_stopping', 'test'], f'Invalid subset: {subset}'
         self.n_examples = n_examples
-        self.n_classes = 101
-
+        self.classnames = CALTECH101_CLASSNAMES
+        self.num_classes = len(self.classnames)
         if subset == 'train':
             self.data_location = os.path.join(location, 'caltech-101', 'train')
             self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
-            print('len train dataset', len(self.dataset))
         elif 'val' in subset:
             self.data_location = os.path.join(location, 'caltech-101', 'val')
             save_path = os.path.join(self.data_location, 'val_split_indices.npy')
@@ -47,7 +44,7 @@ class Caltech101:
             self.val_hopt_indices, self.val_early_stopping_indices = split_validation_set(dataset, save_path=save_path)
             if subset == 'val_hopt':
                 self.dataset = torch.utils.data.Subset(dataset, self.val_hopt_indices)
-                n_examples_per_class = self.n_examples // self.n_classes
+                n_examples_per_class = self.n_examples // self.num_classes
                 if self.n_examples > -1:
                     if use_class_balanced:
                         sampled_dataset = SampledDataset(self.dataset, "Caltech101ValHOpt", n_examples_per_class)
@@ -65,7 +62,6 @@ class Caltech101:
 
         print(f"Loading {subset} Data from ", self.data_location)
 
-        self.classnames = CALTECH101_CLASSNAMES
 
     def __len__(self):
         return len(self.dataset)

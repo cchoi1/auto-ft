@@ -44,7 +44,6 @@ def get_nonempty_subset(dataset, split, frac=1.0, transform=None):
 class IWildCam:
     def __init__(self,
                  preprocess,
-                 train,
                  n_examples,
                  use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
@@ -58,20 +57,6 @@ class IWildCam:
         dataset = wilds.get_dataset(dataset='iwildcam', root_dir=location)
         if subset == 'train':
             self.dataset = dataset.get_subset('train', transform=preprocess)
-            self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
-        elif "unlabeled" in subset:
-            dataset = wilds.get_dataset(dataset='iwildcam', unlabeled=True, root_dir=location, download=True)
-            self.dataset = dataset.get_subset('extra_unlabeled', transform=preprocess)
-            if self.n_examples > -1:
-                # collate_fn = self.dataset.collate
-                # n_examples_per_class = self.n_examples // self.n_classes
-                # sampled_dataset = SampledDataset(self.dataset, "IWildCamUnlabeledTrain", n_examples_per_class)
-                # self.dataset = torch.utils.data.Subset(self.dataset, sampled_dataset.indices)
-                # self.dataset.collate = collate_fn
-                collate_fn = self.dataset.collate
-                indices = np.random.choice(len(self.dataset), n_examples, replace=False)
-                self.dataset = torch.utils.data.Subset(self.dataset, indices)
-                self.dataset.collate = collate_fn
             self.dataloader = get_train_loader("standard", self.dataset, num_workers=num_workers, batch_size=batch_size)
         elif subset == 'val':
             start_time = time.time()

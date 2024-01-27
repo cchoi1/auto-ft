@@ -47,26 +47,22 @@ class ImageNet:
     def __init__(
             self,
             preprocess,
-            train,
             n_examples,
+            subset='train',
             use_class_balanced=False,
             location=os.path.expanduser('~/data'),
-            batch_size=32,
-            num_workers=32,
             classnames='openai',
             custom=False,
     ):
+        assert subset in ['train', 'val', 'test']
         self.preprocess = preprocess
-        self.train = train
-        self.num_classes = 1000
+        self.classnames = get_classnames(classnames)
+        self.num_classes = len(self.classnames)
         self.n_examples = n_examples
         self.use_class_balanced = use_class_balanced
         self.location = location
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        self.classnames = get_classnames(classnames)
         self.custom = custom
-        if self.train:
+        if subset == 'train':
             self.populate_train()
         else:
             self.populate_test()
@@ -141,8 +137,7 @@ def project_logits(logits, class_sublist_mask, device):
 class ImageNetSubsample(ImageNet):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        class_sublist, self.class_sublist_mask = self.get_class_sublist_and_mask(
-        )
+        class_sublist, self.class_sublist_mask = self.get_class_sublist_and_mask()
         self.classnames = [self.classnames[i] for i in class_sublist]
         self.num_classes = len(self.classnames)
 

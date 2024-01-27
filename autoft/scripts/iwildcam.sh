@@ -1,0 +1,15 @@
+python src/main.py \
+--method autoft \
+--model ViT-B/16 \
+--load PATH_TO_ZEROSHOT_MODEL \
+--template iwildcam_template \
+--data-location DATA_DIR \
+--id IWildCamTrain \
+--id_val IWildCamIDVal \
+--ood IWildCamOODVal \
+--eval-datasets IWildCamIDVal,IWildCamIDTest,IWildCamOODTest \
+--ft_data /iris/u/cchoi1/Data/csv/iwildcam_v2.0/iwildcam.csv --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+--num_ood_hp_examples 1000 --use_class_balanced_ood \
+--hopt_evals 500 --inner_steps 10 \
+--losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --clip_gradient \
+--ft_epochs 20 --lr 1e-5 --wd 0.2 --batch-size 256 --warmup_length 500

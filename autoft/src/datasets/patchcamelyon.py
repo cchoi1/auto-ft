@@ -6,28 +6,21 @@ import torchvision
 from src.datasets.utils import SampledDataset
 from src.datasets.utils import split_validation_set
 
+PATCHCAMELYON_CLASSNAMES = ['lymph node', 'lymph node containing metastatic tumor tissue']
 
 class PatchCamelyon:
     def __init__(self,
                  preprocess,
-                 train=None,
                  n_examples=-1,
+                 subset='train',
                  use_class_balanced=False,
                  location=os.path.expanduser('~/data'),
-                 batch_size=128,
-                 num_workers=2,
-                 subset='test',
-                 classnames=None,
-                 custom=False,
                  k=None,
                  **kwargs):
-
-        self.batch_size = batch_size
-        self.num_workers = num_workers
         self.k = k
         self.n_examples = n_examples
-        self.n_classes = 2
-
+        self.classnames = PATCHCAMELYON_CLASSNAMES
+        self.n_classes = len(self.classnames)
         # Load data based on the subset argument
         if subset == 'train':
             if self.k is not None:
@@ -57,32 +50,29 @@ class PatchCamelyon:
             self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
         else:
             raise ValueError(f'Subset must be one of "train", "val_hopt", "val_early_stopping", or "test".')
-
         print(f"Loading {subset} Data from ", self.data_location)
-
-        # Sample classnames for the PatchCamelyon dataset
-        self.classnames = [
-            'lymph node',
-            'lymph node containing metastatic tumor tissue'
-        ]
 
     def __len__(self):
         return len(self.dataset)
+
 
 class PatchCamelyonTrain(PatchCamelyon):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'train'
         super().__init__(*args, **kwargs)
 
+
 class PatchCamelyonValHOpt(PatchCamelyon):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'val_hopt'
         super().__init__(*args, **kwargs)
 
+
 class PatchCamelyonValEarlyStopping(PatchCamelyon):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'val_early_stopping'
         super().__init__(*args, **kwargs)
+
 
 class PatchCamelyonTest(PatchCamelyon):
     def __init__(self, *args, **kwargs):

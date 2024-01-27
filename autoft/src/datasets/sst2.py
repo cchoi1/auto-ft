@@ -5,22 +5,19 @@ import torchvision
 from src.datasets.utils import split_validation_set
 
 
+SST2_CLASSNAMES = ['negative', 'positive']
+
 class sst2:
     def __init__(self,
                  preprocess,
+                 n_examples,
+                 subset='train',
                  location=os.path.expanduser('~/data'),
-                 batch_size=128,
-                 num_workers=2,
-                 subset='test',
-                 classnames=None,
-                 custom=False,
                  k=None,
                  **kwargs):
-
-        self.batch_size = batch_size
-        self.num_workers = num_workers
         self.k = k
-
+        self.classnames = SST2_CLASSNAMES
+        self.n_classes = len(self.classnames)
         # Load data based on the subset argument
         if subset == 'train':
             if self.k is not None:
@@ -42,10 +39,7 @@ class sst2:
             self.dataset = torchvision.datasets.ImageFolder(root=self.data_location, transform=preprocess)
         else:
             raise ValueError(f'Subset must be one of "train", "val_hopt", "val_early_stopping", or "test".')
-
         print(f"Loading {subset} Data from ", self.data_location)
-
-        self.classnames = ['negative', 'positive']
 
     def __len__(self):
         return len(self.dataset)
@@ -55,6 +49,7 @@ class sst2Train(sst2):
     def __init__(self, *args, **kwargs):
         kwargs['subset'] = 'train'
         super().__init__(*args, **kwargs)
+
 
 class sst2ValHOpt(sst2):
     def __init__(self, *args, **kwargs):

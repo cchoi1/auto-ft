@@ -176,11 +176,6 @@ class InfiniteDataLoader:
         return len(self.dataloader)
 
 
-def create_dataloader(dataset, kwargs):
-    """Helper function to create a DataLoader."""
-    return DataLoader(dataset, **kwargs)
-
-
 def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     """
     Get a DataLoader for the given dataset.
@@ -214,7 +209,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     if image_encoder is not None:
         kwargs["collate_fn"] = collate_fn_for_imagenet
         feature_dataset = FeatureDataset(args, is_train, image_encoder, dataset, args.device)
-        return create_dataloader(feature_dataset, kwargs)
+        return DataLoader(feature_dataset, **kwargs)
 
     # If the dataset is a wrapped dataset, retrieve the underlying dataset
     if hasattr(dataset, 'dataset'):
@@ -224,7 +219,7 @@ def get_dataloader(dataset, is_train, args, sampler=None, image_encoder=None):
     else:
         inner_dataset = dataset
 
-    return create_dataloader(inner_dataset, kwargs)
+    return DataLoader(inner_dataset, **kwargs)
 
 def get_autoft_dataloaders(args, all_datasets):
     if args.ft_data is not None and args.k is None:
@@ -237,10 +232,6 @@ def get_autoft_dataloaders(args, all_datasets):
     else:
         id_val_dataloader = get_dataloader(all_datasets["id_val"], is_train=False, args=args, image_encoder=None)
     ood_hp_dataloader = get_dataloader(all_datasets["ood_subset_for_hp"], is_train=True, args=args, image_encoder=None)
-    if args.unlabeled_id is not None:
-        unlabeled_dataloader = all_datasets["id_unlabeled"].dataloader
-    else:
-        unlabeled_dataloader = None
 
-    dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader, "ood_hp": ood_hp_dataloader, "unlabeled": unlabeled_dataloader}
+    dataloaders = {"id": id_dataloader, "id_val": id_val_dataloader, "ood_hp": ood_hp_dataloader}
     return dataloaders
