@@ -1,0 +1,14 @@
+python src/main.py \
+--method autoft \
+--model ViT-B/16 \
+--load PATH_TO_ZEROSHOT_MODEL \
+--template stanfordcars_template \
+--data-location DATA_DIR \
+--id StanfordCarsTrain \
+--ood StanfordCarsValHOpt \
+--eval-datasets StanfordCarsValEarlyStopping,StanfordCarsTest \
+--ft_data DATA_DIR/stanford-cars/train.csv --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+--num_ood_hp_examples 200 --use_class_balanced_ood \
+--autoft_epochs 500 --inner_steps 50 \
+--losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero --clip_gradient \
+--ft_epochs 100 --lr 1e-5 --wd 0.0 --batch-size 256 --warmup_length 500
