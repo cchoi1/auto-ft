@@ -28,9 +28,7 @@ To download datasets, please refer to these [these instructions](https://github.
 
 ### Generating zero-shot CLIP models
 
-To generate zero-shot CLIP models, run src/models/zeroshot.py with the additional arguments `--template` and `--save`. 
-
-Sample command:
+Run src/models/zeroshot.py with the additional arguments `--template` and `--save`:
 ```
 python src/models/zeroshot.py \
     --method autoft \
@@ -49,12 +47,6 @@ python src/models/zeroshot.py \
 
 Sample scripts are in `auto-ft/scripts`:
 
-- [Vanilla AutoFT](https://github.com/cchoi1/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_is10_ex1000.sh)
-- [Vanilla AutoFT with FLYP](https://github.com/cchoi1/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_flyp_is10.sh)
-- [Layerwise AutoFT](https://github.com/**cchoi1**/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_layer_is50.sh)
-- [Layerwise AutoFT with FLYP](https://github.com/cchoi1/robust-optimizer/blob/master/autoft/scripts/iwildcam/autoft_layer_is10_flyp.sh)
-
-
 The `--inner_steps` and `--hopt_evals` arguments specify the number of inner steps and outer loop evaluations respectively.
 The `--num_ood_hp_examples` argument specifies the number of OOD val examples for hyperparameter optimization.
 Effective batch size is controlled by `--batch-size` and `--accumulation_steps`. 
@@ -67,13 +59,14 @@ To run Auto-FT with a FLYP loss term, use the following additional arguments:
 --ft_data DATA_DIR/csv/iwildcam_v2.0/iwildcam.csv \
 --csv-img-key filepath --csv-caption-key title --get_labeled_csv
 ```
+To run Auto-FT with a layerwise loss and/or a layerwise learning rates and weight decays, use the arguments `--layerwise_loss`, `--layerwise_opt`.
 
 Sample command for running Auto-FT on ImageNet:
 
 ```
-python src/main.py
-    --method autoft
-    --model ViT-B/16
+python src/main.py \
+    --method autoft \
+    --model ViT-B/16 \
     --data-location DATA_DIR \
     --id ImageNet \
     --ood ImageNetC \
@@ -92,6 +85,54 @@ python src/main.py
     --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero \
     --template openai_imagenet_template
 ```
+
+Sample command for running Auto-FT on iWildCam:
+```
+python src/main.py \
+    --method autoft \
+    --model ViT-B/16 \
+    --data-location DATA_DIR \
+    --id IWildCamTrain \
+    --id_val IWildCamIDVal \
+    --ood IWildCamOODVal \
+    --eval-datasets IWildCamIDVal,IWildCamIDTest,IWildCamOODTest \
+    --num_ood_hp_examples 1000 \
+    --use_class_balanced_ood \
+    --ft_epochs 20 \
+    --hopt_evals 500 \
+    --inner_steps 100 \
+    --lr 1e-5 --wd 0.2 --batch-size 128 --warmup_length 500 --accumulation_steps 2 \
+    --load PATH_TO_ZEROSHOT_MODEL \
+    --template iwildcam_template \
+    --ft_data DATA_DIR/csv/iwildcam_v2.0/iwildcam.csv \
+    --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+    --losses ce dcm entropy flyp hinge l1init l1zero l2init l2zero \
+    --clip_gradient
+```
+
+Sample command for running Auto-FT on FMoW:
+```
+python src/main.py \
+    --method autoft \
+    --model ViT-B/16 \
+    --data-location DATA_DIR \
+    --id FMOWTrain \
+    --ood FMOWOODVal \
+    --eval-datasets FMOWIDVal,FMOWIDTest,FMOWOODTest \
+    --num_ood_hp_examples 620 --use_class_balanced_ood \
+    --ft_epochs 20 \
+    --hopt_evals 500 \
+    --inner_steps 100 \
+    --lr 1e-5 --wd 0.1 \
+    --batch-size 128 --accumulation_steps 2 --warmup_length 500 \
+    --losses ce dcm flyp entropy hinge l1init l1zero l2init l2zero \
+    --ft_data DATA_DIR/csv/fmow_v1.1/fmow.csv \
+    --template fmow_template \
+    --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+    --load PATH_TO_ZEROSHOT_MODEL \
+    --clip_gradient
+```
+
 
 ## Citing
 
