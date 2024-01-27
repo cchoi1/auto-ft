@@ -1,0 +1,14 @@
+python3 src/main.py \
+--method autoft \
+--model ViT-B/16 \
+--load PATH_TO_ZEROSHOT_MODEL \
+--template caltech101_template \
+--data-location DATA_DIR \
+--id Caltech101Train \
+--ood Caltech101ValHOpt \
+--eval-datasets Caltech101ValEarlyStopping,Caltech101Test \
+--ft_data DATA_DIR/caltech-101/train.csv --csv-img-key filepath --csv-caption-key title --get_labeled_csv \
+--num_ood_hp_examples 1000 --use_class_balanced_ood \
+--autoft_epochs 100 --inner_steps 10 \
+--losses ce dcm flyp entropy hinge l1init l1zero l2init l2zero \
+--ft_epochs 20 --lr 1e-5 --wd 0.1 --batch-size 256 --warmup_length 500
