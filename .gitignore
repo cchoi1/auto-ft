@@ -1,13 +1,5 @@
 .idea/
-ckpts/
-**/figures/
-**/results/
-**/wandb/
-mnist/data/**
-autoft/logs/
-autoft/saved/**/*.pt
-autoft/saved/**/*.json
-hparams.json
+./DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
