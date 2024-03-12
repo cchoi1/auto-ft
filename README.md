@@ -1,6 +1,6 @@
-# AutoFT: Robust Fine-tuning via Hyperparameter Optimization on OOD Data
+# AutoFT: Learning an Objective for Robust Fine-tuning
 
-This repository contains code for the paper [AutoFT: Robust Fine-tuning via Hyperparameter Optimization on OOD Data](https://arxiv.org/abs/2401.10220) by Caroline Choi*, Yoonho Lee*, Annie Chen, Allan Zhou, Aditi Raghunathan, and Chelsea Finn.
+This repository contains code for the paper [AutoFT: Learning an Objective for Robust Fine-tuning](https://arxiv.org/abs/2401.10220) by Caroline Choi*, Yoonho Lee*, Annie Chen, Allan Zhou, Aditi Raghunathan, and Chelsea Finn.
 
 Our code is heavily based on [WiSE-FT](https://github.com/mlfoundations/wise-ft), [Open-CLIP](https://github.com/mlfoundations/open_clip), and [FLYP](https://github.com/locuslab/FLYP). We thank the authors for open-sourcing their code.
 
@@ -139,7 +139,7 @@ python src/main.py \
 If you found this repository useful, please consider citing:
 ```bibtex
 @article{choi2024autoft,
-  title={AutoFT: Robust Fine-Tuning by Optimizing Hyperparameters on OOD Data},
+  title={AutoFT: Learning an Objective for Robust Fine-tuning},
   author={Choi, Caroline and Lee, Yoonho and Chen, Annie and Zhou, Allan and Raghunathan, Aditi and Finn, Chelsea},
   journal={arXiv preprint arXiv:2401.10220},
   year={2024}
